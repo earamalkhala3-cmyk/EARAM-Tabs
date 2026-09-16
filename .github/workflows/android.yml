@@ -15,6 +15,10 @@ jobs:
           java-version: '17'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
       - name: Install Android SDK components
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.2.12479018"
       - uses: gradle/actions/setup-gradle@v4
