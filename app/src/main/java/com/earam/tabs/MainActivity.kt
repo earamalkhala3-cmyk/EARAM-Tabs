@@ -402,13 +402,13 @@ class MainActivity : Activity() {
 
             for (index in 0..columnCount) {
                 val x = gridX + index * cellWidth
-                line.color = if (index % timeSig.substringBefore('/').toIntOrNull().coerceAtLeast(1) == 0) 0xFF666C71.toInt() else 0xFF292D31.toInt()
+                line.color = if (index % (timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1) == 0) 0xFF666C71.toInt() else 0xFF292D31.toInt()
                 canvas.drawLine(x, gridY - 14f, x, gridY + (stringCount - 1) * stringGap + 12f, line)
             }
 
             val cursor = audioCursorPosition()
             if (cursor != null) {
-                val cursorX = gridX + (cursor.first + cursor.second) * cellWidth
+                val cursorX = (gridX + (cursor.first + cursor.second) * cellWidth).toFloat()
                 paint.color = 0xFFB7BEC3.toInt()
                 canvas.drawRect(cursorX - 1.5f, gridY - 22f, cursorX + 1.5f, gridY + (stringCount - 1) * stringGap + 22f, paint)
                 paint.color = 0xFFB7BEC3.toInt()
