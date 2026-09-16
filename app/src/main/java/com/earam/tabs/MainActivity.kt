@@ -18,16 +18,16 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import com.earam.tabs.music.PickingEngine
+import com.earam.tabs.music.PickingMode
+import com.earam.tabs.music.StrumPattern
+import com.earam.tabs.music.StrokeDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.sin
-import com.earam.tabs.music.PickingEngine
-import com.earam.tabs.music.PickingMode
-import com.earam.tabs.music.StrumPattern
-import com.earam.tabs.music.StrokeDirection
 
 data class EditorState(
     val notes: Array<out Map<Int, String>>,
@@ -52,7 +52,9 @@ class MainActivity : Activity() {
 
     @Volatile private var playing = false
     private var playThread: Thread? = null
-    private var track: AudioTrack? = null
+    @Volatile private var track: AudioTrack? = null
+    private val sampleRate = 44100
+    private val columnCount = 8
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,15 +111,9 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun spinner(items: Array<String>, selected: Int = 0): Spinner {
-        return Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                items
-            )
-            setSelection(selected)
-        }
+    private fun spinner(items: Array<String>, selected: Int = 0): Spinner = Spinner(this).apply {
+        adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, items)
+        setSelection(selected)
     }
 
     private fun safeFileName(value: String): String =
@@ -126,7 +122,7 @@ class MainActivity : Activity() {
     private fun saveProject() {
         try {
             val root = JSONObject()
-                .put("version", 4)
+                .put("version", 5)
                 .put("name", projectName)
                 .put("instrument", instrument)
                 .put("strings", stringCount)
@@ -145,9 +141,7 @@ class MainActivity : Activity() {
             root.put("notes", notes)
 
             val strokeJson = JSONObject()
-            strokes.forEach { (k, v) ->
-                strokeJson.put(k.toString(), if (v == StrokeDirection.UP) "UP" else "DOWN")
-            }
+            strokes.forEach { (k, v) -> strokeJson.put(k.toString(), if (v == StrokeDirection.UP) "UP" else "DOWN") }
             root.put("strokes", strokeJson)
 
             val durationJson = JSONObject()
@@ -169,9 +163,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Open Earam Project")
-            .setItems(files.map { it.nameWithoutExtension }.toTypedArray()) { _, index ->
-                loadProject(files[index])
-            }
+            .setItems(files.map { it.nameWithoutExtension }.toTypedArray()) { _, index -> loadProject(files[index]) }
             .show()
     }
 
@@ -186,29 +178,20 @@ class MainActivity : Activity() {
             timeSig = root.optString("timeSignature", "4/4")
             keySig = root.optString("key", "C")
             notation = root.optString("notation", "BOTH")
-
             cells = Array(stringCount) { mutableMapOf() }
             root.optJSONArray("notes")?.let { array ->
                 for (stringIndex in 0 until stringCount) {
                     array.optJSONObject(stringIndex)?.let { obj ->
-                        obj.keys().forEach { key ->
-                            cells[stringIndex][key.toInt()] = obj.getString(key)
-                        }
+                        obj.keys().forEach { key -> cells[stringIndex][key.toInt()] = obj.getString(key) }
                     }
                 }
             }
-
             strokes = mutableMapOf()
             root.optJSONObject("strokes")?.let { obj ->
                 obj.keys().forEach { key ->
-                    strokes[key.toInt()] = if (obj.getString(key) == "UP") {
-                        StrokeDirection.UP
-                    } else {
-                        StrokeDirection.DOWN
-                    }
+                    strokes[key.toInt()] = if (obj.getString(key) == "UP") StrokeDirection.UP else StrokeDirection.DOWN
                 }
             }
-
             durations = mutableMapOf()
             root.optJSONObject("durations")?.let { obj ->
                 obj.keys().forEach { key -> durations[key.toInt()] = obj.getLong(key) }
@@ -232,14 +215,44 @@ class MainActivity : Activity() {
         return value
     }
 
+    private fun columnSeconds(column: Int): Double {
+        val ticks = durations[column] ?: 960L
+        return ticks.toDouble() / 960.0 * 60.0 / bpm.toDouble()
+    }
+
+    private fun cycleSeconds(): Double = (0 until columnCount).sumOf { columnSeconds(it) }
+
+    /** The only source used by the UI for playback position: the audio engine's consumed-frame clock. */
+    private fun audioPositionSeconds(): Double? {
+        val audio = track ?: return null
+        if (!playing) return null
+        val frames = audio.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+        return frames.toDouble() / sampleRate.toDouble()
+    }
+
+    /** Maps the AudioTrack clock directly to the current TAB position. No Handler/timer clock is used. */
+    private fun audioCursorPosition(): Pair<Int, Double>? {
+        val raw = audioPositionSeconds() ?: return null
+        val total = cycleSeconds()
+        if (total <= 0.0) return null
+        val position = if (editor?.loop == true) raw % total else raw.coerceAtMost(total)
+        var elapsed = 0.0
+        for (column in 0 until columnCount) {
+            val duration = columnSeconds(column)
+            if (position < elapsed + duration || column == columnCount - 1) {
+                val fraction = ((position - elapsed) / duration).coerceIn(0.0, 0.999999)
+                return column to fraction
+            }
+            elapsed += duration
+        }
+        return null
+    }
+
     private fun playColumn(column: Int, seconds: Double) {
-        val sampleRate = 44100
         val count = (sampleRate * seconds).toInt().coerceAtLeast(1)
         val data = ShortArray(count)
         val notes = mutableListOf<Int>()
-        cells.forEachIndexed { stringIndex, map ->
-            map[column]?.toIntOrNull()?.let { notes.add(midi(stringIndex, it)) }
-        }
+        cells.forEachIndexed { stringIndex, map -> map[column]?.toIntOrNull()?.let { notes.add(midi(stringIndex, it)) } }
         for (i in 0 until count) {
             var sample = 0.0
             notes.forEach { midiValue ->
@@ -258,25 +271,19 @@ class MainActivity : Activity() {
         editor?.invalidate()
         playThread = Thread {
             try {
-                val rate = 44100
                 track = AudioTrack(
                     AudioManager.STREAM_MUSIC,
-                    rate,
+                    sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
-                    rate,
+                    sampleRate,
                     AudioTrack.MODE_STREAM
                 )
                 track?.play()
                 do {
-                    for (column in 0 until 8) {
+                    for (column in 0 until columnCount) {
                         if (!playing) break
-                        val duration = durations[column] ?: 960L
-                        playColumn(column, duration / 960.0 * 60.0 / bpm)
-                        runOnUiThread {
-                            editor?.playingColumn = column
-                            editor?.invalidate()
-                        }
+                        playColumn(column, columnSeconds(column))
                     }
                 } while (playing && editor?.loop == true)
             } finally {
@@ -284,10 +291,7 @@ class MainActivity : Activity() {
                 track?.release()
                 track = null
                 playing = false
-                runOnUiThread {
-                    editor?.playingColumn = -1
-                    editor?.invalidate()
-                }
+                runOnUiThread { editor?.invalidate() }
             }
         }.also { it.start() }
     }
@@ -299,6 +303,7 @@ class MainActivity : Activity() {
         try { track?.stop() } catch (_: Exception) { }
         track?.release()
         track = null
+        editor?.invalidate()
     }
 
     private fun openEditor() {
@@ -354,7 +359,6 @@ class MainActivity : Activity() {
         private val undo = ArrayDeque<EditorState>()
         private val redo = ArrayDeque<EditorState>()
         var loop = false
-        var playingColumn = -1
 
         override fun onDraw(canvas: Canvas) {
             canvas.drawColor(0xFF111315.toInt())
@@ -370,22 +374,18 @@ class MainActivity : Activity() {
             canvas.drawRect(0f, 64f, w, 118f, paint)
             val tools = listOf("NOTE", "REST", "CHORD", "DUR", "SAVE", "HOME", "PLAY", "STOP", "LOOP")
             val toolWidth = (w - 16f) / tools.size
-            tools.forEachIndexed { index, label ->
-                text(canvas, label, 8f + index * toolWidth, 97f, 9f, false)
-            }
+            tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, false) }
             text(canvas, "$instrument • $stringCount-string • $tuning • $timeSig • $keySig", 18f, 143f, 10f, false)
 
             val staffTop = 164f
             val staffSpacing = 9f
             line.color = 0xFF555A5F.toInt()
-            for (i in 0..4) {
-                canvas.drawLine(18f, staffTop + i * staffSpacing, w - 18f, staffTop + i * staffSpacing, line)
-            }
+            for (i in 0..4) canvas.drawLine(18f, staffTop + i * staffSpacing, w - 18f, staffTop + i * staffSpacing, line)
 
             val gridX = 54f
             val gridY = 238f
             val stringGap = if (stringCount > 6) 25f else 28f
-            val cellWidth = (w - gridX - 12f) / 8f
+            val cellWidth = (w - gridX - 12f) / columnCount
             val names = when (stringCount) {
                 7 -> arrayOf("e", "B", "G", "D", "A", "E", "B")
                 6 -> arrayOf("e", "B", "G", "D", "A", "E")
@@ -400,29 +400,26 @@ class MainActivity : Activity() {
                 canvas.drawLine(gridX, y, w - 12f, y, line)
             }
 
-            for (index in 0..8) {
+            for (index in 0..columnCount) {
                 val x = gridX + index * cellWidth
-                line.color = if (index % timeSig.substringBefore('/').toIntOrNull().coerceAtLeast(1) == 0) {
-                    0xFF666C71.toInt()
-                } else {
-                    0xFF292D31.toInt()
-                }
+                line.color = if (index % timeSig.substringBefore('/').toIntOrNull().coerceAtLeast(1) == 0) 0xFF666C71.toInt() else 0xFF292D31.toInt()
                 canvas.drawLine(x, gridY - 14f, x, gridY + (stringCount - 1) * stringGap + 12f, line)
             }
 
-            for (beat in 0 until 8) {
+            val cursor = audioCursorPosition()
+            if (cursor != null) {
+                val cursorX = gridX + (cursor.first + cursor.second) * cellWidth
+                paint.color = 0xFFB7BEC3.toInt()
+                canvas.drawRect(cursorX - 1.5f, gridY - 22f, cursorX + 1.5f, gridY + (stringCount - 1) * stringGap + 22f, paint)
+                paint.color = 0xFFB7BEC3.toInt()
+                canvas.drawCircle(cursorX, gridY - 25f, 4f, paint)
+            }
+
+            for (beat in 0 until columnCount) {
                 val x = gridX + beat * cellWidth + cellWidth / 2f
-                if (playingColumn == beat) {
-                    paint.color = 0xFF2A3136.toInt()
-                    canvas.drawRect(x - cellWidth / 2f, gridY - 20f, x + cellWidth / 2f, gridY + (stringCount - 1) * stringGap + 20f, paint)
-                }
-                strokes[beat]?.let { direction ->
-                    text(canvas, if (direction == StrokeDirection.DOWN) "↓" else "↑", x - 5f, gridY - 18f, 16f, true)
-                }
+                strokes[beat]?.let { direction -> text(canvas, if (direction == StrokeDirection.DOWN) "↓" else "↑", x - 5f, gridY - 18f, 16f, true) }
                 for (stringIndex in 0 until stringCount) {
-                    cells[stringIndex][beat]?.let { value ->
-                        drawTab(canvas, value, x - 5f, gridY + stringIndex * stringGap + 5f, stringIndex == row && beat == column)
-                    }
+                    cells[stringIndex][beat]?.let { value -> drawTab(canvas, value, x - 5f, gridY + stringIndex * stringGap + 5f, stringIndex == row && beat == column) }
                 }
                 drawStandard(canvas, beat, x, staffTop)
             }
@@ -430,15 +427,15 @@ class MainActivity : Activity() {
             paint.color = 0xFF1C2023.toInt()
             canvas.drawRect(0f, h - 120f, w, h, paint)
             text(canvas, "DURATION", 14f, h - 94f, 9f, false)
-            listOf("½", "♩", "♪", "♬").forEachIndexed { index, symbol ->
-                chip(canvas, symbol, 12f + index * 42f, h - 78f, 34f, index == durationIndex())
-            }
+            listOf("½", "♩", "♪", "♬").forEachIndexed { index, symbol -> chip(canvas, symbol, 12f + index * 42f, h - 78f, 34f, index == durationIndex()) }
             text(canvas, "PICKING", 190f, h - 94f, 9f, false)
             chip(canvas, "↓", 186f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.DOWN)
             chip(canvas, "↑", 224f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.UP)
             chip(canvas, "ALT", 262f, h - 78f, 44f, mode == PickingMode.ALTERNATE)
             chip(canvas, "STR", 310f, h - 78f, 42f, mode == PickingMode.STRUM)
-            text(canvas, if (playingColumn >= 0) "▶ ${playingColumn + 1}/8" else "Ready", 365f, h - 58f, 10f, false)
+            text(canvas, if (cursor != null) "▶ ${cursor.first + 1}/$columnCount" else "Ready", 365f, h - 58f, 10f, false)
+
+            if (playing) postInvalidateOnAnimation()
         }
 
         private fun durationIndex(): Int = when (durations[column] ?: 960L) {
@@ -474,9 +471,7 @@ class MainActivity : Activity() {
 
         private fun drawStandard(canvas: Canvas, beat: Int, x: Float, top: Float) {
             if (cells.none { it.containsKey(beat) }) return
-            val values = cells.indices.filter { cells[it].containsKey(beat) }.map {
-                midi(it, cells[it][beat]?.toIntOrNull() ?: 0)
-            }
+            val values = cells.indices.filter { cells[it].containsKey(beat) }.map { midi(it, cells[it][beat]?.toIntOrNull() ?: 0) }
             if (values.isEmpty()) return
             val average = values.average()
             val y = top + 36f - (average - 60.0) * 2.0
@@ -486,11 +481,7 @@ class MainActivity : Activity() {
             canvas.drawLine(x + 5f, y.toFloat(), x + 5f, y.toFloat() - 25f, line)
         }
 
-        private fun snapshot(): EditorState = EditorState(
-            Array<Map<Int, String>>(stringCount) { cells[it].toMap() },
-            strokes.toMap(),
-            durations.toMap()
-        )
+        private fun snapshot(): EditorState = EditorState(Array<Map<Int, String>>(stringCount) { cells[it].toMap() }, strokes.toMap(), durations.toMap())
 
         private fun restore(state: EditorState) {
             cells = Array(stringCount) { state.notes[it].toMutableMap() }
@@ -507,8 +498,8 @@ class MainActivity : Activity() {
         private fun assignPicking() {
             when (mode) {
                 PickingMode.MANUAL -> strokes[column] = selectedStroke
-                PickingMode.ALTERNATE -> PickingEngine.alternate(8, selectedStroke).forEachIndexed { index, direction -> strokes[index] = direction }
-                PickingMode.STRUM -> PickingEngine.applyPattern(pattern, 8).forEachIndexed { index, direction -> strokes[index] = direction }
+                PickingMode.ALTERNATE -> PickingEngine.alternate(columnCount, selectedStroke).forEachIndexed { index, direction -> strokes[index] = direction }
+                PickingMode.STRUM -> PickingEngine.applyPattern(pattern, columnCount).forEachIndexed { index, direction -> strokes[index] = direction }
             }
             invalidate()
         }
@@ -552,10 +543,10 @@ class MainActivity : Activity() {
             }
 
             val gridX = 54f
-            val cellWidth = (w - gridX - 12f) / 8f
+            val cellWidth = (w - gridX - 12f) / columnCount
             val stringGap = if (stringCount > 6) 25f else 28f
             if (event.x in gridX..(w - 12f) && event.y in 220f..(238f + (stringCount - 1) * stringGap + 20f)) {
-                column = ((event.x - gridX) / cellWidth).toInt().coerceIn(0, 7)
+                column = ((event.x - gridX) / cellWidth).toInt().coerceIn(0, columnCount - 1)
                 row = ((event.y - 238f + stringGap / 2f) / stringGap).toInt().coerceIn(0, stringCount - 1)
                 remember()
                 val fret = ((event.x - gridX) / cellWidth * 4f).toInt().coerceIn(0, 24)
