@@ -1,12 +1,15 @@
 package com.earam.tabs
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Bundle
+import android.text.InputType
 import android.view.MotionEvent
 import android.view.View
+import android.widget.EditText
 import com.earam.tabs.music.PickingEngine
 import com.earam.tabs.music.PickingMode
 import com.earam.tabs.music.StrumPattern
@@ -18,7 +21,7 @@ class MainActivity : Activity() {
         setContentView(EditorView(this))
     }
 
-    private class EditorView(context: Activity) : View(context) {
+    private class EditorView(private val activity: Activity) : View(activity) {
         private val bg = Paint(Paint.ANTI_ALIAS_FLAG)
         private val line = Paint(Paint.ANTI_ALIAS_FLAG)
         private val text = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -31,6 +34,8 @@ class MainActivity : Activity() {
         private var selectedTool = "NOTE"
         private var selectedColumn = 0
         private var selectedString = 0
+        private val undoStack = ArrayDeque<Array<ArrayMap<Int, String>>>()
+        private val redoStack = ArrayDeque<Array<ArrayMap<Int, String>>>()
 
         init {
             bg.color = 0xFF111315.toInt()
@@ -69,8 +74,18 @@ class MainActivity : Activity() {
             for (s in 0..5) for ((column, value) in cells[s]) drawTabNumber(c, value, gridX + column * colWidth + colWidth / 2f - 5f, gridTop + s * rowGap + 6f, s == selectedString && column == selectedColumn)
             for (column in 0 until columns) strokes[column]?.let { stroke ->
                 text.color = 0xFFD8DADD.toInt(); text.textSize = 17f
-                val symbol = if (stroke == StrokeDirection.DOWN) "↓" else "↑"
-                c.drawText(symbol, gridX + column * colWidth + colWidth / 2f - 5f, gridTop - 28f, text)
+                c.drawText(if (stroke == StrokeDirection.DOWN) "↓" else "↑", gridX + column * colWidth + colWidth / 2f - 5f, gridTop - 28f, text)
+            }
+            // Chord grouping: a vertical brace-like marker connects all strings sounding together.
+            if (selectedTool == "CHORD") {
+                for (column in 0 until columns) {
+                    val active = (0..5).filter { cells[it].containsKey(column) }
+                    if (active.size >= 2) {
+                        line.color = 0xFF6F777D.toInt(); line.strokeWidth = 2f
+                        val x = gridX + column * colWidth + colWidth / 2f + 10f
+                        c.drawLine(x, gridTop + active.first() * rowGap - 9f, x, gridTop + active.last() * rowGap + 9f, line)
+                    }
+                }
             }
 
             bg.color = 0xFF1C2023.toInt(); c.drawRect(0f, h - 112f, w, h, bg)
@@ -80,19 +95,35 @@ class MainActivity : Activity() {
             drawControl(c, "ALT", 96f, h - 68f, pickingMode == PickingMode.ALTERNATE)
             drawControl(c, "STRUM", 142f, h - 68f, pickingMode == PickingMode.STRUM)
             text.color = 0xFF8F969B.toInt(); text.textSize = 11f; c.drawText("PATTERN", 215f, h - 84f, text)
-            text.color = 0xFFE5E7E8.toInt(); text.textSize = 14f
-            c.drawText("↓ ↓ ↑ ↑ ↓ ↑", 215f, h - 58f, text)
+            text.color = 0xFFE5E7E8.toInt(); text.textSize = 14f; c.drawText("↓ ↓ ↑ ↑ ↓ ↑", 215f, h - 58f, text)
             text.color = 0xFF8F969B.toInt(); text.textSize = 11f; c.drawText("SELECTED", w - 190f, h - 84f, text)
             text.color = 0xFFE5E7E8.toInt(); text.textSize = 14f; c.drawText("String ${selectedString + 1}  •  Beat ${selectedColumn + 1}", w - 190f, h - 58f, text)
         }
 
+        private fun snapshot(): Array<ArrayMap<Int, String>> = Array(6) { s -> ArrayMap<Int, String>().also { it.putAll(cells[s]) } }
+        private fun restore(state: Array<ArrayMap<Int, String>>) { for (s in 0..5) { cells[s].clear(); cells[s].putAll(state[s]) } }
+        private fun rememberEdit() { undoStack.addLast(snapshot()); if (undoStack.size > 50) undoStack.removeFirst(); redoStack.clear() }
+        private fun undo() { if (undoStack.isEmpty()) return; redoStack.addLast(snapshot()); restore(undoStack.removeLast()); invalidate() }
+        private fun redo() { if (redoStack.isEmpty()) return; undoStack.addLast(snapshot()); restore(redoStack.removeLast()); invalidate() }
+
         private fun assignStroke(column: Int) {
-            strokes.clear()
             when (pickingMode) {
                 PickingMode.MANUAL -> strokes[column] = selectedStroke
-                PickingMode.ALTERNATE -> PickingEngine.alternate(8, selectedStroke).forEachIndexed { i, direction -> strokes[i] = direction }
-                PickingMode.STRUM -> PickingEngine.applyPattern(strumPattern, 8).forEachIndexed { i, direction -> strokes[i] = direction }
+                PickingMode.ALTERNATE -> PickingEngine.alternate(8, selectedStroke).forEachIndexed { i, d -> strokes[i] = d }
+                PickingMode.STRUM -> PickingEngine.applyPattern(strumPattern, 8).forEachIndexed { i, d -> strokes[i] = d }
             }
+        }
+
+        private fun editFret(string: Int, column: Int) {
+            val input = EditText(activity).apply { inputType = InputType.TYPE_CLASS_NUMBER; hint = "0–24"; setText(cells[string][column] ?: "") }
+            AlertDialog.Builder(activity).setTitle("Fret ${strings[string]} • Beat ${column + 1}").setView(input)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Apply") { _, _ ->
+                    val value = input.text.toString().trim()
+                    rememberEdit()
+                    if (value.isEmpty()) cells[string].remove(column) else cells[string][column] = value.toIntOrNull()?.coerceIn(0, 24)?.toString() ?: "0"
+                    invalidate()
+                }.show()
         }
 
         private fun drawTool(c: Canvas, label: String, x: Float, y: Float, active: Boolean) { text.color = if (active) 0xFFFFFFFF.toInt() else 0xFFAEB4B8.toInt(); text.textSize = 12f; text.typeface = Typeface.create(Typeface.SANS_SERIF, if (active) Typeface.BOLD else Typeface.NORMAL); c.drawText(label, x, y + 22f, text) }
@@ -102,23 +133,26 @@ class MainActivity : Activity() {
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (event.action != MotionEvent.ACTION_UP) return true
             val x = event.x; val y = event.y; val h = height.toFloat()
-            if (y in 64f..116f) { selectedTool = when { x < 78f -> "NOTE"; x < 145f -> "REST"; x < 225f -> "CHORD"; else -> selectedTool }; invalidate(); return true }
+            if (y in 64f..116f) {
+                selectedTool = when { x < 78f -> "NOTE"; x < 145f -> "REST"; x < 225f -> "CHORD"; x >= width - 175f && x < width - 82f -> "UNDO"; x >= width - 82f -> "REDO"; else -> selectedTool }
+                when (selectedTool) { "UNDO" -> undo(); "REDO" -> redo() }
+                invalidate(); return true
+            }
             if (y > h - 112f) {
                 when { x < 55f -> { pickingMode = PickingMode.MANUAL; selectedStroke = StrokeDirection.DOWN }
                     x < 92f -> { pickingMode = PickingMode.MANUAL; selectedStroke = StrokeDirection.UP }
                     x < 138f -> pickingMode = PickingMode.ALTERNATE
                     x < 205f -> pickingMode = PickingMode.STRUM }
-                if (pickingMode != PickingMode.MANUAL) assignStroke(selectedColumn)
-                invalidate(); return true
+                assignStroke(selectedColumn); invalidate(); return true
             }
             val gridTop = 198f; val gridX = 78f; val gridRight = width.toFloat() - 24f; val rowGap = 30f; val colWidth = (gridRight - gridX) / 8f
             if (y >= gridTop - 20f && y <= gridTop + 5 * rowGap + 20f && x >= gridX && x <= gridRight) {
                 selectedString = ((y - gridTop + rowGap / 2f) / rowGap).toInt().coerceIn(0, 5)
                 selectedColumn = ((x - gridX) / colWidth).toInt().coerceIn(0, 7)
-                if (selectedTool == "NOTE") cells[selectedString][selectedColumn] = ((selectedString + selectedColumn) % 13).toString()
-                else if (selectedTool == "REST") cells[selectedString].remove(selectedColumn)
-                if (pickingMode == PickingMode.MANUAL) strokes[selectedColumn] = selectedStroke else assignStroke(selectedColumn)
-                invalidate(); return true
+                if (selectedTool == "NOTE") editFret(selectedString, selectedColumn)
+                else if (selectedTool == "REST") { rememberEdit(); cells[selectedString].remove(selectedColumn) }
+                else if (selectedTool == "CHORD") { rememberEdit(); if (cells[selectedString].containsKey(selectedColumn)) cells[selectedString].remove(selectedColumn) else cells[selectedString][selectedColumn] = "0" }
+                assignStroke(selectedColumn); invalidate(); return true
             }
             return true
         }
