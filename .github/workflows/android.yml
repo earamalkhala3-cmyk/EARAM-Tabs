@@ -2,6 +2,8 @@ name: EARAM Tabs Android
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -43,33 +45,55 @@ jobs:
         run: gradle :core:test
       - name: Build debug APK
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
+      - name: Locate APK
+        run: |
+          set -e
+          mapfile -t APKS < <(find app/build -type f -name '*.apk' -print)
+          printf '%s\n' "${APKS[@]}"
+          APK=""
+          for candidate in "${APKS[@]}"; do
+            if [[ "$(basename "$candidate")" == *debug*.apk ]]; then
+              APK="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$APK" ]]; then
+            echo "No debug APK found. All APK candidates:" >&2
+            printf '%s\n' "${APKS[@]}" >&2
+            exit 1
+          fi
+          echo "Selected APK: $APK"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
       - name: Re-sign APK with generated test key
         run: |
           set -e
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           mkdir -p /tmp/earam-sign
           keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
-          zipalign -p -f 4 app/build/outputs/apk/debug/app-debug.apk /tmp/earam-sign/aligned.apk
-          apksigner sign \
+          "$BUILD_TOOLS/zipalign" -P 16 -f 4 "$APK_PATH" /tmp/earam-sign/aligned.apk
+          "$BUILD_TOOLS/apksigner" sign \
             --ks /tmp/earam-sign/earam.jks \
             --ks-key-alias earam \
             --ks-pass pass:earamtest123 \
             --key-pass pass:earamtest123 \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
-            --v3-signing-enabled false \
-            --out app/build/outputs/apk/debug/app-debug.apk \
+            --v3-signing-enabled true \
+            --out "$APK_PATH" \
             /tmp/earam-sign/aligned.apk
       - name: Verify final APK
         run: |
           set -e
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APK="$APK_PATH"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
           unzip -t "$APK" >/dev/null
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK"
           ls -lh "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: EARAM-Tabs-debug-apk
-          path: "app/build/outputs/apk/debug/app-debug.apk"
+          path: "${{ env.APK_PATH }}"
           if-no-files-found: error
