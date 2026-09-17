@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -39,11 +39,6 @@ jobs:
           s = s.replace("val cursorX = gridX + (cursor.first + cursor.second) * cellWidth", "val cursorX = (gridX + (cursor.first + cursor.second) * cellWidth).toFloat()")
           p.write_text(s)
           PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/com/earam/tabs/MainActivity.kt
-          git diff --cached --quiet || git commit -m "Fix Kotlin editor compile type errors"
-          git push
       - name: Run unit tests
         run: gradle :core:test
       - name: Build debug APK
