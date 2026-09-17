@@ -29,100 +29,56 @@ jobs:
           gradle-version: '8.9'
       - name: Run unit tests
         run: gradle :core:test
-      - name: Build debug APK
-        run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
-      - name: Locate debug APK
+      - name: Build clean debug APK
+        run: gradle :app:assembleDebug -Pandroid.injected.build.api=35 --no-daemon
+      - name: Locate APK
         run: |
           set -e
-          echo "=== APK SEARCH UNDER APP BUILD ==="
-          find -L app/build -type f \( -name '*.apk' -o -name '*.apks' \) -print | sort || true
-          echo "=== APK SEARCH UNDER WORKSPACE ==="
-          find -L . -type f \( -name '*.apk' -o -name '*.apks' \) -print | sort || true
-          APK_CANDIDATES=$(find -L app/build -type f -name '*.apk' -print)
-          if [ -z "$APK_CANDIDATES" ]; then
-            APK_CANDIDATES=$(find -L . -type f -name '*.apk' -print)
-          fi
-          if [ -z "$APK_CANDIDATES" ]; then
-            echo "ERROR: Gradle assembleDebug succeeded but no APK file exists anywhere in the workspace."
-            echo "=== APP BUILD TREE ==="
-            find -L app/build -maxdepth 8 -print | sort | head -n 500
-            exit 1
-          fi
-          APK=$(printf '%s\n' "$APK_CANDIDATES" | head -n 1)
-          echo "Selected APK: $APK"
-          mkdir -p /tmp/earam-sign
-          cp "$APK" /tmp/earam-sign/original-unsigned.apk
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-      - name: Re-sign APK with generated test key
+          stat -c 'APK size: %s bytes' "$APK"
+          file "$APK"
+      - name: Verify manifest and package metadata
         run: |
           set -e
-          mkdir -p /tmp/earam-sign
-          APK="$APK_PATH"
-          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
-          ORIGINAL_SIZE=$(stat -c '%s' "$APK")
-          echo "=== ORIGINAL APK ==="
-          echo "Path: $APK"
-          echo "Size: $ORIGINAL_SIZE bytes"
-          ls -lh "$APK"
-          test -x "$BUILD_TOOLS/zipalign"
-          test -x "$BUILD_TOOLS/apksigner"
-          keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
-          "$BUILD_TOOLS/zipalign" -P 16 -f -v 4 "$APK" /tmp/earam-sign/aligned.apk
-          echo "=== 16 KB ZIP ALIGNMENT CHECK (ALIGNED APK) ==="
-          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 /tmp/earam-sign/aligned.apk
-          echo "=== ZIP INTEGRITY (ALIGNED APK) ==="
-          unzip -t /tmp/earam-sign/aligned.apk
-          "$BUILD_TOOLS/apksigner" sign \
-            --ks /tmp/earam-sign/earam.jks \
-            --ks-key-alias earam \
-            --ks-pass pass:earamtest123 \
-            --key-pass pass:earamtest123 \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --v3-signing-enabled false \
-            --out "$APK" \
-            /tmp/earam-sign/aligned.apk
-          echo "=== FINAL SIZE COMPARISON ==="
-          FINAL_SIZE=$(stat -c '%s' "$APK")
-          echo "Original: $ORIGINAL_SIZE bytes"
-          echo "Final:    $FINAL_SIZE bytes"
-          if [ "$FINAL_SIZE" -lt 1000000 ]; then
-            echo "ERROR: Final APK is suspiciously small."
-            exit 1
-          fi
-          echo "Size delta: $((FINAL_SIZE - ORIGINAL_SIZE)) bytes"
-      - name: Verify final APK integrity, signature, and 16 KB alignment
+          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          test -x "$AAPT2"
+          echo "=== BADGING ==="
+          "$AAPT2" dump badging "$APK_PATH"
+          echo "=== MANIFEST PACKAGE ==="
+          "$AAPT2" dump badging "$APK_PATH" | grep -E "package: name='com.earam.tabs' versionCode='1' versionName='0.1.0'"
+      - name: Verify APK integrity and signature
         run: |
           set -e
-          APK="$APK_PATH"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
-          echo "=== FINAL APK FILE ==="
-          stat -c 'Final size: %s bytes' "$APK"
-          ls -lh "$APK"
-          echo "=== 16 KB ZIP ALIGNMENT CHECK (FINAL APK) ==="
-          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK"
           echo "=== ZIP INTEGRITY ==="
-          unzip -t "$APK"
-          echo "=== APK SIGNATURE VERIFICATION ==="
-          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs -v "$APK"
-          echo "=== ELF LOAD SEGMENT ALIGNMENT ==="
-          mkdir -p /tmp/earam-sign/unpacked
-          unzip -o "$APK" 'lib/*/*.so' -d /tmp/earam-sign/unpacked >/dev/null
+          unzip -t "$APK_PATH"
+          echo "=== APK SIGNATURE ==="
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK_PATH"
+      - name: Verify 16 KB native libraries
+        run: |
+          set -e
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          echo "=== ZIPALIGN CHECK ==="
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK_PATH"
+          echo "=== ELF LOAD SEGMENTS ==="
+          mkdir -p /tmp/earam-unpacked
+          unzip -o "$APK_PATH" 'lib/*/*.so' -d /tmp/earam-unpacked >/dev/null
           NDK_LLVM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-          test -x "$NDK_LLVM"
-          find /tmp/earam-sign/unpacked/lib -name '*.so' -print0 | while IFS= read -r -d '' SO; do
+          find /tmp/earam-unpacked/lib -name '*.so' -print0 | while IFS= read -r -d '' SO; do
             echo "--- $SO ---"
-            "$NDK_LLVM" -l "$SO" | grep 'LOAD' || true
-            if "$NDK_LLVM" -l "$SO" | grep 'LOAD' | grep -E '2\*\*1[0-3]|2\*\*9|2\*\*8|2\*\*7|2\*\*6|2\*\*5|2\*\*4|2\*\*3|2\*\*2|2\*\*1|2\*\*0' >/dev/null; then
-              echo "ERROR: $SO contains a LOAD segment with alignment below 2**14 (16 KB)."
+            "$NDK_LLVM" -l "$SO" | grep LOAD
+            if "$NDK_LLVM" -l "$SO" | grep LOAD | grep -v '2\*\*14' >/dev/null; then
+              echo "ERROR: native library is not fully 16 KB ELF aligned: $SO"
               exit 1
             fi
           done
-          echo "=== FINAL APK SHA256 ==="
-          sha256sum "$APK"
+      - name: Final APK fingerprint
+        run: sha256sum "$APK_PATH"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: EARAM-Tabs-debug-apk
-          path: "${{ env.APK_PATH }}"
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
