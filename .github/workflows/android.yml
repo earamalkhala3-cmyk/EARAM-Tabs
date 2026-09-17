@@ -27,18 +27,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply Kotlin compile fixes
-        run: |
-          python3 - <<'PY2'
-          from pathlib import Path
-          p = Path("app/src/main/java/com/earam/tabs/MainActivity.kt")
-          s = p.read_text()
-          old = "timeSig.substringBefore('/').toIntOrNull().coerceAtLeast(1)"
-          new = "(timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1)"
-          s = s.replace(old, new)
-          s = s.replace("val cursorX = gridX + (cursor.first + cursor.second) * cellWidth", "val cursorX = (gridX + (cursor.first + cursor.second) * cellWidth).toFloat()")
-          p.write_text(s)
-          PY2
       - name: Run unit tests
         run: gradle :core:test
       - name: Build debug APK
