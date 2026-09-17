@@ -45,13 +45,20 @@ jobs:
         run: gradle :core:test
       - name: Build debug APK
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
+      - name: Locate APK
+        run: |
+          set -e
+          find app/build/outputs/apk -type f -name '*.apk' -print
+          APK="$(find app/build/outputs/apk -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
       - name: Re-sign APK with generated test key
         run: |
           set -e
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           mkdir -p /tmp/earam-sign
           keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
-          "$BUILD_TOOLS/zipalign" -P 16 -f 4 app/build/outputs/apk/debug/app-debug.apk /tmp/earam-sign/aligned.apk
+          "$BUILD_TOOLS/zipalign" -P 16 -f 4 "$APK_PATH" /tmp/earam-sign/aligned.apk
           "$BUILD_TOOLS/apksigner" sign \
             --ks /tmp/earam-sign/earam.jks \
             --ks-key-alias earam \
@@ -59,13 +66,13 @@ jobs:
             --key-pass pass:earamtest123 \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
-            --v3-signing-enabled false \
-            --out app/build/outputs/apk/debug/app-debug.apk \
+            --v3-signing-enabled true \
+            --out "$APK_PATH" \
             /tmp/earam-sign/aligned.apk
       - name: Verify final APK
         run: |
           set -e
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APK="$APK_PATH"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -s "$APK"
           "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
@@ -76,5 +83,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EARAM-Tabs-debug-apk
-          path: "app/build/outputs/apk/debug/app-debug.apk"
+          path: "${{ env.APK_PATH }}"
           if-no-files-found: error
