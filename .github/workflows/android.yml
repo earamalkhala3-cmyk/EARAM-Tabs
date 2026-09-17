@@ -34,8 +34,10 @@ jobs:
       - name: Locate APK
         run: |
           set -e
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
+          echo "=== APK FILES ==="
+          find "$GITHUB_WORKSPACE" -type f -name '*.apk' -print
+          APK="$(find "$GITHUB_WORKSPACE/app/build/outputs/apk" -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
           stat -c 'APK size: %s bytes' "$APK"
           file "$APK"
@@ -63,13 +65,14 @@ jobs:
           echo "=== ZIPALIGN CHECK ==="
           "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK_PATH"
           echo "=== ELF LOAD SEGMENTS ==="
+          rm -rf /tmp/earam-unpacked
           mkdir -p /tmp/earam-unpacked
           unzip -o "$APK_PATH" 'lib/*/*.so' -d /tmp/earam-unpacked >/dev/null
-          NDK_LLVM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          NDK_OBJDUMP="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
           find /tmp/earam-unpacked/lib -name '*.so' -print0 | while IFS= read -r -d '' SO; do
             echo "--- $SO ---"
-            "$NDK_LLVM" -l "$SO" | grep LOAD
-            if "$NDK_LLVM" -l "$SO" | grep LOAD | grep -v '2\*\*14' >/dev/null; then
+            "$NDK_OBJDUMP" -p "$SO" | grep LOAD
+            if "$NDK_OBJDUMP" -p "$SO" | grep LOAD | grep -v 'align 2\*\*14' >/dev/null; then
               echo "ERROR: native library is not fully 16 KB ELF aligned: $SO"
               exit 1
             fi
@@ -80,5 +83,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EARAM-Tabs-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
