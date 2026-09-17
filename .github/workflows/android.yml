@@ -67,9 +67,10 @@ jobs:
           test -x "$BUILD_TOOLS/zipalign"
           test -x "$BUILD_TOOLS/apksigner"
           keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
-          "$BUILD_TOOLS/zipalign" -p -f 4 "$APK" /tmp/earam-sign/aligned.apk
-          echo "=== ZIPALIGN OUTPUT ==="
-          stat -c 'Aligned size: %s bytes' /tmp/earam-sign/aligned.apk
+          "$BUILD_TOOLS/zipalign" -P 16 -f -v 4 "$APK" /tmp/earam-sign/aligned.apk
+          echo "=== 16 KB ZIP ALIGNMENT CHECK (ALIGNED APK) ==="
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 /tmp/earam-sign/aligned.apk
+          echo "=== ZIP INTEGRITY (ALIGNED APK) ==="
           unzip -t /tmp/earam-sign/aligned.apk
           "$BUILD_TOOLS/apksigner" sign \
             --ks /tmp/earam-sign/earam.jks \
@@ -90,7 +91,7 @@ jobs:
             exit 1
           fi
           echo "Size delta: $((FINAL_SIZE - ORIGINAL_SIZE)) bytes"
-      - name: Verify final APK integrity and signature
+      - name: Verify final APK integrity, signature, and 16 KB alignment
         run: |
           set -e
           APK="$APK_PATH"
@@ -98,10 +99,25 @@ jobs:
           echo "=== FINAL APK FILE ==="
           stat -c 'Final size: %s bytes' "$APK"
           ls -lh "$APK"
+          echo "=== 16 KB ZIP ALIGNMENT CHECK (FINAL APK) ==="
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK"
           echo "=== ZIP INTEGRITY ==="
           unzip -t "$APK"
           echo "=== APK SIGNATURE VERIFICATION ==="
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs -v "$APK"
+          echo "=== ELF LOAD SEGMENT ALIGNMENT ==="
+          mkdir -p /tmp/earam-sign/unpacked
+          unzip -o "$APK" 'lib/*/*.so' -d /tmp/earam-sign/unpacked >/dev/null
+          NDK_LLVM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          test -x "$NDK_LLVM"
+          find /tmp/earam-sign/unpacked/lib -name '*.so' -print0 | while IFS= read -r -d '' SO; do
+            echo "--- $SO ---"
+            "$NDK_LLVM" -l "$SO" | grep 'LOAD' || true
+            if "$NDK_LLVM" -l "$SO" | grep 'LOAD' | grep -E '2\*\*1[0-3]|2\*\*9|2\*\*8|2\*\*7|2\*\*6|2\*\*5|2\*\*4|2\*\*3|2\*\*2|2\*\*1|2\*\*0' >/dev/null; then
+              echo "ERROR: $SO contains a LOAD segment with alignment below 2**14 (16 KB)."
+              exit 1
+            fi
+          done
           echo "=== FINAL APK SHA256 ==="
           sha256sum "$APK"
       - name: Upload APK
