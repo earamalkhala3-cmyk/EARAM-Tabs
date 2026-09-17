@@ -48,8 +48,12 @@ jobs:
         run: gradle :core:test
       - name: Build debug APK
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
+      - name: Locate APK
+        run: |
+          find . -type f -name "*.apk" -print
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: EARAM-Tabs-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: "**/*.apk"
+          if-no-files-found: error
