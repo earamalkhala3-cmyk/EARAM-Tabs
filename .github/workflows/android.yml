@@ -43,13 +43,11 @@ jobs:
         run: gradle :core:test
       - name: Build debug APK
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
-      - name: Re-sign APK with stable EARAM test key
-        env:
-          EARAM_KEYSTORE_B64: PLACEHOLDER
+      - name: Re-sign APK with generated test key
         run: |
           set -e
           mkdir -p /tmp/earam-sign
-          echo "$EARAM_KEYSTORE_B64" | base64 -d > /tmp/earam-sign/earam.jks
+          keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
           zipalign -p -f 4 app/build/outputs/apk/debug/app-debug.apk /tmp/earam-sign/aligned.apk
           apksigner sign \
             --ks /tmp/earam-sign/earam.jks \
@@ -61,14 +59,14 @@ jobs:
             --v3-signing-enabled false \
             --out app/build/outputs/apk/debug/app-debug.apk \
             /tmp/earam-sign/aligned.apk
-      - name: Prepare final APK
+      - name: Verify final APK
         run: |
           set -e
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          echo "Final APK: $APK"
-          ls -lh "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          unzip -t "$APK" >/dev/null
+          ls -lh "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
