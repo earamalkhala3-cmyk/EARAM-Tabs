@@ -45,7 +45,7 @@ jobs:
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
       - name: Re-sign APK with stable EARAM test key
         env:
-          EARAM_KEYSTORE_B64: [REDACTED]
+          EARAM_KEYSTORE_B64: PLACEHOLDER
         run: |
           set -e
           mkdir -p /tmp/earam-sign
