@@ -34,11 +34,18 @@ jobs:
       - name: Locate debug APK
         run: |
           set -e
-          echo "=== APK OUTPUT TREE ==="
-          find app/build/outputs -maxdepth 6 -type f -print | sort
-          APK_CANDIDATES=$(find app/build/outputs -type f -name '*.apk' -print)
+          echo "=== APK SEARCH UNDER APP BUILD ==="
+          find -L app/build -type f \( -name '*.apk' -o -name '*.apks' \) -print | sort || true
+          echo "=== APK SEARCH UNDER WORKSPACE ==="
+          find -L . -type f \( -name '*.apk' -o -name '*.apks' \) -print | sort || true
+          APK_CANDIDATES=$(find -L app/build -type f -name '*.apk' -print)
           if [ -z "$APK_CANDIDATES" ]; then
-            echo "ERROR: No APK was produced under app/build/outputs"
+            APK_CANDIDATES=$(find -L . -type f -name '*.apk' -print)
+          fi
+          if [ -z "$APK_CANDIDATES" ]; then
+            echo "ERROR: Gradle assembleDebug succeeded but no APK file exists anywhere in the workspace."
+            echo "=== APP BUILD TREE ==="
+            find -L app/build -maxdepth 8 -print | sort | head -n 500
             exit 1
           fi
           APK=$(printf '%s\n' "$APK_CANDIDATES" | head -n 1)
