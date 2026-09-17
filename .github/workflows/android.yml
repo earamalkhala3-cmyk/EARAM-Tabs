@@ -31,19 +31,33 @@ jobs:
         run: gradle :core:test
       - name: Build debug APK
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
+      - name: Locate debug APK
+        run: |
+          set -e
+          echo "=== APK OUTPUT TREE ==="
+          find app/build/outputs -maxdepth 6 -type f -print | sort
+          APK_CANDIDATES=$(find app/build/outputs -type f -name '*.apk' -print)
+          if [ -z "$APK_CANDIDATES" ]; then
+            echo "ERROR: No APK was produced under app/build/outputs"
+            exit 1
+          fi
+          APK=$(printf '%s\n' "$APK_CANDIDATES" | head -n 1)
+          echo "Selected APK: $APK"
+          mkdir -p /tmp/earam-sign
+          cp "$APK" /tmp/earam-sign/original-unsigned.apk
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
       - name: Re-sign APK with generated test key
         run: |
           set -e
           mkdir -p /tmp/earam-sign
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APK="$APK_PATH"
           ORIGINAL_SIZE=$(stat -c '%s' "$APK")
           echo "=== ORIGINAL APK ==="
           echo "Path: $APK"
           echo "Size: $ORIGINAL_SIZE bytes"
           ls -lh "$APK"
-          cp "$APK" /tmp/earam-sign/original.apk
           keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
-          zipalign -p -f 4 /tmp/earam-sign/original.apk /tmp/earam-sign/aligned.apk
+          zipalign -p -f 4 "$APK" /tmp/earam-sign/aligned.apk
           echo "=== ZIPALIGN OUTPUT ==="
           stat -c 'Aligned size: %s bytes' /tmp/earam-sign/aligned.apk
           unzip -t /tmp/earam-sign/aligned.apk
@@ -69,7 +83,7 @@ jobs:
       - name: Verify final APK integrity and signature
         run: |
           set -e
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APK="$APK_PATH"
           echo "=== FINAL APK FILE ==="
           stat -c 'Final size: %s bytes' "$APK"
           ls -lh "$APK"
@@ -83,5 +97,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EARAM-Tabs-debug-apk
-          path: "app/build/outputs/apk/debug/app-debug.apk"
+          path: "${{ env.APK_PATH }}"
           if-no-files-found: error
