@@ -33,11 +33,17 @@ jobs:
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35 --no-daemon
       - name: Locate APK
         run: |
-          set -e
+          set -euo pipefail
           echo "=== APK FILES ==="
-          find "$GITHUB_WORKSPACE" -type f -name '*.apk' -print
-          APK="$(find "$GITHUB_WORKSPACE/app/build/outputs/apk" -type f -name '*.apk' -print -quit)"
-          test -n "$APK"
+          mapfile -t APKS < <(find "$GITHUB_WORKSPACE" -type f -name '*.apk' -print)
+          printf '%s\n' "${APKS[@]}"
+          if [ "${#APKS[@]}" -ne 1 ]; then
+            echo "ERROR: Expected exactly one APK, found ${#APKS[@]}"
+            echo "=== BUILD OUTPUT TREE ==="
+            find "$GITHUB_WORKSPACE/app/build" -maxdepth 8 -type f -print 2>/dev/null || true
+            exit 1
+          fi
+          APK="${APKS[0]}"
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
           stat -c 'APK size: %s bytes' "$APK"
           file "$APK"
