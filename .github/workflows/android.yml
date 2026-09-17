@@ -2,6 +2,8 @@ name: EARAM Tabs Android
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -48,7 +50,7 @@ jobs:
           set -e
           mkdir -p /tmp/earam-sign
           keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
-          zipalign -p -f 4 app/build/outputs/apk/debug/app-debug.apk /tmp/earam-sign/aligned.apk
+          zipalign -P 16 -f 4 app/build/outputs/apk/debug/app-debug.apk /tmp/earam-sign/aligned.apk
           apksigner sign \
             --ks /tmp/earam-sign/earam.jks \
             --ks-key-alias earam \
@@ -66,6 +68,7 @@ jobs:
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           unzip -t "$APK" >/dev/null
+          zipalign -c -P 16 -v 4 "$APK"
           ls -lh "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
