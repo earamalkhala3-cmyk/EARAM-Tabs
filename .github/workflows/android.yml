@@ -48,9 +48,21 @@ jobs:
       - name: Locate APK
         run: |
           set -e
-          find app/build/outputs/apk -type f -name '*.apk' -print
-          APK="$(find app/build/outputs/apk -type f -name '*.apk' | head -n 1)"
-          test -n "$APK"
+          mapfile -t APKS < <(find app/build -type f -name '*.apk' -print)
+          printf '%s\n' "${APKS[@]}"
+          APK=""
+          for candidate in "${APKS[@]}"; do
+            if [[ "$(basename "$candidate")" == *debug*.apk ]]; then
+              APK="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$APK" ]]; then
+            echo "No debug APK found. All APK candidates:" >&2
+            printf '%s\n' "${APKS[@]}" >&2
+            exit 1
+          fi
+          echo "Selected APK: $APK"
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
       - name: Re-sign APK with generated test key
         run: |
