@@ -58,17 +58,20 @@ jobs:
           set -e
           mkdir -p /tmp/earam-sign
           APK="$APK_PATH"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           ORIGINAL_SIZE=$(stat -c '%s' "$APK")
           echo "=== ORIGINAL APK ==="
           echo "Path: $APK"
           echo "Size: $ORIGINAL_SIZE bytes"
           ls -lh "$APK"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -x "$BUILD_TOOLS/apksigner"
           keytool -genkeypair -keystore /tmp/earam-sign/earam.jks -alias earam -keyalg RSA -keysize 2048 -validity 10000 -storepass earamtest123 -keypass earamtest123 -dname "CN=EARAM Test,O=EARAM,C=EG"
-          zipalign -p -f 4 "$APK" /tmp/earam-sign/aligned.apk
+          "$BUILD_TOOLS/zipalign" -p -f 4 "$APK" /tmp/earam-sign/aligned.apk
           echo "=== ZIPALIGN OUTPUT ==="
           stat -c 'Aligned size: %s bytes' /tmp/earam-sign/aligned.apk
           unzip -t /tmp/earam-sign/aligned.apk
-          apksigner sign \
+          "$BUILD_TOOLS/apksigner" sign \
             --ks /tmp/earam-sign/earam.jks \
             --ks-key-alias earam \
             --ks-pass pass:earamtest123 \
@@ -91,13 +94,14 @@ jobs:
         run: |
           set -e
           APK="$APK_PATH"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           echo "=== FINAL APK FILE ==="
           stat -c 'Final size: %s bytes' "$APK"
           ls -lh "$APK"
           echo "=== ZIP INTEGRITY ==="
           unzip -t "$APK"
           echo "=== APK SIGNATURE VERIFICATION ==="
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs -v "$APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs -v "$APK"
           echo "=== FINAL APK SHA256 ==="
           sha256sum "$APK"
       - name: Upload APK
