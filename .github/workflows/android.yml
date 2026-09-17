@@ -29,7 +29,7 @@ jobs:
           gradle-version: '8.9'
       - name: Apply Kotlin compile fixes
         run: |
-          python3 - <<'PY'
+          python3 - <<'PY2'
           from pathlib import Path
           p = Path("app/src/main/java/com/earam/tabs/MainActivity.kt")
           s = p.read_text()
@@ -38,21 +38,33 @@ jobs:
           s = s.replace(old, new)
           s = s.replace("val cursorX = gridX + (cursor.first + cursor.second) * cellWidth", "val cursorX = (gridX + (cursor.first + cursor.second) * cellWidth).toFloat()")
           p.write_text(s)
-          PY
+          PY2
       - name: Run unit tests
         run: gradle :core:test
       - name: Build debug APK
         run: gradle :app:assembleDebug -Pandroid.injected.build.api=35
+      - name: Re-sign APK with stable EARAM test key
+        env:
+          EARAM_KEYSTORE_B64: [REDACTED]
+        run: |
+          set -e
+          mkdir -p /tmp/earam-sign
+          echo "$EARAM_KEYSTORE_B64" | base64 -d > /tmp/earam-sign/earam.jks
+          zipalign -p -f 4 app/build/outputs/apk/debug/app-debug.apk /tmp/earam-sign/aligned.apk
+          apksigner sign \
+            --ks /tmp/earam-sign/earam.jks \
+            --ks-key-alias earam \
+            --ks-pass pass:earamtest123 \
+            --key-pass pass:earamtest123 \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled false \
+            --out app/build/outputs/apk/debug/app-debug.apk \
+            /tmp/earam-sign/aligned.apk
       - name: Prepare final APK
         run: |
           set -e
-          mkdir -p app/build/outputs/apk/debug
           APK="app/build/outputs/apk/debug/app-debug.apk"
-          if [ ! -s "$APK" ]; then
-            SOURCE=$(find app/build -type f -name 'app-debug.apk' -print -quit)
-            test -n "$SOURCE"
-            cp "$SOURCE" "$APK"
-          fi
           test -s "$APK"
           echo "Final APK: $APK"
           ls -lh "$APK"
