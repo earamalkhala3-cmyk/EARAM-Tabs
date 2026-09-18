@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -47,23 +47,27 @@ jobs:
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
           stat -c 'APK size: %s bytes' "$APK"
           file "$APK"
-      - name: Force 16 KB ZIP alignment and re-sign APK
+      - name: Verify 16 KB ZIP alignment before signing
         run: |
           set -euo pipefail
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
-          ALIGNED="$RUNNER_TEMP/app-aligned.apk"
-          echo "=== FORCE 16 KB ZIP ALIGNMENT ==="
-          "$BUILD_TOOLS/zipalign" -f -P 16 4 "$APK_PATH" "$ALIGNED"
-          mv "$ALIGNED" "$APK_PATH"
-          echo "=== RE-SIGN AFTER ZIPALIGN ==="
-          test -f "$HOME/.android/debug.keystore"
-          "$BUILD_TOOLS/apksigner" sign \\
-            --ks "$HOME/.android/debug.keystore" \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            "$APK_PATH"
+          echo "=== VERIFY 16 KB ZIP ALIGNMENT ==="
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK_PATH"
           echo "=== VERIFY ACTUAL .SO DATA OFFSETS ==="
-          python3 -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); bad=[]; [(bad.append((i.filename,i.header_offset+30+len(i.filename.encode())+len(i.extra))) if (i.header_offset+30+len(i.filename.encode())+len(i.extra))%16384 else None) for i in z.infolist() if i.filename.startswith("lib/") and i.filename.endswith(".so")]; [print(f"{i.filename}: data_offset={i.header_offset+30+len(i.filename.encode())+len(i.extra)} mod16384={(i.header_offset+30+len(i.filename.encode())+len(i.extra))%16384}") for i in z.infolist() if i.filename.startswith("lib/") and i.filename.endswith(".so")]; sys.exit(1 if bad else 0)' "$APK_PATH"
+          python3 - "$APK_PATH" <<'PY'
+import sys, zipfile
+apk = sys.argv[1]
+bad = []
+with zipfile.ZipFile(apk) as z:
+    for i in z.infolist():
+        if i.filename.startswith("lib/") and i.filename.endswith(".so"):
+            off = i.header_offset + 30 + len(i.filename.encode()) + len(i.extra)
+            print(f"{i.filename}: data_offset={off} mod16384={off % 16384}")
+            if off % 16384:
+                bad.append((i.filename, off))
+if bad:
+    raise SystemExit(1)
+PY
       - name: Verify manifest and package metadata
         run: |
           set -e
