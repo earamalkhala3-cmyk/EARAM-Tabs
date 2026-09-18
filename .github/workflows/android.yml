@@ -28,15 +28,14 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Run unit tests
-        run: gradle :core:test
+        run: gradle :core:test --no-daemon --stacktrace
       - name: Build clean debug APK
-        run: gradle :app:clean :app:assembleDebug -Pandroid.injected.build.api=35 --no-daemon
+        run: gradle :app:clean :app:assembleDebug -Pandroid.injected.build.api=35 --no-daemon --stacktrace
       - name: Locate APK
         run: |
           set -euo pipefail
           mapfile -t APKS < <(find "$GITHUB_WORKSPACE" -type f -name '*.apk' -print)
-          printf '%s
-' "${APKS[@]}"
+          printf '%s\n' "${APKS[@]}"
           if [ "${#APKS[@]}" -ne 1 ]; then
             echo "ERROR: Expected exactly one APK, found ${#APKS[@]}"
             find "$GITHUB_WORKSPACE/app/build" -maxdepth 8 -type f -print 2>/dev/null || true
@@ -105,23 +104,30 @@ jobs:
           NDK_READELF="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           find /tmp/earam-unpacked/lib -type f -name '*.so' -print0 | while IFS= read -r -d '' SO; do
             echo "--- $SO ---"
-            LOADS="$("$NDK_READELF" -lW "$SO" | awk '$1 == "LOAD" {print}')"
+            LOADS="$("$NDK_READELF" -lW "$SO" | awk '$1 == "LOAD" {print $NF}')"
             if [ -z "$LOADS" ]; then
               echo "ERROR: no ELF LOAD segments found: $SO"
               exit 1
             fi
-            printf '%s
-' "$LOADS"
-            if printf '%s
-' "$LOADS" | awk '$NF !~ /^0x4000$/ && $NF !~ /^0x[89a-fA-F][0-9a-fA-F]*$/ {bad=1} END {exit bad}'; then
-              :
-            else
-              echo "ERROR: native library has an ELF LOAD alignment below 16 KB: $SO"
-              exit 1
-            fi
+            printf 'LOAD alignment: %s\n' $LOADS
+            while IFS= read -r ALIGN; do
+              case "$ALIGN" in
+                0x[0-9a-fA-F]*)
+                  VALUE=$((ALIGN))
+                  if [ "$VALUE" -lt 16384 ] || [ $((VALUE % 16384)) -ne 0 ]; then
+                    echo "ERROR: ELF LOAD alignment is below 16 KB or not a 16 KB multiple: $SO ($ALIGN)"
+                    exit 1
+                  fi
+                  ;;
+                *)
+                  echo "ERROR: could not parse ELF LOAD alignment: $SO ($ALIGN)"
+                  exit 1
+                  ;;
+              esac
+            done <<< "$LOADS"
           done
 
-      - name: Verify APK contains no unaligned native packaging
+      - name: Verify final APK packaging
         run: |
           set -euo pipefail
           ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
