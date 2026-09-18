@@ -83,11 +83,17 @@ jobs:
           rm -rf /tmp/earam-unpacked
           mkdir -p /tmp/earam-unpacked
           unzip -o "$APK_PATH" 'lib/*/*.so' -d /tmp/earam-unpacked >/dev/null
+          for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
+            if [ ! -d "/tmp/earam-unpacked/lib/$ABI" ]; then
+              echo "ERROR: missing ABI directory: $ABI"
+              exit 1
+            fi
+          done
           NDK_OBJDUMP="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
           find /tmp/earam-unpacked/lib -name '*.so' -print0 | while IFS= read -r -d '' SO; do
             echo "--- $SO ---"
             "$NDK_OBJDUMP" -p "$SO" | grep LOAD
-            if "$NDK_OBJDUMP" -p "$SO" | grep LOAD | grep -v 'align 2\*\*14' >/dev/null; then
+            if "$NDK_OBJDUMP" -p "$SO" | grep LOAD | grep -vE 'align 2\*\*(1[4-9]|2[0-9])' >/dev/null; then
               echo "ERROR: native library is not fully 16 KB ELF aligned: $SO"
               exit 1
             fi
@@ -97,7 +103,7 @@ jobs:
           set -euo pipefail
           ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
           "$ZIPALIGN" -c -P 16 -v 4 "$APK_PATH"
-          if unzip -lv "$APK_PATH" | awk '$NF ~ /^lib\\/.*\\.so$/ && $2 != "Stored" { bad=1 } END { exit bad }'; then
+          if unzip -lv "$APK_PATH" | awk '$NF ~ /^lib\/.*\.so$/ && $2 != "Stored" { bad=1 } END { exit bad }'; then
             echo "All native libraries are stored uncompressed and page-aligned."
           else
             echo "ERROR: one or more native libraries are compressed."
