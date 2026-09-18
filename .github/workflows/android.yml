@@ -47,6 +47,36 @@ jobs:
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
           stat -c 'APK size: %s bytes' "$APK"
           file "$APK"
+      - name: Force 16 KB ZIP alignment and re-sign APK
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          ALIGNED="$RUNNER_TEMP/app-aligned.apk"
+          echo "=== FORCE 16 KB ZIP ALIGNMENT ==="
+          "$BUILD_TOOLS/zipalign" -f -P 16 4 "$APK_PATH" "$ALIGNED"
+          mv "$ALIGNED" "$APK_PATH"
+          echo "=== RE-SIGN AFTER ZIPALIGN ==="
+          test -f "$HOME/.android/debug.keystore"
+          "$BUILD_TOOLS/apksigner" sign \\
+            --ks "$HOME/.android/debug.keystore" \\
+            --ks-pass pass:android \\
+            --key-pass pass:android \\
+            "$APK_PATH"
+          echo "=== VERIFY ACTUAL .SO DATA OFFSETS ==="
+          python3 - "$APK_PATH" <<'PY'
+import sys, zipfile
+apk=sys.argv[1]
+with zipfile.ZipFile(apk) as z:
+    bad=[]
+    for i in z.infolist():
+        if i.filename.startswith("lib/") and i.filename.endswith(".so"):
+            off=i.header_offset+30+len(i.filename.encode())+len(i.extra)
+            print(f"{i.filename}: data_offset={off} mod16384={off%16384}")
+            if off % 16384 != 0:
+                bad.append((i.filename, off))
+    if bad:
+        raise SystemExit(f"ERROR: .so is not 16 KB ZIP aligned: {bad}")
+PY
       - name: Verify manifest and package metadata
         run: |
           set -e
