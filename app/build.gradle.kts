@@ -8,7 +8,7 @@ android { namespace = "com.earam.tabs"; compileSdk = 35
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
-            arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
+            arguments("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
         }
     }
     ndkVersion = "27.2.12479018"
