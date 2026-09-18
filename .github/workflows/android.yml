@@ -30,12 +30,13 @@ jobs:
       - name: Run unit tests
         run: gradle :core:test
       - name: Build clean debug APK
-        run: gradle :app:assembleDebug -Pandroid.injected.build.api=35 --no-daemon
+        run: gradle :app:clean :app:assembleDebug -Pandroid.injected.build.api=35 --no-daemon
       - name: Locate APK
         run: |
           set -euo pipefail
           mapfile -t APKS < <(find "$GITHUB_WORKSPACE" -type f -name '*.apk' -print)
-          printf '%s\n' "${APKS[@]}"
+          printf '%s
+' "${APKS[@]}"
           if [ "${#APKS[@]}" -ne 1 ]; then
             echo "ERROR: Expected exactly one APK, found ${#APKS[@]}"
             find "$GITHUB_WORKSPACE/app/build" -maxdepth 8 -type f -print 2>/dev/null || true
@@ -71,8 +72,8 @@ jobs:
           echo "=== NATIVE LIBRARY ZIP PACKAGING ==="
           mapfile -t SO_ENTRIES < <(unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\.so$' || true)
           if [ "${#SO_ENTRIES[@]}" -eq 0 ]; then
-            echo "No native libraries found in APK; skipping ELF checks."
-            exit 0
+            echo "ERROR: Expected native libraries, but APK contains none."
+            exit 1
           fi
 
           unzip -lv "$APK_PATH" | awk '
@@ -92,28 +93,30 @@ jobs:
           mkdir -p /tmp/earam-unpacked
           unzip -o "$APK_PATH" 'lib/*/*.so' -d /tmp/earam-unpacked >/dev/null
 
-          mapfile -t ABIS < <(find /tmp/earam-unpacked/lib -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          printf 'Found ABI: %s\n' "${ABIS[@]}"
-
-          if printf '%s\n' "${ABIS[@]}" | grep -qx 'arm64-v8a'; then
-            echo "OK: arm64-v8a present"
-          else
-            echo "ERROR: arm64-v8a is required for modern Android devices."
-            exit 1
-          fi
+          for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
+            if [ ! -d "/tmp/earam-unpacked/lib/$ABI" ]; then
+              echo "ERROR: missing ABI directory: $ABI"
+              exit 1
+            fi
+            echo "OK: $ABI present"
+          done
 
           echo "=== ELF LOAD SEGMENTS ==="
-          NDK_OBJDUMP="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NDK_READELF="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           find /tmp/earam-unpacked/lib -type f -name '*.so' -print0 | while IFS= read -r -d '' SO; do
             echo "--- $SO ---"
-            LOADS="$("$NDK_OBJDUMP" -p "$SO" | grep 'LOAD' || true)"
+            LOADS="$("$NDK_READELF" -lW "$SO" | awk '$1 == "LOAD" {print}')"
             if [ -z "$LOADS" ]; then
               echo "ERROR: no ELF LOAD segments found: $SO"
               exit 1
             fi
-            printf '%s\n' "$LOADS"
-            if printf '%s\n' "$LOADS" | grep -vE 'align 2\*\*(1[4-9]|2[0-9])' >/dev/null; then
-              echo "ERROR: native library is not fully 16 KB ELF aligned: $SO"
+            printf '%s
+' "$LOADS"
+            if printf '%s
+' "$LOADS" | awk '$NF !~ /^0x4000$/ && $NF !~ /^0x[89a-fA-F][0-9a-fA-F]*$/ {bad=1} END {exit bad}'; then
+              :
+            else
+              echo "ERROR: native library has an ELF LOAD alignment below 16 KB: $SO"
               exit 1
             fi
           done
