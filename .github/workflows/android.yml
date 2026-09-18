@@ -55,7 +55,7 @@ jobs:
           echo "=== BADGING ==="
           "$AAPT2" dump badging "$APK_PATH"
           echo "=== MANIFEST PACKAGE ==="
-          "$AAPT2" dump badging "$APK_PATH" | grep -E "package: name='com.earam.tabs' versionCode='1' versionName='0.1.0'"
+          "$AAPT2" dump badging "$APK_PATH" | grep -E "package: name='com.earam.tabs' versionCode='2' versionName='0.1.1'"
       - name: Verify APK integrity and signature
         run: |
           set -e
@@ -70,6 +70,8 @@ jobs:
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           echo "=== ZIPALIGN CHECK ==="
           "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK_PATH"
+          echo "=== NATIVE LIBRARY ZIP PACKAGING ==="
+          if unzip -lv "$APK_PATH" | awk '$4 ~ /lib\/.*\.so$/ && $1 != 0 {bad=1; print "ERROR: native library is compressed:", $0} END {exit bad}'; then :; else exit 1; fi
           echo "=== ELF LOAD SEGMENTS ==="
           rm -rf /tmp/earam-unpacked
           mkdir -p /tmp/earam-unpacked
