@@ -58,9 +58,9 @@ jobs:
           echo "=== RE-SIGN AFTER ZIPALIGN ==="
           test -f "$HOME/.android/debug.keystore"
           "$BUILD_TOOLS/apksigner" sign \\
-            --ks "$HOME/.android/debug.keystore" \\
-            --ks-pass pass:android \\
-            --key-pass pass:android \\
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-pass pass:android \
+            --key-pass pass:android \
             "$APK_PATH"
           echo "=== VERIFY ACTUAL .SO DATA OFFSETS ==="
           python3 - "$APK_PATH" <<'PY'
