@@ -47,13 +47,24 @@ jobs:
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
           stat -c 'APK size: %s bytes' "$APK"
           file "$APK"
-      - name: Verify 16 KB ZIP alignment before signing
+      - name: Force final 16 KB alignment, then re-sign APK
         run: |
           set -euo pipefail
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
-          echo "=== VERIFY 16 KB ZIP ALIGNMENT ==="
+          ALIGNED_APK="$RUNNER_TEMP/app-debug-aligned.apk"
+          FINAL_APK="$RUNNER_TEMP/app-debug-final.apk"
+
+          echo "=== ALIGN APK BEFORE FINAL SIGNING ==="
+          "$BUILD_TOOLS/zipalign" -f -P 16 -v 4 "$APK_PATH" "$ALIGNED_APK"
+
+          echo "=== RE-SIGN ALIGNED APK WITH DEBUG KEY ==="
+          "$BUILD_TOOLS/apksigner" sign             --ks "$HOME/.android/debug.keystore"             --ks-pass pass:android             --key-pass pass:android             --out "$FINAL_APK"             "$ALIGNED_APK"
+
+          cp "$FINAL_APK" "$APK_PATH"
+
+          echo "=== VERIFY FINAL APK ==="
           "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK_PATH"
-          echo "=== ZIPALIGN PASSED: .SO FILES ARE 16 KB ALIGNED ==="
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK_PATH"
       - name: Verify manifest and package metadata
         run: |
           set -e
