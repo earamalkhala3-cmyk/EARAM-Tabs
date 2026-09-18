@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           unzip -t "$APK_PATH"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_PATH"
-      - name: Verify 16 KB native libraries
+      - name: Verify APK ABI coverage and 16 KB native libraries
         run: |
           set -euo pipefail
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
@@ -92,6 +92,17 @@ jobs:
               exit 1
             fi
           done
+      - name: Verify APK contains no unaligned native packaging
+        run: |
+          set -euo pipefail
+          ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
+          "$ZIPALIGN" -c -P 16 -v 4 "$APK_PATH"
+          if unzip -lv "$APK_PATH" | awk '$NF ~ /^lib\\/.*\\.so$/ && $2 != "Stored" { bad=1 } END { exit bad }'; then
+            echo "All native libraries are stored uncompressed and page-aligned."
+          else
+            echo "ERROR: one or more native libraries are compressed."
+            exit 1
+          fi
       - name: Final APK fingerprint
         run: sha256sum "$APK_PATH"
       - name: Upload APK
