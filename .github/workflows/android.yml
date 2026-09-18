@@ -55,19 +55,19 @@ jobs:
           "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK_PATH"
           echo "=== VERIFY ACTUAL .SO DATA OFFSETS ==="
           python3 - "$APK_PATH" <<'PY'
-import sys, zipfile
-apk = sys.argv[1]
-bad = []
-with zipfile.ZipFile(apk) as z:
-    for i in z.infolist():
-        if i.filename.startswith("lib/") and i.filename.endswith(".so"):
-            off = i.header_offset + 30 + len(i.filename.encode()) + len(i.extra)
-            print(f"{i.filename}: data_offset={off} mod16384={off % 16384}")
-            if off % 16384:
-                bad.append((i.filename, off))
-if bad:
-    raise SystemExit(1)
-PY
+          import sys, zipfile
+          apk = sys.argv[1]
+          bad = []
+          with zipfile.ZipFile(apk) as z:
+              for i in z.infolist():
+                  if i.filename.startswith("lib/") and i.filename.endswith(".so"):
+                      off = i.header_offset + 30 + len(i.filename.encode()) + len(i.extra)
+                      print(f"{i.filename}: data_offset={off} mod16384={off % 16384}")
+                      if off % 16384:
+                          bad.append((i.filename, off))
+          if bad:
+              raise SystemExit(1)
+          PY
       - name: Verify manifest and package metadata
         run: |
           set -e
