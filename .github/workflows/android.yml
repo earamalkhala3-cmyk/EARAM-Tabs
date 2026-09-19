@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
-          "$AAPT2" dump xmltree "$APK_PATH" AndroidManifest.xml > /tmp/manifest.txt
+          "$AAPT2" dump xmltree --file "$APK_PATH" AndroidManifest.xml > /tmp/manifest.txt
           if grep -q "android:testOnly" /tmp/manifest.txt; then
             echo "ERROR: testOnly flag found in release manifest."
             exit 1
