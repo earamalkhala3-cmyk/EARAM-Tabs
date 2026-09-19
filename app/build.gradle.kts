@@ -11,10 +11,24 @@ android { namespace = "com.earam.tabs"; compileSdk = 35
             enableV2Signing = true
             enableV3Signing = true
         }
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
+        }
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            isDebuggable = false
+            isMinifyEnabled = false
         }
     }
     externalNativeBuild {
