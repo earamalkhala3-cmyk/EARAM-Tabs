@@ -211,13 +211,6 @@ jobs:
           set -euo pipefail
           sha256sum "$APK_PATH"
 
-      - name: Upload release APK
-        uses: actions/upload-artifact@v5
-        with:
-          name: EARAM-Tabs-release-apk
-          path: ${{ env.APK_PATH }}
-          if-no-files-found: error
-
       - name: Verify final APK has no debug/test-only markers
         run: |
           set -euo pipefail
