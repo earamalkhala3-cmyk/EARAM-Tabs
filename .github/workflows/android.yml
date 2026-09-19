@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Create CI release signing key
         run: |
@@ -32,7 +32,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
 
@@ -155,13 +155,38 @@ jobs:
             done <<< "$LOADS"
           done
 
+      - name: Install-test release APK on Android 15 emulator
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          sdkmanager "system-images;android-35;google_apis;x86_64" "emulator" "platform-tools"
+          echo "no" | avdmanager create avd --force --name earam_api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          EMULATOR="$ANDROID_HOME/emulator/emulator"
+          nohup "$EMULATOR" -avd earam_api35 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect > /tmp/earam-emulator.log 2>&1 &
+          EMULATOR_PID=$!
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true' EXIT
+          adb wait-for-device
+          for i in $(seq 1 60); do
+            BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+            [ "$BOOTED" = "1" ] && break
+            sleep 2
+          done
+          [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ] || { cat /tmp/earam-emulator.log; exit 1; }
+          adb install "$APK_PATH"
+          adb shell pm path com.earam.tabs
+          adb shell am force-stop com.earam.tabs
+          adb shell monkey -p com.earam.tabs 1 >/dev/null
+          sleep 3
+          adb shell pidof com.earam.tabs
+          adb install -r "$APK_PATH"
+          echo "Android 15 emulator clean-install and same-signer upgrade test: PASS"
       - name: Final APK fingerprint
         run: |
           set -euo pipefail
           sha256sum "$APK_PATH"
 
       - name: Upload release APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EARAM-Tabs-release-apk
           path: ${{ env.APK_PATH }}
