@@ -156,13 +156,13 @@ jobs:
           done
 
       - name: Install-test release APK on Android 15 emulator
-        timeout-minutes: 12
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           sdkmanager "system-images;android-35;google_apis;x86_64" "emulator" "platform-tools"
-          echo "no" | avdmanager create avd --force --name earam_api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          echo "no" | avdmanager create avd --force --name earam_api35 --package "system-images;android-35;google_apis;x86_64"
           EMULATOR="$ANDROID_HOME/emulator/emulator"
-          nohup "$EMULATOR" -avd earam_api35 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect > /tmp/earam-emulator.log 2>&1 &
+          nohup "$EMULATOR" -avd earam_api35 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel off -gpu swiftshader_indirect > /tmp/earam-emulator.log 2>&1 &
           EMULATOR_PID=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true' EXIT
           adb wait-for-device
