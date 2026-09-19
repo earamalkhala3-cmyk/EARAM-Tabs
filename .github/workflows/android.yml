@@ -85,8 +85,7 @@ jobs:
           AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
           "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK_PATH" > /tmp/manifest.txt
           BADGING="$("$AAPT2" dump badging "$APK_PATH")"
-          printf '%s
-' "$BADGING"
+          printf '%s\n' "$BADGING"
           if grep -q "testOnly='true'" <<< "$BADGING"; then
             echo "ERROR: testOnly=true found in release APK."
             exit 1
