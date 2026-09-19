@@ -17,7 +17,13 @@ jobs:
         run: |
           set -euo pipefail
           rm -f app/release.keystore
-          keytool -genkeypair -v -keystore app/release.keystore -storepass earam-ci-store -keypass earam-ci-store -alias earam-release -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=EARAM Tabs Release, OU=EARAM, O=EARAM, L=Cairo, ST=Cairo, C=EG"
+          PASS="$(openssl rand -hex 24)"
+          keytool -genkeypair -v -keystore app/release.keystore -storepass "$PASS" -keypass "$PASS" -alias earam-release -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=EARAM Tabs Release, OU=EARAM, O=EARAM, L=Cairo, ST=Cairo, C=EG"
+          {
+            echo "ANDROID_KEYSTORE_PASSWORD=$PASS"
+            echo "ANDROID_KEY_ALIAS=earam-release"
+            echo "ANDROID_KEY_PASSWORD=$PASS"
+          } >> "$GITHUB_ENV"
           chmod 600 app/release.keystore
 
       - uses: actions/setup-java@v5
@@ -44,10 +50,6 @@ jobs:
         run: gradle :core:test --no-daemon --stacktrace
 
       - name: Build clean release APK
-        env:
-          ANDROID_KEYSTORE_PASSWORD: earam-ci-store
-          ANDROID_KEY_ALIAS: earam-release
-          ANDROID_KEY_PASSWORD: earam-ci-store
         run: gradle :app:clean :app:assembleRelease -Pandroid.injected.build.api=35 --no-daemon --stacktrace
 
       - name: Locate APK
@@ -81,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
-          "$AAPT2" dump xmltree --file "$APK_PATH" > /tmp/manifest.txt
+          "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK_PATH" > /tmp/manifest.txt
           if grep -q "android:testOnly" /tmp/manifest.txt; then
             echo "ERROR: testOnly flag found in release manifest."
             exit 1
@@ -167,7 +169,7 @@ jobs:
       - name: Verify final APK has no debug/test-only markers
         run: |
           set -euo pipefail
-          if "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump xmltree --file "$APK_PATH" | grep -E "testOnly|debuggable"; then
+          if "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$APK_PATH" | grep -E "testOnly|debuggable"; then
             echo "ERROR: debug/test-only marker present"
             exit 1
           fi
