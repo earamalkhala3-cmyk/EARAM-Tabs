@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -f app/release.keystore
-          keytool -genkeypair -v -keystore app/release.keystore -storepass earam-ci-store -keypass earam-ci-key -alias earam-release -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=EARAM Tabs Release, OU=EARAM, O=EARAM, L=Cairo, ST=Cairo, C=EG"
+          keytool -genkeypair -v -keystore app/release.keystore -storepass earam-ci-store -keypass earam-ci-store -alias earam-release -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=EARAM Tabs Release, OU=EARAM, O=EARAM, L=Cairo, ST=Cairo, C=EG"
           chmod 600 app/release.keystore
 
       - uses: actions/setup-java@v5
@@ -47,7 +47,7 @@ jobs:
         env:
           ANDROID_KEYSTORE_PASSWORD: earam-ci-store
           ANDROID_KEY_ALIAS: earam-release
-          ANDROID_KEY_PASSWORD: earam-ci-key
+          ANDROID_KEY_PASSWORD: earam-ci-store
         run: gradle :app:clean :app:assembleRelease -Pandroid.injected.build.api=35 --no-daemon --stacktrace
 
       - name: Locate APK
@@ -167,8 +167,10 @@ jobs:
       - name: Verify final APK has no debug/test-only markers
         run: |
           set -euo pipefail
-          if unzip -p "$APK_PATH" AndroidManifest.xml >/dev/null 2>&1; then :; fi
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump xmltree "$APK_PATH" AndroidManifest.xml | grep -E "testOnly|debuggable" && { echo "ERROR: debug/test-only marker present"; exit 1; } || true
+          if "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump xmltree "$APK_PATH" AndroidManifest.xml | grep -E "testOnly|debuggable"; then
+            echo "ERROR: debug/test-only marker present"
+            exit 1
+          fi
 
       - name: Remove signing material
         if: always()
