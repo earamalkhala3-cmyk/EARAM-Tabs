@@ -40,7 +40,14 @@ class UpdateManager(private val activity: Activity) {
                         .firstOrNull { it.optString("name").endsWith(".apk", true) }
                 }
                 val apkUrl = apk?.optString("browser_download_url").orEmpty()
-                val sha256 = apk?.optString("sha256").orEmpty()
+                val checksumAsset = json.optJSONArray("assets")?.let { assets ->
+                    (0 until assets.length()).map { assets.getJSONObject(it) }
+                        .firstOrNull { it.optString("name").equals(apk?.optString("name").orEmpty() + ".sha256", true) }
+                }
+                val checksumUrl = checksumAsset?.optString("browser_download_url").orEmpty()
+                val sha256 = if (checksumUrl.isNotBlank()) {
+                    readText(checksumUrl).trim().split(Regex("\\s+")).firstOrNull().orEmpty()
+                } else ""
                 activity.runOnUiThread {
                     if (remoteVersion <= BuildConfig.VERSION_CODE || apkUrl.isBlank()) {
                         Toast.makeText(activity, "Earam is up to date (${BuildConfig.VERSION_NAME})", Toast.LENGTH_LONG).show()
@@ -72,6 +79,15 @@ class UpdateManager(private val activity: Activity) {
             .setNegativeButton("Later", null)
             .setPositiveButton("Update") { _, _ -> downloadAndInstall(url, sha256) }
             .show()
+    }
+
+    private fun readText(url: String): String {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10000
+            readTimeout = 15000
+        }
+        if (connection.responseCode !in 200..299) throw IllegalStateException("Checksum download failed")
+        return connection.inputStream.bufferedReader().use { it.readText() }
     }
 
     private fun downloadAndInstall(url: String, expectedSha256: String) {
