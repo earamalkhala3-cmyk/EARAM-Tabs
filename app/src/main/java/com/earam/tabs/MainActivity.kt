@@ -66,10 +66,12 @@ class MainActivity : Activity() {
         setContentView(HomeView())
     }
 
+    private fun dp(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+
     private fun newProject() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 4, 28, 0)
+            setPadding(dp(28f), dp(8f), dp(28f), 0)
         }
         val name = EditText(this).apply { hint = "Project name" }
         val ins = spinner(arrayOf("Guitar", "Bass"))
@@ -91,8 +93,9 @@ class MainActivity : Activity() {
             tempo
         ).forEach(box::addView)
 
+        box.setBackgroundColor(0xFF171A1D.toInt())
         AlertDialog.Builder(this)
-            .setTitle("New Earam Project")
+            .setTitle("NEW EARAM PROJECT")
             .setView(box)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Create") { _, _ ->
@@ -356,17 +359,32 @@ class MainActivity : Activity() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         override fun onDraw(canvas: Canvas) {
-            canvas.drawColor(0xFF0E1012.toInt())
+            val d = resources.displayMetrics.density
+            canvas.save()
+            canvas.scale(d, d)
+            val logicalWidth = width / d
+            val logicalHeight = height / d
+            canvas.drawColor(0xFF0C0E10.toInt())
             paint.color = 0xFFF1F2F3.toInt()
             paint.textSize = 40f
             paint.typeface = Typeface.DEFAULT_BOLD
-            canvas.drawText("Earam", 34f, 88f, paint)
+            paint.color = 0xFFE66A2E.toInt()
+            paint.textSize = 13f
+            canvas.drawText("EARAM", 34f, 34f, paint)
+            paint.color = 0xFFF1F2F3.toInt()
+            paint.textSize = 40f
+            canvas.drawText("Music workspace", 34f, 78f, paint)
             paint.color = 0xFF8F969B.toInt()
             paint.textSize = 13f
             paint.typeface = Typeface.DEFAULT
-            canvas.drawText("GUITAR / BASS TAB • STANDARD • PLAYBACK", 36f, 116f, paint)
-            button(canvas, "NEW PROJECT", 36f, 170f, width - 72f, 58f)
-            button(canvas, "OPEN PROJECT", 36f, 244f, width - 72f, 58f)
+            canvas.drawText("PROFESSIONAL TAB • STANDARD NOTATION • PLAYBACK", 36f, 102f, paint)
+            button(canvas, "NEW PROJECT", 36f, 140f, logicalWidth - 72f, 58f)
+            button(canvas, "OPEN PROJECT", 36f, 214f, logicalWidth - 72f, 58f)
+            paint.color = 0xFF24292D.toInt()
+            canvas.drawRoundRect(36f, 300f, logicalWidth - 36f, 301f, 1f, 1f, paint)
+            paint.color = 0xFF747C82.toInt(); paint.textSize = 11f
+            canvas.drawText("EARAM TABS  •  TOUCH-FIRST MUSIC WORKSPACE", 36f, 328f, paint)
+            canvas.restore()
         }
 
         private fun button(canvas: Canvas, text: String, x: Float, y: Float, w: Float, h: Float) {
@@ -380,9 +398,11 @@ class MainActivity : Activity() {
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (event.action == MotionEvent.ACTION_UP) {
+                val d = resources.displayMetrics.density
+                val y = event.y / d
                 when {
-                    event.y in 160f..235f -> newProject()
-                    event.y in 235f..315f -> openProject()
+                    y in 130f..205f -> newProject()
+                    y in 205f..280f -> openProject()
                 }
             }
             return true
@@ -403,8 +423,11 @@ class MainActivity : Activity() {
 
         override fun onDraw(canvas: Canvas) {
             canvas.drawColor(0xFF111315.toInt())
-            val w = width.toFloat()
-            val h = height.toFloat()
+            val d = resources.displayMetrics.density
+            canvas.save()
+            canvas.scale(d, d)
+            val w = width.toFloat() / d
+            val h = height.toFloat() / d
             paint.color = 0xFF191C1F.toInt()
             canvas.drawRect(0f, 0f, w, 64f, paint)
             text(canvas, "Earam", 18f, 40f, 22f, true)
@@ -477,6 +500,7 @@ class MainActivity : Activity() {
             text(canvas, if (cursor != null) "▶ ${cursor.first + 1}/$columnCount" else "Ready", 365f, h - 58f, 10f, false)
 
             if (playing) postInvalidateOnAnimation()
+            canvas.restore()
         }
 
         private fun durationIndex(): Int = when (durations[column] ?: 960L) {
@@ -553,12 +577,15 @@ class MainActivity : Activity() {
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (event.action != MotionEvent.ACTION_UP) return true
-            val w = width.toFloat()
-            val h = height.toFloat()
+            val d = resources.displayMetrics.density
+            val x = event.x / d
+            val y = event.y / d
+            val w = width.toFloat() / d
+            val h = height.toFloat() / d
 
-            if (event.y in 64f..118f) {
+            if (y in 64f..118f) {
                 val toolWidth = (w - 16f) / 9f
-                val index = (event.x / toolWidth).toInt()
+                val index = (x / toolWidth).toInt()
                 when (index) {
                     4 -> saveProject()
                     5 -> showHome()
@@ -569,16 +596,16 @@ class MainActivity : Activity() {
                 return true
             }
 
-            if (event.y >= h - 120f) {
+            if (y >= h - 120f) {
                 when {
-                    event.x in 12f..46f -> setDuration(1920L)
-                    event.x in 54f..88f -> setDuration(960L)
-                    event.x in 96f..130f -> setDuration(480L)
-                    event.x in 138f..172f -> setDuration(240L)
-                    event.x in 186f..220f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
-                    event.x in 224f..258f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
-                    event.x in 262f..306f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
-                    event.x in 310f..352f -> { mode = PickingMode.STRUM; remember(); assignPicking() }
+                    x in 12f..58f -> setDuration(1920L)
+                    x in 64f..110f -> setDuration(960L)
+                    x in 116f..162f -> setDuration(480L)
+                    x in 168f..214f -> setDuration(240L)
+                    x in 190f..230f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
+                    x in 235f..275f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
+                    x in 280f..325f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
+                    x in 330f..375f -> { mode = PickingMode.STRUM; remember(); assignPicking() }
                 }
                 return true
             }
@@ -586,11 +613,11 @@ class MainActivity : Activity() {
             val gridX = 54f
             val cellWidth = (w - gridX - 12f) / columnCount
             val stringGap = if (stringCount > 6) 25f else 28f
-            if (event.x in gridX..(w - 12f) && event.y in 220f..(238f + (stringCount - 1) * stringGap + 20f)) {
-                column = ((event.x - gridX) / cellWidth).toInt().coerceIn(0, columnCount - 1)
-                row = ((event.y - 238f + stringGap / 2f) / stringGap).toInt().coerceIn(0, stringCount - 1)
+            if (x in gridX..(w - 12f) && y in 220f..(238f + (stringCount - 1) * stringGap + 20f)) {
+                column = ((x - gridX) / cellWidth).toInt().coerceIn(0, columnCount - 1)
+                row = ((y - 238f + stringGap / 2f) / stringGap).toInt().coerceIn(0, stringCount - 1)
                 remember()
-                val fret = ((event.x - gridX) / cellWidth * 4f).toInt().coerceIn(0, 24)
+                val fret = ((x - gridX) / cellWidth * 4f).toInt().coerceIn(0, 24)
                 cells[row][column] = fret.toString()
                 assignPicking()
                 invalidate()
