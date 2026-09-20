@@ -177,7 +177,7 @@ jobs:
             echo "--- $SO ---"
             LOADS="$("$NDK_READELF" -lW "$SO" | awk '$1 == "LOAD" {print $NF}')"
             test -n "$LOADS" || { echo "ERROR: no ELF LOAD segments found: $SO"; exit 1; }
-            printf 'LOAD alignment: %s\n' $LOADS
+            printf 'LOAD alignment: %s\n' "$LOADS"
             while IFS= read -r ALIGN; do
               case "$ALIGN" in
                 0x[0-9a-fA-F]*)
