@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -316,6 +316,22 @@ jobs:
           if grep -E "testOnly='true'|debuggable='true'" <<< "$BADGING"; then
             echo "ERROR: debug/test-only marker present"
             exit 1
+          fi
+
+
+      - name: Publish release for in-app updates
+        env:
+          GH_TOKEN: {{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | head -1 | cut -d'"' -f2)"
+          TAG="v{VERSION_NAME}"
+          CHECKSUM_FILE="{APK_PATH}.sha256"
+          sha256sum "$APK_PATH" > "$CHECKSUM_FILE"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH#Earam.apk" "$CHECKSUM_FILE#Earam.apk.sha256" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH#Earam.apk" "$CHECKSUM_FILE#Earam.apk.sha256"               --title "Earam {VERSION_NAME}"               --notes "Earam Android release {VERSION_NAME}. Install/update from inside the Earam app."
           fi
 
       - name: Remove signing material
