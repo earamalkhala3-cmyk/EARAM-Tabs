@@ -217,13 +217,35 @@ jobs:
             exit 1
           }
           EMULATOR="$ANDROID_HOME/emulator/emulator"
-          nohup "$EMULATOR" -avd earam_api35 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel off -gpu swiftshader_indirect >>"$LOG" 2>&1 &
+          adb kill-server >/dev/null 2>&1 || true
+          adb start-server
+          nohup "$EMULATOR" -avd earam_api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel off -gpu swiftshader_indirect >>"$LOG" 2>&1 &
           EMULATOR_PID=$!
-          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true; echo "=== emulator log ==="; tail -n 250 "$LOG" || true' EXIT
-          timeout 300 adb wait-for-device || { echo "ERROR: adb device did not appear"; exit 1; }
+          trap 'adb -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true; echo "=== emulator log ==="; tail -n 250 "$LOG" || true' EXIT
           READY=0
           for i in $(seq 1 150); do
-            BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            adb connect 127.0.0.1:5554 >/dev/null 2>&1 || true
+            STATE="$(adb -s emulator-5554 get-state 2>/dev/null || true)"
+            if [ "$STATE" = "device" ]; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "ERROR: emulator process exited before becoming available"
+              tail -n 250 "$LOG" || true
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: emulator did not become available through adb on port 5554"
+            adb devices -l || true
+            tail -n 250 "$LOG" || true
+            exit 1
+          fi
+          READY=0
+          for i in $(seq 1 150); do
+            BOOTED="$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '' || true)"
             [ "$BOOTED" = "1" ] && { READY=1; break; }
             sleep 2
           done
@@ -233,20 +255,20 @@ jobs:
             adb shell getprop || true
             exit 1
           fi
-          adb install --no-incremental "$APK_PATH" || {
+          adb -s emulator-5554 install --no-incremental "$APK_PATH" || {
             echo "ERROR: APK install failed"
-            adb shell pm get-install-location || true
-            adb logcat -d -t 500 || true
+            adb -s emulator-5554 shell pm get-install-location || true
+            adb -s emulator-5554 logcat -d -t 500 || true
             exit 1
           }
-          adb shell pm path com.earam.tabs
-          adb shell am force-stop com.earam.tabs
-          adb shell monkey -p com.earam.tabs 1 || true
+          adb -s emulator-5554 shell pm path com.earam.tabs
+          adb -s emulator-5554 shell am force-stop com.earam.tabs
+          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 || true
           sleep 3
-          adb shell pidof com.earam.tabs || true
-          adb install -r --no-incremental "$APK_PATH" || {
+          adb -s emulator-5554 shell pidof com.earam.tabs || true
+          adb -s emulator-5554 install -r --no-incremental "$APK_PATH" || {
             echo "ERROR: APK upgrade install failed"
-            adb logcat -d -t 500 || true
+            adb -s emulator-5554 logcat -d -t 500 || true
             exit 1
           }
           echo "Android 15 emulator clean-install and same-signer upgrade test: PASS"
