@@ -26,14 +26,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -n "${ANDROID_KEYSTORE_B64_1}" ]; then
-            for PART in 1 2 3 4 5; do
-              eval "VALUE=\${ANDROID_KEYSTORE_B64_${PART}:-}"
-              test -n "$VALUE" || { echo "ERROR: missing ANDROID_KEYSTORE_B64_${PART}"; exit 1; }
-            done
-          else
-            test -n "${ANDROID_KEYSTORE_BASE64}" || { echo "ERROR: ANDROID_KEYSTORE_BASE64 is missing"; exit 1; }
-          fi
+          test -n "${ANDROID_KEYSTORE_BASE64}" || { echo "ERROR: ANDROID_KEYSTORE_BASE64 is missing"; exit 1; }
           test -n "${ANDROID_KEYSTORE_PASSWORD}" || { echo "ERROR: ANDROID_KEYSTORE_PASSWORD is missing"; exit 1; }
           test -n "${ANDROID_KEY_ALIAS}" || { echo "ERROR: ANDROID_KEY_ALIAS is missing"; exit 1; }
           test -n "${ANDROID_KEY_PASSWORD}" || { echo "ERROR: ANDROID_KEY_PASSWORD is missing"; exit 1; }
@@ -50,11 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           KEYSTORE_PATH="${RUNNER_TEMP}/earam-release.keystore.p12"
-          if [ -n "${ANDROID_KEYSTORE_B64_1}" ]; then
-            CLEAN_BASE64="${ANDROID_KEYSTORE_B64_1}${ANDROID_KEYSTORE_B64_2}${ANDROID_KEYSTORE_B64_3}${ANDROID_KEYSTORE_B64_4}${ANDROID_KEYSTORE_B64_5}"
-          else
-            CLEAN_BASE64="${ANDROID_KEYSTORE_BASE64}"
-          fi
+          # Use the canonical full Base64 secret to avoid split-secret concatenation errors.
+          CLEAN_BASE64="${ANDROID_KEYSTORE_BASE64}"
           CLEAN_BASE64="$(printf '%s' "${CLEAN_BASE64}" | tr -cd 'A-Za-z0-9+/=')"
           test -n "${CLEAN_BASE64}"
           # Preserve terminal padding from the final split secret; never strip "=" before decoding.
