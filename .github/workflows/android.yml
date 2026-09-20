@@ -22,13 +22,12 @@ jobs:
           ANDROID_KEYSTORE_B64_4: ${{ secrets.ANDROID_KEYSTORE_B64_4 }}
           ANDROID_KEYSTORE_B64_5: ${{ secrets.ANDROID_KEYSTORE_B64_5 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_ALIAS: earam_release
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           test -n "${ANDROID_KEYSTORE_BASE64}" || { echo "ERROR: ANDROID_KEYSTORE_BASE64 is missing"; exit 1; }
           test -n "${ANDROID_KEYSTORE_PASSWORD}" || { echo "ERROR: ANDROID_KEYSTORE_PASSWORD is missing"; exit 1; }
-          test -n "${ANDROID_KEY_ALIAS}" || { echo "ERROR: ANDROID_KEY_ALIAS is missing"; exit 1; }
           test -n "${ANDROID_KEY_PASSWORD}" || { echo "ERROR: ANDROID_KEY_PASSWORD is missing"; exit 1; }
 
       - name: Decode persistent release keystore
