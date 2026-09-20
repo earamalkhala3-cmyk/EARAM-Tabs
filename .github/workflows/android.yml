@@ -16,12 +16,24 @@ jobs:
       - name: Require persistent release signing secrets
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_B64_1: ${{ secrets.ANDROID_KEYSTORE_B64_1 }}
+          ANDROID_KEYSTORE_B64_2: ${{ secrets.ANDROID_KEYSTORE_B64_2 }}
+          ANDROID_KEYSTORE_B64_3: ${{ secrets.ANDROID_KEYSTORE_B64_3 }}
+          ANDROID_KEYSTORE_B64_4: ${{ secrets.ANDROID_KEYSTORE_B64_4 }}
+          ANDROID_KEYSTORE_B64_5: ${{ secrets.ANDROID_KEYSTORE_B64_5 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "${ANDROID_KEYSTORE_BASE64}" || { echo "ERROR: ANDROID_KEYSTORE_BASE64 is missing"; exit 1; }
+          if [ -n "${ANDROID_KEYSTORE_B64_1}" ]; then
+            for PART in 1 2 3 4 5; do
+              eval "VALUE=\${ANDROID_KEYSTORE_B64_${PART}:-}"
+              test -n "$VALUE" || { echo "ERROR: missing ANDROID_KEYSTORE_B64_${PART}"; exit 1; }
+            done
+          else
+            test -n "${ANDROID_KEYSTORE_BASE64}" || { echo "ERROR: ANDROID_KEYSTORE_BASE64 is missing"; exit 1; }
+          fi
           test -n "${ANDROID_KEYSTORE_PASSWORD}" || { echo "ERROR: ANDROID_KEYSTORE_PASSWORD is missing"; exit 1; }
           test -n "${ANDROID_KEY_ALIAS}" || { echo "ERROR: ANDROID_KEY_ALIAS is missing"; exit 1; }
           test -n "${ANDROID_KEY_PASSWORD}" || { echo "ERROR: ANDROID_KEY_PASSWORD is missing"; exit 1; }
@@ -29,11 +41,21 @@ jobs:
       - name: Decode persistent release keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_B64_1: ${{ secrets.ANDROID_KEYSTORE_B64_1 }}
+          ANDROID_KEYSTORE_B64_2: ${{ secrets.ANDROID_KEYSTORE_B64_2 }}
+          ANDROID_KEYSTORE_B64_3: ${{ secrets.ANDROID_KEYSTORE_B64_3 }}
+          ANDROID_KEYSTORE_B64_4: ${{ secrets.ANDROID_KEYSTORE_B64_4 }}
+          ANDROID_KEYSTORE_B64_5: ${{ secrets.ANDROID_KEYSTORE_B64_5 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
           KEYSTORE_PATH="${RUNNER_TEMP}/earam-release.keystore.p12"
-          CLEAN_BASE64="$(printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -cd 'A-Za-z0-9+/=')"
+          if [ -n "${ANDROID_KEYSTORE_B64_1}" ]; then
+            CLEAN_BASE64="${ANDROID_KEYSTORE_B64_1}${ANDROID_KEYSTORE_B64_2}${ANDROID_KEYSTORE_B64_3}${ANDROID_KEYSTORE_B64_4}${ANDROID_KEYSTORE_B64_5}"
+          else
+            CLEAN_BASE64="${ANDROID_KEYSTORE_BASE64}"
+          fi
+          CLEAN_BASE64="$(printf '%s' "${CLEAN_BASE64}" | tr -cd 'A-Za-z0-9+/=')"
           CLEAN_BASE64="${CLEAN_BASE64%%=*}"
           test -n "${CLEAN_BASE64}"
           case $(( ${#CLEAN_BASE64} % 4 )) in
