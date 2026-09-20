@@ -87,7 +87,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: earam_release
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: gradle :app:clean :app:assembleRelease -Pandroid.injected.build.api=35 --no-daemon --stacktrace
+        run: gradle :app:clean :app:assembleRelease -Pandroid.injected.build.api=35 -Pandroid.injected.testOnly=false --no-daemon --stacktrace
 
       - name: Locate APK
         run: |
@@ -132,6 +132,11 @@ jobs:
             exit 1
           fi
           grep -E "package: name='com.earam.tabs' versionCode='2' versionName='0.1.1'" <<< "$BADGING"
+          if "$AAPT2" dump xmltree "$APK_PATH" | grep -Eiq 'testOnly|debuggable'; then
+            echo "ERROR: release manifest contains testOnly/debuggable attribute."
+            "$AAPT2" dump xmltree "$APK_PATH" | grep -Ei 'testOnly|debuggable' || true
+            exit 1
+          fi
 
       - name: Verify APK integrity and zip alignment
         run: |
@@ -268,13 +273,20 @@ jobs:
             adb shell getprop || true
             exit 1
           fi
-          adb -s emulator-5554 install --no-incremental "$APK_PATH" || {
+          # Use -t only as a diagnostic escape hatch; immediately verify PackageManager did not mark the app TEST_ONLY.
+          adb -s emulator-5554 install -t --no-incremental "$APK_PATH" || {
             echo "ERROR: APK install failed"
             adb -s emulator-5554 shell pm get-install-location || true
             adb -s emulator-5554 logcat -d -t 500 || true
             exit 1
           }
           adb -s emulator-5554 shell pm path com.earam.tabs
+          PM_FLAGS="$(adb -s emulator-5554 shell dumpsys package com.earam.tabs | grep -m1 -E 'pkgFlags=|privateFlags=' || true)"
+          printf 'Package flags: %s\n' "$PM_FLAGS"
+          if grep -q 'TEST_ONLY' <<< "$PM_FLAGS"; then
+            echo "ERROR: PackageManager reports TEST_ONLY for the release APK."
+            exit 1
+          fi
           adb -s emulator-5554 shell am force-stop com.earam.tabs
           adb -s emulator-5554 shell monkey -p com.earam.tabs 1 || true
           sleep 3
