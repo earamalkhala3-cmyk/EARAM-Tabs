@@ -238,7 +238,7 @@ jobs:
             sleep 2
           done
           if [ "$READY" -ne 1 ]; then
-            echo "ERROR: emulator did not become available through adb on port 5554"
+            echo "ERROR: emulator did not become available through adb on port 5555 (serial emulator-5554)"
             adb devices -l || true
             tail -n 250 "$LOG" || true
             exit 1
