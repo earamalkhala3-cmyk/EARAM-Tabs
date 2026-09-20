@@ -226,6 +226,7 @@ jobs:
           for i in $(seq 1 150); do
             adb connect 127.0.0.1:5555 >/dev/null 2>&1 || true
             STATE="$(adb -s emulator-5554 get-state 2>/dev/null || true)"
+            printf "Waiting for emulator ADB (%s/150)\\n" "$i"
             if [ "$STATE" = "device" ]; then
               READY=1
               break
