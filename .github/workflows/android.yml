@@ -224,7 +224,7 @@ jobs:
           trap 'adb -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true; echo "=== emulator log ==="; tail -n 250 "$LOG" || true' EXIT
           READY=0
           for i in $(seq 1 150); do
-            adb connect 127.0.0.1:5554 >/dev/null 2>&1 || true
+            adb connect 127.0.0.1:5555 >/dev/null 2>&1 || true
             STATE="$(adb -s emulator-5554 get-state 2>/dev/null || true)"
             if [ "$STATE" = "device" ]; then
               READY=1
