@@ -252,17 +252,57 @@ class MainActivity : Activity() {
         val count = (sampleRate * seconds).toInt().coerceAtLeast(1)
         val data = ShortArray(count)
         val notes = mutableListOf<Int>()
-        cells.forEachIndexed { stringIndex, map -> map[column]?.toIntOrNull()?.let { notes.add(midi(stringIndex, it)) } }
+        cells.forEachIndexed { stringIndex, map ->
+            map[column]?.toIntOrNull()?.let { notes.add(midi(stringIndex, it)) }
+        }
+        val clickLength = (sampleRate * 0.035).toInt()
         for (i in 0 until count) {
             var sample = 0.0
-            notes.forEach { midiValue ->
-                val frequency = 440.0 * 2.0.pow((midiValue - 69) / 12.0)
-                sample += sin(2.0 * PI * frequency * i / sampleRate)
+            if (notes.isNotEmpty()) {
+                notes.forEach { midiValue ->
+                    val frequency = 440.0 * 2.0.pow((midiValue - 69) / 12.0)
+                    sample += sin(2.0 * PI * frequency * i / sampleRate)
+                }
+                sample /= notes.size
+            } else if (i < clickLength) {
+                val envelope = 1.0 - i.toDouble() / clickLength.toDouble()
+                sample = sin(2.0 * PI * 1200.0 * i / sampleRate) * envelope
             }
-            if (notes.isNotEmpty()) sample /= notes.size
-            data[i] = (sample * 10000.0).toInt().coerceIn(-32767, 32767).toShort()
+            data[i] = (sample * 14000.0).toInt().coerceIn(-32767, 32767).toShort()
         }
-        track?.write(data, 0, data.size)
+        val audio = track ?: return
+        var offset = 0
+        while (offset < data.size && playing) {
+            val written = audio.write(data, offset, data.size - offset, AudioTrack.WRITE_BLOCKING)
+            if (written <= 0) throw IllegalStateException("AudioTrack write failed")
+            offset += written
+        }
+    }
+
+    private fun createPlaybackTrack(): AudioTrack {
+        val minBuffer = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        require(minBuffer > 0) { "Audio output is not supported" }
+        val bufferSize = maxOf(minBuffer, sampleRate / 2)
+        val format = AudioFormat.Builder()
+            .setSampleRate(sampleRate)
+            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .build()
+        val attributes = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+        return AudioTrack.Builder()
+            .setAudioAttributes(attributes)
+            .setAudioFormat(format)
+            .setBufferSizeInBytes(bufferSize * 2)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+            .also { it.setVolume(1.0f) }
     }
 
     private fun startPlayback() {
@@ -270,26 +310,27 @@ class MainActivity : Activity() {
         playing = true
         editor?.invalidate()
         playThread = Thread {
+            var localTrack: AudioTrack? = null
             try {
-                track = AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    sampleRate,
-                    AudioTrack.MODE_STREAM
-                )
-                track?.play()
+                localTrack = createPlaybackTrack()
+                track = localTrack
+                localTrack.play()
                 do {
                     for (column in 0 until columnCount) {
                         if (!playing) break
                         playColumn(column, columnSeconds(column))
                     }
                 } while (playing && editor?.loop == true)
+            } catch (_: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Audio playback failed", Toast.LENGTH_LONG).show()
+                }
             } finally {
-                try { track?.stop() } catch (_: Exception) { }
-                track?.release()
-                track = null
+                try { localTrack?.pause() } catch (_: Exception) { }
+                try { localTrack?.flush() } catch (_: Exception) { }
+                try { localTrack?.stop() } catch (_: Exception) { }
+                try { localTrack?.release() } catch (_: Exception) { }
+                if (track === localTrack) track = null
                 playing = false
                 runOnUiThread { editor?.invalidate() }
             }
