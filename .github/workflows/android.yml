@@ -56,15 +56,15 @@ jobs:
             CLEAN_BASE64="${ANDROID_KEYSTORE_BASE64}"
           fi
           CLEAN_BASE64="$(printf '%s' "${CLEAN_BASE64}" | tr -cd 'A-Za-z0-9+/=')"
-          CLEAN_BASE64="${CLEAN_BASE64%%=*}"
           test -n "${CLEAN_BASE64}"
+          # Preserve terminal padding from the final split secret; never strip "=" before decoding.
           case $(( ${#CLEAN_BASE64} % 4 )) in
             0) ;;
             2) CLEAN_BASE64="${CLEAN_BASE64}==" ;;
             3) CLEAN_BASE64="${CLEAN_BASE64}=" ;;
             1) echo "ERROR: Base64 secret has an invalid length; it is likely truncated."; exit 1 ;;
           esac
-          printf '%s' "${CLEAN_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
+          printf '%s' "${CLEAN_BASE64}" | base64 --decode --strict > "${KEYSTORE_PATH}"
           test -s "${KEYSTORE_PATH}"
           openssl pkcs12 -in "${KEYSTORE_PATH}" -passin "env:ANDROID_KEYSTORE_PASSWORD" -info -noout >/dev/null
           chmod 600 "${KEYSTORE_PATH}"
