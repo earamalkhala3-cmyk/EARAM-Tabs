@@ -29,15 +29,17 @@ jobs:
       - name: Decode persistent release keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
           KEYSTORE_PATH="${RUNNER_TEMP}/earam-release.keystore.p12"
-          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -d '[:space:]' | base64 --decode --ignore-garbage > "${KEYSTORE_PATH}"
+          CLEAN_BASE64="$(printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -d '[:space:]')"
+          test -n "${CLEAN_BASE64}"
+          printf '%s' "${CLEAN_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
           test -s "${KEYSTORE_PATH}"
           openssl pkcs12 -in "${KEYSTORE_PATH}" -passin "env:ANDROID_KEYSTORE_PASSWORD" -info -noout >/dev/null
           chmod 600 "${KEYSTORE_PATH}"
           echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_PATH}" >> "${GITHUB_ENV}"
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
