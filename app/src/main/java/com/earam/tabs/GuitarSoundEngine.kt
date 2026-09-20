@@ -3,6 +3,7 @@ package com.earam.tabs
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
@@ -113,5 +114,4 @@ class GuitarSoundEngine(
         return result
     }
 
-    private fun Double.pow(p: Double): Double = kotlin.math.pow(p)
 }
