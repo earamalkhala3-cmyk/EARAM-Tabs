@@ -204,6 +204,15 @@ jobs:
           : > "$LOG"
           mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_EMULATOR_HOME"
           sdkmanager "system-images;android-35;google_apis;x86_64" "emulator" "platform-tools" >>"$LOG" 2>&1
+          # GitHub-hosted Ubuntu exposes /dev/kvm but the runner user may not be in the kvm group.
+          # Android 15 x86_64 requires hardware acceleration, so grant the ephemeral CI user access.
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "ERROR: /dev/kvm is not available on this runner."
+            exit 1
+          fi
           AVD_CREATE_LOG=/tmp/earam-avd-create.log
           if ! echo "no" | avdmanager create avd --force --name earam_api35 --package "system-images;android-35;google_apis;x86_64" >>"$AVD_CREATE_LOG" 2>&1; then
             cat "$AVD_CREATE_LOG"
@@ -219,14 +228,14 @@ jobs:
           EMULATOR="$ANDROID_HOME/emulator/emulator"
           adb kill-server >/dev/null 2>&1 || true
           adb start-server
-          nohup "$EMULATOR" -avd earam_api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel auto -gpu swiftshader_indirect >>"$LOG" 2>&1 &
+          nohup "$EMULATOR" -avd earam_api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot-load -no-snapshot-save -wipe-data -accel on -gpu swiftshader_indirect >>"$LOG" 2>&1 &
           EMULATOR_PID=$!
           trap 'adb -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true; echo "=== emulator log ==="; tail -n 250 "$LOG" || true' EXIT
           READY=0
-          for i in $(seq 1 150); do
-            adb connect 127.0.0.1:5555 >/dev/null 2>&1 || true
+          for i in $(seq 1 180); do
+            adb connect 127.0.0.1:5554 >/dev/null 2>&1 || true
             STATE="$(adb -s emulator-5554 get-state 2>/dev/null || true)"
-            printf "Waiting for emulator ADB (%s/150)\\n" "$i"
+            printf "Waiting for emulator ADB (%s/180)\\n" "$i"
             if [ "$STATE" = "device" ]; then
               READY=1
               break
@@ -239,7 +248,7 @@ jobs:
             sleep 2
           done
           if [ "$READY" -ne 1 ]; then
-            echo "ERROR: emulator did not become available through adb on port 5555 (serial emulator-5554)"
+            echo "ERROR: emulator did not become available through adb on port 5554 (serial emulator-5554)"
             adb devices -l || true
             tail -n 250 "$LOG" || true
             exit 1
