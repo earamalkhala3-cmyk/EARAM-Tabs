@@ -12,10 +12,11 @@ android { namespace = "com.earam.tabs"; compileSdk = 35
             enableV3Signing = true
         }
         create("release") {
-            storeFile = file("release.keystore")
+            storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH") ?: "release.keystore")
+            storeType = "PKCS12"
             storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
             keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
