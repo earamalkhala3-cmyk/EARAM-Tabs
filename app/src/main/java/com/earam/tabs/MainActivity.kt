@@ -49,6 +49,7 @@ class MainActivity : Activity() {
     private var strokes = mutableMapOf<Int, StrokeDirection>()
     private var durations = mutableMapOf<Int, Long>()
     private var editor: EditorView? = null
+    private val updateManager by lazy { UpdateManager(this) }
 
     @Volatile private var playing = false
     private var playThread: Thread? = null
@@ -396,10 +397,11 @@ class MainActivity : Activity() {
             canvas.drawText("PROFESSIONAL TAB • STANDARD NOTATION • PLAYBACK", 36f, 102f, paint)
             button(canvas, "NEW PROJECT", 36f, 140f, logicalWidth - 72f, 58f)
             button(canvas, "OPEN PROJECT", 36f, 214f, logicalWidth - 72f, 58f)
+            button(canvas, "CHECK FOR UPDATES", 36f, 288f, logicalWidth - 72f, 58f)
             paint.color = 0xFF24292D.toInt()
-            canvas.drawRoundRect(36f, 300f, logicalWidth - 36f, 301f, 1f, 1f, paint)
+            canvas.drawRoundRect(36f, 376f, logicalWidth - 36f, 377f, 1f, 1f, paint)
             paint.color = 0xFF747C82.toInt(); paint.textSize = 11f
-            canvas.drawText("EARAM TABS  •  TOUCH-FIRST MUSIC WORKSPACE", 36f, 328f, paint)
+            canvas.drawText("EARAM  •  PROFESSIONAL MUSIC WORKSPACE", 36f, 404f, paint)
             canvas.restore()
         }
 
@@ -419,6 +421,7 @@ class MainActivity : Activity() {
                 when {
                     y in 130f..205f -> newProject()
                     y in 205f..280f -> openProject()
+                    y in 280f..365f -> updateManager.checkForUpdates()
                 }
             }
             return true
