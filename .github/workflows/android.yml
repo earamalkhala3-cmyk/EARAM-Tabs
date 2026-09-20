@@ -273,8 +273,8 @@ jobs:
             adb shell getprop || true
             exit 1
           fi
-          # Use -t only as a diagnostic escape hatch; immediately verify PackageManager did not mark the app TEST_ONLY.
-          adb -s emulator-5554 install -t --no-incremental "$APK_PATH" || {
+          # The release APK has now passed the manifest and PackageManager checks; require a normal install with no test-only bypass.
+          adb -s emulator-5554 install --no-incremental "$APK_PATH" || {
             echo "ERROR: APK install failed"
             adb -s emulator-5554 shell pm get-install-location || true
             adb -s emulator-5554 logcat -d -t 500 || true
