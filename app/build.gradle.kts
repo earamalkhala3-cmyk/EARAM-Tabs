@@ -2,7 +2,7 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 
 android { namespace = "com.earam.tabs"; compileSdk = 35
     buildFeatures { buildConfig = true }
-    defaultConfig { applicationId = "com.earam.tabs"; minSdk = 23; targetSdk = 35; versionCode = 3; versionName = "0.1.2"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    defaultConfig { applicationId = "com.earam.tabs"; minSdk = 23; targetSdk = 35; versionCode = 4; versionName = "0.1.3"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
         externalNativeBuild { cmake { arguments("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON") } }
     }
@@ -33,13 +33,6 @@ android { namespace = "com.earam.tabs"; compileSdk = 35
             isMinifyEnabled = false
         }
     }
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
-    ndkVersion = "27.2.12479018"
     packaging { jniLibs { useLegacyPackaging = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
