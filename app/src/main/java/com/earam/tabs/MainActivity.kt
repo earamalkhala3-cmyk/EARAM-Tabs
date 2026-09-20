@@ -76,8 +76,8 @@ class MainActivity : Activity() {
             setPadding(dp(28f), dp(8f), dp(28f), 0)
         }
         val name = EditText(this).apply { hint = "Project name" }
-        val ins = spinner(arrayOf("Guitar", "Bass"))
-        val strings = spinner(arrayOf("4", "5", "6", "7"), 2)
+        val ins = spinner(arrayOf("Guitar", "Acoustic Guitar", "Bass", "Drums", "Piano", "Keys", "Violin", "Cello", "Synth"))
+        val strings = spinner((3..10).map(Int::toString).toTypedArray(), 3)
         val tune = spinner(arrayOf("Standard", "Drop D", "Drop C", "Custom"))
         val sig = spinner(arrayOf("4/4", "3/4", "6/8", "5/4", "7/8"))
         val key = spinner(arrayOf("C", "G", "D", "A", "E", "F", "Am", "Em"))
@@ -177,7 +177,7 @@ class MainActivity : Activity() {
             val root = JSONObject(file.readText())
             projectName = root.optString("name", "UNTITLED")
             instrument = root.optString("instrument", "Guitar")
-            stringCount = root.optInt("strings", 6).coerceIn(4, 7)
+            stringCount = root.optInt("strings", 6).coerceIn(3, 10)
             tuning = root.optString("tuning", "Standard")
             bpm = root.optInt("bpm", 120).coerceIn(30, 300)
             timeSig = root.optString("timeSignature", "4/4")
@@ -209,10 +209,14 @@ class MainActivity : Activity() {
 
     private fun midi(stringIndex: Int, fret: Int): Int {
         val open = when (stringCount) {
+            10 -> intArrayOf(79, 74, 69, 64, 59, 55, 50, 45, 40, 35)
+            9 -> intArrayOf(74, 69, 64, 59, 55, 50, 45, 40, 35)
+            8 -> intArrayOf(69, 64, 59, 55, 50, 45, 40, 35)
             7 -> intArrayOf(64, 59, 55, 50, 45, 40, 35)
             6 -> intArrayOf(64, 59, 55, 50, 45, 40)
-            5 -> intArrayOf(43, 38, 33, 28, 23)
-            else -> intArrayOf(43, 38, 33, 28)
+            5 -> intArrayOf(67, 62, 57, 52, 47)
+            4 -> intArrayOf(43, 38, 33, 28)
+            else -> IntArray(stringCount) { 55 - it * 5 }
         }
         var value = open[stringIndex.coerceIn(0, open.lastIndex)] + fret
         if (tuning == "Drop D" && stringIndex == stringCount - 1) value -= 2
@@ -455,7 +459,7 @@ class MainActivity : Activity() {
 
             paint.color = 0xFF202428.toInt()
             canvas.drawRect(0f, 64f, w, 118f, paint)
-            val tools = listOf("NOTE", "REST", "CHORD", "DUR", "SAVE", "HOME", "PLAY", "STOP", "LOOP")
+            val tools = listOf("NOTE", "REST", "CHORD", "DUR", "UNDO", "REDO", "SAVE", "HOME", "PLAY", "STOP", "LOOP")
             val toolWidth = (w - 16f) / tools.size
             tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, false) }
             text(canvas, "$instrument • $stringCount-string • $tuning • $timeSig • $keySig", 18f, 143f, 10f, false)
@@ -603,14 +607,16 @@ class MainActivity : Activity() {
             val h = height.toFloat() / d
 
             if (y in 64f..118f) {
-                val toolWidth = (w - 16f) / 9f
-                val index = (x / toolWidth).toInt()
+                val toolWidth = (w - 16f) / 11f
+                val index = ((x - 8f) / toolWidth).toInt()
                 when (index) {
-                    4 -> saveProject()
-                    5 -> showHome()
-                    6 -> startPlayback()
-                    7 -> stopPlayback()
-                    8 -> { loop = !loop; invalidate() }
+                    4 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
+                    5 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
+                    6 -> saveProject()
+                    7 -> showHome()
+                    8 -> startPlayback()
+                    9 -> stopPlayback()
+                    10 -> { loop = !loop; invalidate() }
                 }
                 return true
             }
