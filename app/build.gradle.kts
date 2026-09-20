@@ -3,8 +3,6 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android { namespace = "com.earam.tabs"; compileSdk = 35
     buildFeatures { buildConfig = true }
     defaultConfig { applicationId = "com.earam.tabs"; minSdk = 23; targetSdk = 35; versionCode = 4; versionName = "0.1.3"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
-        externalNativeBuild { cmake { arguments("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON") } }
     }
     signingConfigs {
         getByName("debug") {
