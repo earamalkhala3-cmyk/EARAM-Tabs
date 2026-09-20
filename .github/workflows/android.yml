@@ -33,8 +33,15 @@ jobs:
         run: |
           set -euo pipefail
           KEYSTORE_PATH="${RUNNER_TEMP}/earam-release.keystore.p12"
-          CLEAN_BASE64="$(printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -d '[:space:]')"
+          CLEAN_BASE64="$(printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -cd 'A-Za-z0-9+/=')"
+          CLEAN_BASE64="${CLEAN_BASE64%%=*}"
           test -n "${CLEAN_BASE64}"
+          case $(( ${#CLEAN_BASE64} % 4 )) in
+            0) ;;
+            2) CLEAN_BASE64="${CLEAN_BASE64}==" ;;
+            3) CLEAN_BASE64="${CLEAN_BASE64}=" ;;
+            1) echo "ERROR: Base64 secret has an invalid length; it is likely truncated."; exit 1 ;;
+          esac
           printf '%s' "${CLEAN_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
           test -s "${KEYSTORE_PATH}"
           openssl pkcs12 -in "${KEYSTORE_PATH}" -passin "env:ANDROID_KEYSTORE_PASSWORD" -info -noout >/dev/null
@@ -218,7 +225,7 @@ jobs:
           }
           echo "Android 15 emulator clean-install and same-signer upgrade test: PASS"
       - name: Upload release APK
-        if: always()
+        if: ${{ always() && env.APK_PATH != '' }}
         uses: actions/upload-artifact@v5
         with:
           name: EARAM-Tabs-release-apk
