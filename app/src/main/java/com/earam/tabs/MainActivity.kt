@@ -54,6 +54,7 @@ class MainActivity : Activity() {
     private var playThread: Thread? = null
     @Volatile private var track: AudioTrack? = null
     private val sampleRate = 44100
+    private val guitarEngine = GuitarSoundEngine(sampleRate)
     private val columnCount = 8
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -252,33 +253,48 @@ class MainActivity : Activity() {
     }
 
     private fun playColumn(column: Int, seconds: Double) {
-        val count = (sampleRate * seconds).toInt().coerceAtLeast(1)
-        val data = ShortArray(count)
         val notes = mutableListOf<Int>()
         cells.forEachIndexed { stringIndex, map ->
             map[column]?.toIntOrNull()?.let { notes.add(midi(stringIndex, it)) }
         }
-        val clickLength = (sampleRate * 0.035).toInt()
-        for (i in 0 until count) {
-            var sample = 0.0
-            if (notes.isNotEmpty()) {
-                notes.forEach { midiValue ->
-                    val frequency = 440.0 * 2.0.pow((midiValue - 69) / 12.0)
-                    sample += sin(2.0 * PI * frequency * i / sampleRate)
-                }
-                sample /= notes.size
-            } else if (i < clickLength) {
-                val envelope = 1.0 - i.toDouble() / clickLength.toDouble()
-                sample = sin(2.0 * PI * 1200.0 * i / sampleRate) * envelope
-            }
-            data[i] = (sample * 14000.0).toInt().coerceIn(-32767, 32767).toShort()
-        }
+
         val audio = track ?: return
-        var offset = 0
-        while (offset < data.size && playing) {
-            val written = audio.write(data, offset, data.size - offset, AudioTrack.WRITE_BLOCKING)
-            if (written <= 0) throw IllegalStateException("AudioTrack write failed")
-            offset += written
+        val direction = strokes[column] == StrokeDirection.UP
+        if (notes.isNotEmpty()) {
+            val voice = if (instrument.equals("Bass", ignoreCase = true)) {
+                GuitarSoundEngine.Voice.BASS
+            } else {
+                GuitarSoundEngine.Voice.ELECTRIC_GUITAR
+            }
+            val data = guitarEngine.render(
+                midiNotes = notes,
+                durationSeconds = seconds,
+                voice = voice,
+                velocity = 0.92f,
+                upstroke = direction
+            )
+            var offset = 0
+            while (offset < data.size && playing) {
+                val written = audio.write(data, offset, data.size - offset, AudioTrack.WRITE_BLOCKING)
+                if (written <= 0) throw IllegalStateException("AudioTrack write failed")
+                offset += written
+            }
+        } else {
+            // Keep an intentionally short metronomic cue for an empty column.
+            val count = (sampleRate * seconds).toInt().coerceAtLeast(1)
+            val data = ShortArray(count)
+            val clickLength = (sampleRate * 0.035).toInt()
+            for (i in 0 until minOf(clickLength, data.size)) {
+                val envelope = 1.0 - i.toDouble() / clickLength.toDouble()
+                data[i] = (sin(2.0 * PI * 1200.0 * i / sampleRate) * envelope * 12000.0)
+                    .toInt().coerceIn(-32767, 32767).toShort()
+            }
+            var offset = 0
+            while (offset < data.size && playing) {
+                val written = audio.write(data, offset, data.size - offset, AudioTrack.WRITE_BLOCKING)
+                if (written <= 0) throw IllegalStateException("AudioTrack write failed")
+                offset += written
+            }
         }
     }
 
