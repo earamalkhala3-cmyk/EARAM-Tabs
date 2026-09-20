@@ -72,7 +72,7 @@ jobs:
         run: yes | sdkmanager --licenses > /dev/null || true
 
       - name: Install Android SDK components
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.2.12479018"
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "emulator"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -147,56 +147,15 @@ jobs:
           unzip -t "$APK_PATH"
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK_PATH"
 
-      - name: Verify native libraries and 16 KB compatibility
+      - name: Verify APK has no unnecessary native payload
         run: |
           set -euo pipefail
-          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
-          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK_PATH"
-
-          echo "=== NATIVE LIBRARY ZIP PACKAGING ==="
-          mapfile -t SO_ENTRIES < <(unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\.so$' || true)
-          if [ "${#SO_ENTRIES[@]}" -eq 0 ]; then
-            echo "ERROR: Expected native libraries, but APK contains none."
+          echo "=== NATIVE PAYLOAD CHECK ==="
+          if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\\.so$'; then
+            echo "ERROR: APK contains native libraries. Earam core does not require a native payload; shipping none removes an unnecessary Android package-compatibility risk."
             exit 1
           fi
-
-          unzip -lv "$APK_PATH" | awk '
-            $NF ~ /^lib\/[^/]+\/[^/]+\.so$/ {
-              if ($2 != "Stored") { print "ERROR: native library is compressed:", $0; bad=1 }
-              else { print "OK: native library is uncompressed:", $0 }
-            }
-            END { exit bad }
-          '
-
-          echo "=== ABI COVERAGE ==="
-          rm -rf /tmp/earam-unpacked
-          mkdir -p /tmp/earam-unpacked
-          unzip -o "$APK_PATH" 'lib/*/*.so' -d /tmp/earam-unpacked >/dev/null
-          for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
-            test -d "/tmp/earam-unpacked/lib/$ABI" || { echo "ERROR: missing ABI directory: $ABI"; exit 1; }
-            echo "OK: $ABI present"
-          done
-
-          echo "=== ELF LOAD SEGMENTS ==="
-          NDK_READELF="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-          find /tmp/earam-unpacked/lib -type f -name '*.so' -print0 | while IFS= read -r -d '' SO; do
-            echo "--- $SO ---"
-            LOADS="$("$NDK_READELF" -lW "$SO" | awk '$1 == "LOAD" {print $NF}')"
-            test -n "$LOADS" || { echo "ERROR: no ELF LOAD segments found: $SO"; exit 1; }
-            printf 'LOAD alignment: %s\n' "$LOADS"
-            while IFS= read -r ALIGN; do
-              case "$ALIGN" in
-                0x[0-9a-fA-F]*)
-                  VALUE=$((ALIGN))
-                  if [ "$VALUE" -lt 16384 ] || [ $((VALUE % 16384)) -ne 0 ]; then
-                    echo "ERROR: ELF LOAD alignment is below 16 KB or not a 16 KB multiple: $SO ($ALIGN)"
-                    exit 1
-                  fi
-                  ;;
-                *) echo "ERROR: could not parse ELF LOAD alignment: $SO ($ALIGN)"; exit 1 ;;
-              esac
-            done <<< "$LOADS"
-          done
+          echo "PASS: APK contains no native libraries."
 
       - name: Install-test release APK on Android 15 emulator
         id: emulator_test
