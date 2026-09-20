@@ -16,6 +16,6 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
-          echo "$PWD/actionlint" >> "$GITHUB_PATH"
+          echo "$PWD" >> "$GITHUB_PATH"
       - name: Validate GitHub Actions workflows
         run: actionlint .github/workflows/*.yml
