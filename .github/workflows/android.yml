@@ -95,8 +95,14 @@ jobs:
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.earam.tabs'" <<< "$BADGING"
           grep -q "versionName='0.1.4'" <<< "$BADGING"
-          ! grep -q "testOnly='true'" <<< "$BADGING"
-          ! grep -q "debuggable='true'" <<< "$BADGING"
+          if grep -q "testOnly='true'" <<< "$BADGING"; then
+            echo "ERROR: testOnly APK"
+            exit 1
+          fi
+          if grep -q "debuggable='true'" <<< "$BADGING"; then
+            echo "ERROR: debuggable APK"
+            exit 1
+          fi
           unzip -Z1 "$APK_PATH" | grep -q '^resources.arsc$'
           if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\.so$'; then
             echo "ERROR: unexpected native libraries"
@@ -123,13 +129,13 @@ jobs:
           nohup "$ANDROID_HOME/emulator/emulator" -avd earam_api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot-load -no-snapshot-save -wipe-data -accel on -gpu swiftshader_indirect >/tmp/earam-emulator.log 2>&1 &
           EMU_PID=$!
           trap 'adb -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMU_PID" >/dev/null 2>&1 || true' EXIT
-          for i in $(seq 1 180); do
+          for _ in $(seq 1 180); do
             adb connect 127.0.0.1:5554 >/dev/null 2>&1 || true
             [ "$(adb -s emulator-5554 get-state 2>/dev/null || true)" = "device" ] && break
             sleep 2
           done
           [ "$(adb -s emulator-5554 get-state 2>/dev/null)" = "device" ]
-          for i in $(seq 1 300); do
+          for _ in $(seq 1 300); do
             [ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
             sleep 2
           done
