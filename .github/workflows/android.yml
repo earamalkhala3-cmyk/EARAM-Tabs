@@ -151,7 +151,316 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== BASELINE PROFILE CHECK ==="
-          if unzip -Z1 "$APK_PATH" | grep -E '^assets/dexopt/(baseline\.prof|baseline\.profm)        run: |
+          if unzip -Z1 "$APK_PATH" | grep -E '^assets/dexopt/(baseline\\.prof|baseline\\.profm)          if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\\.so$'; then
+            echo "ERROR: APK contains native libraries. Earam core does not require a native payload; shipping none removes an unnecessary Android package-compatibility risk."
+            exit 1
+          fi
+          echo "PASS: APK contains no native libraries."
+
+      - name: Install-test release APK on Android 15 emulator
+        id: emulator_test
+        timeout-minutes: 30
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/android-avd
+          ANDROID_EMULATOR_HOME: ${{ runner.temp }}/android-emulator
+        run: |
+          set -euo pipefail
+          LOG=/tmp/earam-emulator.log
+          : > "$LOG"
+          mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_EMULATOR_HOME"
+          sdkmanager "system-images;android-35;google_apis;x86_64" "emulator" "platform-tools" >>"$LOG" 2>&1
+          # GitHub-hosted Ubuntu exposes /dev/kvm but the runner user may not be in the kvm group.
+          # Android 15 x86_64 requires hardware acceleration, so grant the ephemeral CI user access.
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "ERROR: /dev/kvm is not available on this runner."
+            exit 1
+          fi
+          AVD_CREATE_LOG=/tmp/earam-avd-create.log
+          if ! echo "no" | avdmanager create avd --force --name earam_api35 --package "system-images;android-35;google_apis;x86_64" >>"$AVD_CREATE_LOG" 2>&1; then
+            cat "$AVD_CREATE_LOG"
+            echo "ERROR: avdmanager failed to create earam_api35"
+            exit 1
+          fi
+          test -f "$ANDROID_AVD_HOME/earam_api35.ini" || test -f "$ANDROID_AVD_HOME/earam_api35.avd/config.ini" || {
+            echo "ERROR: earam_api35 AVD was not created correctly"
+            find "$ANDROID_AVD_HOME" -maxdepth 3 -type f -print || true
+            cat "$AVD_CREATE_LOG" || true
+            exit 1
+          }
+          EMULATOR="$ANDROID_HOME/emulator/emulator"
+          adb kill-server >/dev/null 2>&1 || true
+          adb start-server
+          nohup "$EMULATOR" -avd earam_api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot-load -no-snapshot-save -wipe-data -accel on -gpu swiftshader_indirect >>"$LOG" 2>&1 &
+          EMULATOR_PID=$!
+          trap 'adb -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true; echo "=== emulator log ==="; tail -n 250 "$LOG" || true' EXIT
+          READY=0
+          for i in $(seq 1 180); do
+            adb connect 127.0.0.1:5554 >/dev/null 2>&1 || true
+            STATE="$(adb -s emulator-5554 get-state 2>/dev/null || true)"
+            printf "Waiting for emulator ADB (%s/180)\\n" "$i"
+            if [ "$STATE" = "device" ]; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "ERROR: emulator process exited before becoming available"
+              tail -n 250 "$LOG" || true
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: emulator did not become available through adb on port 5554 (serial emulator-5554)"
+            adb devices -l || true
+            tail -n 250 "$LOG" || true
+            exit 1
+          fi
+          READY=0
+          for i in $(seq 1 300); do
+            BOOTED="$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [ "$BOOTED" = "1" ]; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: Android 15 emulator did not finish booting."
+            adb devices -l || true
+            adb shell getprop || true
+            exit 1
+          fi
+          # The release APK has now passed the manifest and PackageManager checks; require a normal install with no test-only bypass.
+          adb -s emulator-5554 install --no-incremental "$APK_PATH" || {
+            echo "ERROR: APK install failed"
+            adb -s emulator-5554 shell pm get-install-location || true
+            adb -s emulator-5554 logcat -d -t 500 || true
+            exit 1
+          }
+          adb -s emulator-5554 shell pm path com.earam.tabs
+          PM_FLAGS="$(adb -s emulator-5554 shell dumpsys package com.earam.tabs | grep -m1 -E 'pkgFlags=|privateFlags=' || true)"
+          printf 'Package flags: %s\n' "$PM_FLAGS"
+          if grep -q 'TEST_ONLY' <<< "$PM_FLAGS"; then
+            echo "ERROR: PackageManager reports TEST_ONLY for the release APK."
+            exit 1
+          fi
+          adb -s emulator-5554 shell am force-stop com.earam.tabs
+          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 || true
+          sleep 3
+          adb -s emulator-5554 shell pidof com.earam.tabs || true
+          adb -s emulator-5554 install -r --no-incremental "$APK_PATH" || {
+            echo "ERROR: APK upgrade install failed"
+            adb -s emulator-5554 logcat -d -t 500 || true
+            exit 1
+          }
+          echo "Android 15 emulator clean-install and same-signer upgrade test: PASS"
+      - name: Upload release APK
+        if: ${{ always() && env.APK_PATH != '' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: EARAM-Tabs-release-apk
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+      - name: Final APK fingerprint
+        run: |
+          set -euo pipefail
+          sha256sum "$APK_PATH"
+
+      - name: Verify final APK has no debug/test-only markers
+        run: |
+          set -euo pipefail
+          BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK_PATH")"
+          if grep -E "testOnly='true'|debuggable='true'" <<< "$BADGING"; then
+            echo "ERROR: debug/test-only marker present"
+            exit 1
+          fi
+
+
+      - name: Publish release for in-app updates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | head -1 | cut -d'"' -f2)"
+          TAG="v${VERSION_NAME}"
+          CHECKSUM_FILE="${APK_PATH}.sha256"
+          sha256sum "$APK_PATH" > "$CHECKSUM_FILE"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH#Earam.apk" "$CHECKSUM_FILE#Earam.apk.sha256" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH#Earam.apk" "$CHECKSUM_FILE#Earam.apk.sha256" --title "Earam ${VERSION_NAME}" --notes "Earam Android release ${VERSION_NAME}. Install/update from inside the Earam app."
+          fi
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/earam-release.keystore.p12"
+; then
+            echo "ERROR: APK contains baseline profile payload. Earam currently has no generated baseline profile workflow; exclude this optimization payload from the sideload APK."
+            exit 1
+          fi
+          echo "PASS: APK contains no baseline-profile payload."
+
+      - name: Verify APK has no unnecessary native payload
+        run: |
+          set -euo pipefail
+          echo "=== NATIVE PAYLOAD CHECK ==="
+          if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\\.so$'; then
+            echo "ERROR: APK contains native libraries. Earam core does not require a native payload; shipping none removes an unnecessary Android package-compatibility risk."
+            exit 1
+          fi
+          echo "PASS: APK contains no native libraries."
+
+      - name: Install-test release APK on Android 15 emulator
+        id: emulator_test
+        timeout-minutes: 30
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/android-avd
+          ANDROID_EMULATOR_HOME: ${{ runner.temp }}/android-emulator
+        run: |
+          set -euo pipefail
+          LOG=/tmp/earam-emulator.log
+          : > "$LOG"
+          mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_EMULATOR_HOME"
+          sdkmanager "system-images;android-35;google_apis;x86_64" "emulator" "platform-tools" >>"$LOG" 2>&1
+          # GitHub-hosted Ubuntu exposes /dev/kvm but the runner user may not be in the kvm group.
+          # Android 15 x86_64 requires hardware acceleration, so grant the ephemeral CI user access.
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "ERROR: /dev/kvm is not available on this runner."
+            exit 1
+          fi
+          AVD_CREATE_LOG=/tmp/earam-avd-create.log
+          if ! echo "no" | avdmanager create avd --force --name earam_api35 --package "system-images;android-35;google_apis;x86_64" >>"$AVD_CREATE_LOG" 2>&1; then
+            cat "$AVD_CREATE_LOG"
+            echo "ERROR: avdmanager failed to create earam_api35"
+            exit 1
+          fi
+          test -f "$ANDROID_AVD_HOME/earam_api35.ini" || test -f "$ANDROID_AVD_HOME/earam_api35.avd/config.ini" || {
+            echo "ERROR: earam_api35 AVD was not created correctly"
+            find "$ANDROID_AVD_HOME" -maxdepth 3 -type f -print || true
+            cat "$AVD_CREATE_LOG" || true
+            exit 1
+          }
+          EMULATOR="$ANDROID_HOME/emulator/emulator"
+          adb kill-server >/dev/null 2>&1 || true
+          adb start-server
+          nohup "$EMULATOR" -avd earam_api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot-load -no-snapshot-save -wipe-data -accel on -gpu swiftshader_indirect >>"$LOG" 2>&1 &
+          EMULATOR_PID=$!
+          trap 'adb -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill "$EMULATOR_PID" >/dev/null 2>&1 || true; echo "=== emulator log ==="; tail -n 250 "$LOG" || true' EXIT
+          READY=0
+          for i in $(seq 1 180); do
+            adb connect 127.0.0.1:5554 >/dev/null 2>&1 || true
+            STATE="$(adb -s emulator-5554 get-state 2>/dev/null || true)"
+            printf "Waiting for emulator ADB (%s/180)\\n" "$i"
+            if [ "$STATE" = "device" ]; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "ERROR: emulator process exited before becoming available"
+              tail -n 250 "$LOG" || true
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: emulator did not become available through adb on port 5554 (serial emulator-5554)"
+            adb devices -l || true
+            tail -n 250 "$LOG" || true
+            exit 1
+          fi
+          READY=0
+          for i in $(seq 1 300); do
+            BOOTED="$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [ "$BOOTED" = "1" ]; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: Android 15 emulator did not finish booting."
+            adb devices -l || true
+            adb shell getprop || true
+            exit 1
+          fi
+          # The release APK has now passed the manifest and PackageManager checks; require a normal install with no test-only bypass.
+          adb -s emulator-5554 install --no-incremental "$APK_PATH" || {
+            echo "ERROR: APK install failed"
+            adb -s emulator-5554 shell pm get-install-location || true
+            adb -s emulator-5554 logcat -d -t 500 || true
+            exit 1
+          }
+          adb -s emulator-5554 shell pm path com.earam.tabs
+          PM_FLAGS="$(adb -s emulator-5554 shell dumpsys package com.earam.tabs | grep -m1 -E 'pkgFlags=|privateFlags=' || true)"
+          printf 'Package flags: %s\n' "$PM_FLAGS"
+          if grep -q 'TEST_ONLY' <<< "$PM_FLAGS"; then
+            echo "ERROR: PackageManager reports TEST_ONLY for the release APK."
+            exit 1
+          fi
+          adb -s emulator-5554 shell am force-stop com.earam.tabs
+          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 || true
+          sleep 3
+          adb -s emulator-5554 shell pidof com.earam.tabs || true
+          adb -s emulator-5554 install -r --no-incremental "$APK_PATH" || {
+            echo "ERROR: APK upgrade install failed"
+            adb -s emulator-5554 logcat -d -t 500 || true
+            exit 1
+          }
+          echo "Android 15 emulator clean-install and same-signer upgrade test: PASS"
+      - name: Upload release APK
+        if: ${{ always() && env.APK_PATH != '' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: EARAM-Tabs-release-apk
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+      - name: Final APK fingerprint
+        run: |
+          set -euo pipefail
+          sha256sum "$APK_PATH"
+
+      - name: Verify final APK has no debug/test-only markers
+        run: |
+          set -euo pipefail
+          BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK_PATH")"
+          if grep -E "testOnly='true'|debuggable='true'" <<< "$BADGING"; then
+            echo "ERROR: debug/test-only marker present"
+            exit 1
+          fi
+
+
+      - name: Publish release for in-app updates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | head -1 | cut -d'"' -f2)"
+          TAG="v${VERSION_NAME}"
+          CHECKSUM_FILE="${APK_PATH}.sha256"
+          sha256sum "$APK_PATH" > "$CHECKSUM_FILE"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH#Earam.apk" "$CHECKSUM_FILE#Earam.apk.sha256" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH#Earam.apk" "$CHECKSUM_FILE#Earam.apk.sha256" --title "Earam ${VERSION_NAME}" --notes "Earam Android release ${VERSION_NAME}. Install/update from inside the Earam app."
+          fi
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/earam-release.keystore.p12"
+; then
+            echo "ERROR: APK contains baseline profile payload."
+            exit 1
+          fi
+          echo "PASS: APK contains no baseline-profile payload."
+
+      - name: Verify APK has no unnecessary native payload
+        run: |
           set -euo pipefail
           echo "=== NATIVE PAYLOAD CHECK ==="
           if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\\.so$'; then
