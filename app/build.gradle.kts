@@ -18,7 +18,7 @@ android { namespace = "com.earam.tabs"; compileSdk = 35
             keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
             enableV1Signing = true
             enableV2Signing = true
-            enableV3Signing = true
+            enableV3Signing = false
         }
     }
     buildTypes {
