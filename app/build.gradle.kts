@@ -33,7 +33,10 @@ android { namespace = "com.earam.tabs"; compileSdk = 35
     }
     packaging {
         jniLibs { useLegacyPackaging = false }
-        resources { excludes += "/assets/dexopt/**" }
+        resources {
+            excludes += "/assets/dexopt/**"
+            noCompress += "arsc"
+        }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
