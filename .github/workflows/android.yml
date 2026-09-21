@@ -307,12 +307,6 @@ jobs:
       - name: Remove signing material
         if: always()
         run: rm -f "${RUNNER_TEMP}/earam-release.keystore.p12"
-; then
-            echo "ERROR: APK contains baseline profile payload. Earam currently has no generated baseline profile workflow; exclude this optimization payload from the sideload APK."
-            exit 1
-          fi
-          echo "PASS: APK contains no baseline-profile payload."
-
       - name: Verify APK has no unnecessary native payload
         run: |
           set -euo pipefail
