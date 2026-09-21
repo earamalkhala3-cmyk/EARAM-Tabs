@@ -151,7 +151,17 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== BASELINE PROFILE CHECK ==="
-          if unzip -Z1 "$APK_PATH" | grep -E '^assets/dexopt/(baseline\\.prof|baseline\\.profm)          if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\\.so$'; then
+          if unzip -Z1 "$APK_PATH" | grep -E '^assets/dexopt/(baseline\\.prof|baseline\\.profm)$'; then
+            echo "ERROR: APK contains baseline profile payload."
+            exit 1
+          fi
+          echo "PASS: APK contains no baseline-profile payload."
+
+      - name: Verify APK has no unnecessary native payload
+        run: |
+          set -euo pipefail
+          echo "=== NATIVE PAYLOAD CHECK ==="
+          if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\\.so$'; then
             echo "ERROR: APK contains native libraries. Earam core does not require a native payload; shipping none removes an unnecessary Android package-compatibility risk."
             exit 1
           fi
