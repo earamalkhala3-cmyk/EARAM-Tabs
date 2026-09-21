@@ -80,7 +80,7 @@ jobs:
           "$SIGNER" verify --verbose --print-certs "$APK_PATH" | tee /tmp/apksigner.txt
           grep -q "Verified using v1 scheme (JAR signing): true" /tmp/apksigner.txt
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner.txt
-          grep -q "Verified using v3 scheme (APK Signature Scheme v3): false" /tmp/apksigner.txt
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt
           grep -q "Signer #1 certificate DN: C=EG, O=EARAM, CN=EARAM Tabs Release" /tmp/apksigner.txt
           if grep -q "Android Debug" /tmp/apksigner.txt; then
             echo "ERROR: debug certificate detected"
