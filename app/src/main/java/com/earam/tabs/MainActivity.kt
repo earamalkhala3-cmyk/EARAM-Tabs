@@ -378,6 +378,14 @@ class MainActivity : Activity() {
         editor?.invalidate()
     }
 
+    private fun showChordDialog() {
+        val input = EditText(this).apply { hint = "Chord (e.g. Am7)" }
+        AlertDialog.Builder(this).setTitle("Chord").setView(input)
+            .setNegativeButton("Cancel", null).setPositiveButton("Apply") { _, _ ->
+                val value = input.text.toString().trim()
+                if (value.isNotEmpty()) { chords[editor?.selectedColumn() ?: 0] = value; editor?.invalidate() }
+            }.show()
+    }
     private fun openEditor() {
         editor = EditorView()
         setContentView(editor)
@@ -450,6 +458,7 @@ class MainActivity : Activity() {
         private val undo = ArrayDeque<EditorState>()
         private val redo = ArrayDeque<EditorState>()
         var loop = false
+        fun selectedColumn(): Int = column
 
         override fun onDraw(canvas: Canvas) {
             canvas.drawColor(0xFF111315.toInt())
@@ -511,6 +520,7 @@ class MainActivity : Activity() {
 
             for (beat in 0 until columnCount) {
                 val x = gridX + beat * cellWidth + cellWidth / 2f
+                chords[beat]?.let { chord -> text(canvas, chord, x - 4f, gridY - 38f, 11f, true) }
                 strokes[beat]?.let { direction -> text(canvas, if (direction == StrokeDirection.DOWN) "↓" else "↑", x - 5f, gridY - 18f, 16f, true) }
                 for (stringIndex in 0 until stringCount) {
                     cells[stringIndex][beat]?.let { value -> drawTab(canvas, value, x - 5f, gridY + stringIndex * stringGap + 5f, stringIndex == row && beat == column) }
@@ -617,6 +627,7 @@ class MainActivity : Activity() {
                 val toolWidth = (w - 16f) / 11f
                 val index = ((x - 8f) / toolWidth).toInt()
                 when (index) {
+                    2 -> showChordDialog()
                     4 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
                     5 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
                     6 -> saveProject()
