@@ -1,6 +1,8 @@
 package com.earam.tabs
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.app.AlertDialog
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -25,6 +27,7 @@ import com.earam.tabs.music.StrokeDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.zip.ZipInputStream
 import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.sin
@@ -44,6 +47,8 @@ class MainActivity : Activity() {
     private var timeSig = "4/4"
     private var keySig = "C"
     private var notation = "BOTH"
+    private var selectedFret = 0
+    private val chords = mutableMapOf<Int, String>()
 
     private var cells = Array(stringCount) { mutableMapOf<Int, String>() }
     private var strokes = mutableMapOf<Int, StrokeDirection>()
@@ -56,7 +61,7 @@ class MainActivity : Activity() {
     @Volatile private var track: AudioTrack? = null
     private val sampleRate = 44100
     private val guitarEngine = GuitarSoundEngine(sampleRate)
-    private val columnCount = 8
+    private val columnCount = 16
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -391,7 +396,7 @@ class MainActivity : Activity() {
             paint.typeface = Typeface.DEFAULT_BOLD
             paint.color = 0xFFE66A2E.toInt()
             paint.textSize = 13f
-            canvas.drawText("EARAM", 34f, 34f, paint)
+            paint.color = 0xFFF1F2F3.toInt(); canvas.drawText("Ea", 34f, 34f, paint); paint.color = 0xFFE66A2E.toInt(); canvas.drawText("r", 48f, 34f, paint); paint.color = 0xFFF1F2F3.toInt(); canvas.drawText("am", 56f, 34f, paint)
             paint.color = 0xFFF1F2F3.toInt()
             paint.textSize = 40f
             canvas.drawText("Music workspace", 34f, 78f, paint)
@@ -453,7 +458,7 @@ class MainActivity : Activity() {
             val h = height.toFloat() / d
             paint.color = 0xFF191C1F.toInt()
             canvas.drawRect(0f, 0f, w, 64f, paint)
-            text(canvas, "Earam", 18f, 40f, 22f, true)
+            text(canvas, "Ea", 18f, 40f, 22f, true); paint.color = 0xFFE66A2E.toInt(); canvas.drawText("r", 43f, 40f, paint); paint.color = 0xFFE5E7E8.toInt(); canvas.drawText("am", 55f, 40f, paint)
             text(canvas, projectName, 104f, 39f, 12f, false)
             text(canvas, "$bpm BPM", w - 82f, 39f, 11f, false)
 
