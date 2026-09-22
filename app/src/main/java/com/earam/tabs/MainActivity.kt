@@ -799,209 +799,168 @@ class MainActivity : Activity() {
 
     @OptIn(kotlin.contracts.ExperimentalContracts::class)
     private fun showAlphaTabPreview(uri: Uri, fileName: String) {
-        val dialog = AlertDialog.Builder(this).create()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF777777.toInt())
+            setBackgroundColor(0xFFFFFFFF.toInt())
         }
-
         val title = TextView(this).apply {
             text = "Earam  •  " + fileName.substringBeforeLast('.')
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 15f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
             setBackgroundColor(0xFF191C1F.toInt())
         }
-
         val status = TextView(this).apply {
             text = "Loading TAB…"
-            setTextColor(0xFFE8E8E8.toInt())
+            setTextColor(0xFF303030.toInt())
             textSize = 12f
-            setPadding(dp(12f), dp(4f), dp(12f), dp(4f))
-            setBackgroundColor(0xFF25292D.toInt())
+            setPadding(dp(12f), dp(5f), dp(12f), dp(5f))
+            setBackgroundColor(0xFFF2F2F2.toInt())
         }
-
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setGravity(Gravity.CENTER_VERTICAL)
-            setPadding(dp(6f), dp(5f), dp(6f), dp(5f))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
             setBackgroundColor(0xFF25292D.toInt())
         }
-
         fun control(text: String): Button = Button(this).apply {
             this.text = text
             isAllCaps = false
             minWidth = 0
-            setPadding(dp(6f), 0, dp(6f), 0)
+            setPadding(dp(2f), 0, dp(2f), 0)
         }
-
+        val back = control("←")
         val play = control("▶")
         val stop = control("■")
         val slower = control("0.5×")
         val slow = control("0.75×")
-        val normal = control("1.0×")
+        val normal = control("1×")
         val fast = control("1.25×")
         val faster = control("1.5×")
-
-        listOf(play, stop, slower, slow, normal, fast, faster).forEach { b ->
+        listOf(back, play, stop, slower, slow, normal, fast, faster).forEach { b ->
             controls.addView(b, LinearLayout.LayoutParams(0, dp(44f), 1f))
         }
-
-        val score = AlphaTabView(this, null)
-        score.setBackgroundColor(0xFFFFFFFF.toInt())
-        score.settings.display.layoutMode = LayoutMode.Page
-        score.settings.display.barsPerRow = 3.0
-        score.settings.display.barCount = -1.0
-        score.settings.display.startBar = 1.0
-        score.settings.display.scale = 0.80
-        score.settings.display.stretchForce = 0.75
-        score.settings.core.includeNoteBounds = true
-        score.settings.player.playerMode = PlayerMode.EnabledSynthesizer
-        score.settings.player.enablePlayer = true
-        score.settings.player.enableUserInteraction = true
-        score.settings.player.enableCursor = true
-        score.settings.player.enableElementHighlighting = true
-        score.api.updateSettings()
-
+        val score = AlphaTabView(this, null).apply {
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            settings.display.layoutMode = LayoutMode.Page
+            settings.display.barsPerRow = 2.0
+            settings.display.barCount = -1.0
+            settings.display.startBar = 1.0
+            settings.display.scale = 0.72
+            settings.display.stretchForce = 0.0
+            settings.core.includeNoteBounds = true
+            settings.player.playerMode = PlayerMode.EnabledSynthesizer
+            settings.player.enablePlayer = true
+            settings.player.enableUserInteraction = true
+            settings.player.enableCursor = true
+            settings.player.enableElementHighlighting = true
+            api.updateSettings()
+        }
         val noteEditor = AlphaTabNoteEditor(this, score, status)
         noteEditor.attach()
-
         fun setSpeed(value: Double) {
             score.api.playbackSpeed = value
-            status.text = "Playback: " + String.format(java.util.Locale.US, "%.0f%%", value * 100.0)
+            status.text = "Playback • " + String.format(java.util.Locale.US, "%.0f%%", value * 100.0)
         }
-
-        fun refreshBarsForWidth(widthPx: Int) {
-            val widthDp = widthPx / resources.displayMetrics.density
-            val desired = when {
-                widthDp >= 900f -> 5.0
-                widthDp >= 700f -> 4.0
-                else -> 3.0
-            }
-            if (score.settings.display.barsPerRow != desired) {
-                score.settings.display.barsPerRow = desired
-                score.api.updateSettings()
-                score.api.render()
-            }
-        }
-
-        score.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
-            refreshBarsForWidth(right - left)
-        }
-
-        // AlphaTab does not provide a built-in player toolbar; these controls are
-        // deliberately part of the Earam import window.
-        play.setOnClickListener {
-            score.api.playPause()
-        }
-        stop.setOnClickListener {
-            score.api.stop()
-            play.text = "▶"
-        }
+        back.setOnClickListener { openEditor() }
+        play.setOnClickListener { if (score.api.isReadyForPlayback) score.api.playPause() }
+        stop.setOnClickListener { score.api.stop(); play.text = "▶" }
         slower.setOnClickListener { setSpeed(0.50) }
         slow.setOnClickListener { setSpeed(0.75) }
         normal.setOnClickListener { setSpeed(1.00) }
         fast.setOnClickListener { setSpeed(1.25) }
         faster.setOnClickListener { setSpeed(1.50) }
-
         score.api.playerReady.on {
             runOnUiThread {
-                status.text = "Ready • 100% speed"
+                status.text = "Ready • 100%"
                 play.isEnabled = true
                 stop.isEnabled = true
-                setSpeed(1.0)
             }
         }
         score.api.playerStateChanged.on {
             runOnUiThread {
-                play.text = if (score.api.playerState.toString().contains("Playing", ignoreCase = true)) "Ⅱ" else "▶"
+                play.text = if (score.api.playerState.toString().contains("Playing", true)) "Ⅱ" else "▶"
+                if (score.api.isReadyForPlayback) score.api.scrollToCursor()
             }
         }
         score.api.soundFontLoaded.on {
-            runOnUiThread {
-                status.text = "Sound ready • 100% speed"
-            }
+            runOnUiThread { status.text = "Sound ready • 100%" }
         }
-
         root.addView(title, LinearLayout.LayoutParams(-1, -2))
         root.addView(status, LinearLayout.LayoutParams(-1, -2))
         root.addView(controls, LinearLayout.LayoutParams(-1, -2))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
-        dialog.setView(root)
-        dialog.show()
-        dialog.window?.setLayout(-1, -1)
-
+        setContentView(root)
         play.isEnabled = false
         stop.isEnabled = false
-
         score.api.scoreLoaded.on { loadedScore ->
             runOnUiThread {
                 title.text = "Earam  •  " + loadedScore.title.ifBlank { fileName.substringBeforeLast('.') }
-                refreshBarsForWidth(score.width)
-                status.text = "TAB loaded • loading sound…"
+                status.text = "TAB loaded • preparing sound…"
             }
         }
-
         Thread {
             try {
-                // Use alphaTab's native Android loading path. It accepts an InputStream
-                // and dispatches the raw bytes to the correct importer by file format.
-                // This is important for legacy binary Guitar Pro 3/4/5 files (.gp3/.gp4/.gp5).
-                val loaded = contentResolver.openInputStream(uri)?.use { input ->
-                    score.api.load(input)
-                } ?: throw IllegalStateException("Cannot read TAB file")
-
-                if (!loaded) {
-                    throw IllegalStateException("alphaTab rejected this file format")
+                val inputBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw IllegalStateException("Cannot read selected file from the document provider")
+                if (inputBytes.isEmpty()) throw IllegalStateException("Selected TAB file is empty")
+                runOnUiThread { status.text = "Importing " + inputBytes.size + " bytes • " + fileName.substringAfterLast('.', "unknown").uppercase() + "…" }
+                val loaded = score.api.load(ByteArrayInputStream(inputBytes))
+                if (!loaded) throw IllegalStateException("AlphaTab returned false: no importer accepted this file format. Bytes=" + inputBytes.size)
+                val sfUrls = listOf(
+                    "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2",
+                    "https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/soundfont/sonivox.sf2"
+                )
+                var soundFontBytes: ByteArray? = null
+                var lastSoundError: String? = null
+                for (sfUrl in sfUrls) {
+                    try {
+                        val connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 15000
+                            readTimeout = 30000
+                            instanceFollowRedirects = true
+                            requestMethod = "GET"
+                            setRequestProperty("Accept", "application/octet-stream")
+                        }
+                        connection.connect()
+                        val code = connection.responseCode
+                        if (code !in 200..299) {
+                            lastSoundError = "HTTP " + code + " from " + sfUrl
+                            connection.disconnect()
+                            continue
+                        }
+                        val bytes = connection.inputStream.use { it.readBytes() }
+                        connection.disconnect()
+                        val riff = bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() && bytes[8] == 's'.code.toByte() && bytes[9] == 'f'.code.toByte() && bytes[10] == 'b'.code.toByte() && bytes[11] == 'k'.code.toByte()
+                        if (!riff) { lastSoundError = "Downloaded data is not a valid SF2 file (" + bytes.size + " bytes)"; continue }
+                        soundFontBytes = bytes
+                        break
+                    } catch (t: Throwable) { lastSoundError = t.message ?: t.javaClass.simpleName }
                 }
-
-                // Android alphaTab does not download a SoundFont from a URL automatically.
-                // Load the bundled-version-compatible Sonivox bank explicitly, then build MIDI.
-                val sfUrl = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
-                val connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    instanceFollowRedirects = true
-                    requestMethod = "GET"
-                }
-                connection.connect()
-                if (connection.responseCode !in 200..299) {
-                    throw IllegalStateException("SoundFont download failed: HTTP " + connection.responseCode)
-                }
-                val soundFontBytes = connection.inputStream.use { it.readBytes() }
-                connection.disconnect()
-
+                val sf = soundFontBytes ?: throw IllegalStateException("SoundFont download failed. " + (lastSoundError ?: "no compatible SONiVOX file was received"))
                 runOnUiThread {
                     try {
-                        val loaded = score.api.loadSoundFont(java.io.ByteArrayInputStream(soundFontBytes), false)
-                        if (!loaded) throw IllegalStateException("SoundFont format was rejected")
+                        val accepted = score.api.loadSoundFont(sf, false)
+                        if (!accepted) throw IllegalStateException("AlphaTab rejected valid SF2 bytes (" + sf.size + " bytes)")
                         score.api.loadMidiForScore()
-                        status.text = "Sound ready • 100% speed"
-                        play.isEnabled = true
+                        status.text = "Sound ready • 100%"
+                        play.isEnabled = score.api.isReadyForPlayback
                         stop.isEnabled = true
-                    } catch (e: Exception) {
-                        dialog.dismiss()
-                        Toast.makeText(
-                            this,
-                            "Playback setup failed: " + (e.message ?: "SoundFont error"),
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                    } catch (t: Throwable) { showImportError(fileName, "SoundFont", t) }
                 }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    dialog.dismiss()
-                    Toast.makeText(
-                        this,
-                        "TAB import failed: " + (e.message ?: "unsupported or damaged file"),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
+            } catch (t: Throwable) { runOnUiThread { showImportError(fileName, "TAB import", t) } }
         }.start()
     }
 
+    private fun showImportError(fileName: String, stage: String, error: Throwable) {
+        val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.name
+        AlertDialog.Builder(this)
+            .setTitle("$stage failed")
+            .setMessage("File: $fileName\n\n$detail")
+            .setPositiveButton("OK", null)
+            .show()
+    }
     private fun saveProjectAs() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
