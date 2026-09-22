@@ -25,6 +25,10 @@ import android.widget.Button
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import alphaTab.AlphaTabView
+import alphaTab.LayoutMode
+import alphaTab.core.ecmaScript.Uint8Array
+import alphaTab.importer.ScoreLoader
 import com.earam.tabs.music.PickingEngine
 import com.earam.tabs.music.PickingMode
 import com.earam.tabs.music.StrumPattern
