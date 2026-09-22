@@ -1017,7 +1017,7 @@ class MainActivity : Activity() {
                     if (kotlin.math.abs(dx) > touchSlop) dragging = true
                     if (dragging && y in 180f..(h - 125f)) {
                         val maxScroll = maxOf(0, columnCount - ((w - 60f) / 60f).toInt())
-                        scrollColumn = (scrollColumn - (dx / 44f).toInt()).coerceIn(0, maxScroll)
+                        scrollColumn = (scrollColumn - (dx / 60f).toInt()).coerceIn(0, maxScroll)
                         downX = x
                         invalidate()
                     }
