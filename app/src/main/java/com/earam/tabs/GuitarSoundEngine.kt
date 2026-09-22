@@ -97,7 +97,7 @@ class GuitarSoundEngine(private val sampleRate: Int = 44100) {
             val attack = 1.0 - exp(-t / .004)
             val decay = exp(-t / if (voice == Voice.ELECTRIC_PIANO) 2.0 else 2.7)
             var v = 0.0
-            for (h in 1..10) v += (1.0 / h.pow(.72)) * sin(2 * PI * f * h * t) * exp(-t / (2.0 + h * .12))
+            for (h in 1..10) v += (1.0 / h.toDouble().pow(.72)) * sin(2 * PI * f * h.toDouble() * t) * exp(-t / (2.0 + h.toDouble() * .12))
             if (voice == Voice.ELECTRIC_PIANO) v += .12 * sin(2 * PI * f * 2.01 * t) * exp(-t / 1.8)
             out[n] = v * .16 * attack * decay * velocity
         }
