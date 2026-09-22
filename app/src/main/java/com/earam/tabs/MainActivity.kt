@@ -27,6 +27,7 @@ import android.widget.TextView
 import android.widget.Toast
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
+import alphaTab.PlayerMode
 import alphaTab.core.ecmaScript.Uint8Array
 import alphaTab.importer.ScoreLoader
 import com.earam.tabs.music.PickingEngine
@@ -801,25 +802,82 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF8E8E8E.toInt())
         }
+
         val title = TextView(this).apply {
             text = "Earam  •  " + fileName.substringBeforeLast('.')
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 14f
-            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+            setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
             setBackgroundColor(0xFF191C1F.toInt())
         }
+
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(8f), dp(5f), dp(8f), dp(5f))
+            setBackgroundColor(0xFF25292D.toInt())
+        }
+        val play = Button(this).apply { text = "▶ PLAY"; isAllCaps = false }
+        val stop = Button(this).apply { text = "■ STOP"; isAllCaps = false }
+        val zoomOut = Button(this).apply { text = "−"; isAllCaps = false }
+        val zoomIn = Button(this).apply { text = "+"; isAllCaps = false }
+        controls.addView(play, LinearLayout.LayoutParams(0, dp(42f), 2f))
+        controls.addView(stop, LinearLayout.LayoutParams(0, dp(42f), 1.4f))
+        controls.addView(zoomOut, LinearLayout.LayoutParams(0, dp(42f), 1f))
+        controls.addView(zoomIn, LinearLayout.LayoutParams(0, dp(42f), 1f))
+
         val score = AlphaTabView(this, null)
+        score.setBackgroundColor(0xFFFFFFFF.toInt())
         score.settings.display.layoutMode = LayoutMode.Page
-        score.settings.display.barsPerRow = -1.0
+        score.settings.display.barsPerRow = 3.0
         score.settings.display.barCount = -1.0
         score.settings.display.startBar = 1.0
-        score.settings.display.scale = 1.0
+        score.settings.display.scale = 0.80
+        score.settings.display.stretchForce = 0.75
         score.settings.core.includeNoteBounds = true
+
+        // Use alphaTab's real Android synthesizer for imported scores.
+        // The previous custom AudioTrack editor has no knowledge of imported GP/TAB notes.
+        score.settings.player.playerMode = PlayerMode.EnabledSynthesizer
+        score.settings.player.enablePlayer = true
         score.settings.player.enableUserInteraction = true
         score.settings.player.enableCursor = true
-        score.settings.player.enablePlayer = true
+        score.settings.player.enableElementHighlighting = true
         score.api.updateSettings()
+
+        fun refreshBarsForWidth(widthPx: Int) {
+            val widthDp = widthPx / resources.displayMetrics.density
+            val desired = if (widthDp >= 700f) 4.0 else 3.0
+            if (score.settings.display.barsPerRow != desired) {
+                score.settings.display.barsPerRow = desired
+                score.api.updateSettings()
+                score.api.renderTracks()
+            }
+        }
+        score.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            refreshBarsForWidth(right - left)
+        }
+
+        play.setOnClickListener {
+            score.api.playPause()
+            play.text = if (play.text.toString().startsWith("▶")) "Ⅱ PAUSE" else "▶ PLAY"
+        }
+        stop.setOnClickListener {
+            score.api.stop()
+            play.text = "▶ PLAY"
+        }
+        zoomOut.setOnClickListener {
+            score.settings.display.scale = (score.settings.display.scale - 0.05).coerceAtLeast(0.55)
+            score.api.updateSettings()
+            score.api.renderTracks()
+        }
+        zoomIn.setOnClickListener {
+            score.settings.display.scale = (score.settings.display.scale + 0.05).coerceAtMost(1.10)
+            score.api.updateSettings()
+            score.api.renderTracks()
+        }
+
         root.addView(title, LinearLayout.LayoutParams(-1, -2))
+        root.addView(controls, LinearLayout.LayoutParams(-1, -2))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         dialog.setView(root)
         dialog.show()
@@ -833,9 +891,11 @@ class MainActivity : Activity() {
                     Uint8Array(bytes.asUByteArray()),
                     score.settings
                 )
+                if (parsed.tracks.isEmpty()) throw IllegalStateException("The imported file contains no tracks")
                 runOnUiThread {
                     score.tracks = arrayListOf(parsed.tracks[0])
                     title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
+                    refreshBarsForWidth(score.width)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
