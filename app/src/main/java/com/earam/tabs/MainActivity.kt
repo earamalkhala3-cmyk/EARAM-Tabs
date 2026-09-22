@@ -722,12 +722,12 @@ class MainActivity : Activity() {
                 val toolWidth = (w - 16f) / 11f
                 val index = ((x - 8f) / toolWidth).toInt()
                 when (index) {
-                    2 -> showChordDialog()
-                    3 -> importGuitarPro()
-                    4 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
-                    5 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
-                    6 -> saveProject()
-                    7 -> showHome()
+                    0 -> showFileMenu()
+                    3 -> showChordDialog()
+                    4 -> importGuitarPro()
+                    5 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
+                    6 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
+                    7 -> saveProject()
                     8 -> startPlayback()
                     9 -> stopPlayback()
                     10 -> { loop = !loop; invalidate() }
