@@ -37,6 +37,7 @@ import com.earam.tabs.music.StrokeDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.ZipInputStream
@@ -908,37 +909,21 @@ class MainActivity : Activity() {
                 runOnUiThread { status.text = "Importing " + inputBytes.size + " bytes • " + fileName.substringAfterLast('.', "unknown").uppercase() + "…" }
                 val loaded = score.api.load(ByteArrayInputStream(inputBytes))
                 if (!loaded) throw IllegalStateException("AlphaTab returned false: no importer accepted this file format. Bytes=" + inputBytes.size)
-                val sfUrls = listOf(
-                    "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2",
-                    "https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/soundfont/sonivox.sf2"
-                )
-                var soundFontBytes: ByteArray? = null
-                var lastSoundError: String? = null
-                for (sfUrl in sfUrls) {
-                    try {
-                        val connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
-                            connectTimeout = 15000
-                            readTimeout = 30000
-                            instanceFollowRedirects = true
-                            requestMethod = "GET"
-                            setRequestProperty("Accept", "application/octet-stream")
-                        }
-                        connection.connect()
-                        val code = connection.responseCode
-                        if (code !in 200..299) {
-                            lastSoundError = "HTTP " + code + " from " + sfUrl
-                            connection.disconnect()
-                            continue
-                        }
-                        val bytes = connection.inputStream.use { it.readBytes() }
-                        connection.disconnect()
-                        val riff = bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() && bytes[8] == 's'.code.toByte() && bytes[9] == 'f'.code.toByte() && bytes[10] == 'b'.code.toByte() && bytes[11] == 'k'.code.toByte()
-                        if (!riff) { lastSoundError = "Downloaded data is not a valid SF2 file (" + bytes.size + " bytes)"; continue }
-                        soundFontBytes = bytes
-                        break
-                    } catch (t: Throwable) { lastSoundError = t.message ?: t.javaClass.simpleName }
+                val sfUrl = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
+                val connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    requestMethod = "GET"
+                    setRequestProperty("Accept", "application/octet-stream")
                 }
-                val sf = soundFontBytes ?: throw IllegalStateException("SoundFont download failed. " + (lastSoundError ?: "no compatible SONiVOX file was received"))
+                connection.connect()
+                val code = connection.responseCode
+                if (code !in 200..299) throw IllegalStateException("HTTP $code while downloading AlphaTab 1.8.4 SONiVOX SoundFont")
+                val sf = connection.inputStream.use { it.readBytes() }
+                connection.disconnect()
+                val riff = sf.size >= 12 && sf[0] == 'R'.code.toByte() && sf[1] == 'I'.code.toByte() && sf[2] == 'F'.code.toByte() && sf[3] == 'F'.code.toByte() && sf[8] == 's'.code.toByte() && sf[9] == 'f'.code.toByte() && sf[10] == 'b'.code.toByte() && sf[11] == 'k'.code.toByte()
+                if (!riff) throw IllegalStateException("AlphaTab 1.8.4 SoundFont response is not a valid SF2 file (" + sf.size + " bytes)")
                 runOnUiThread {
                     try {
                         val accepted = score.api.loadSoundFont(sf, false)
@@ -1110,8 +1095,9 @@ class MainActivity : Activity() {
                 val beat = note.beat
                 val track = score.api.score?.tracks?.firstOrNull() ?: return@on
                 val staff = track.staves.firstOrNull() ?: return@on
-                for (bi in staff.bars.indices) {
-                    val beats = staff.bars[bi].voices.firstOrNull()?.beats ?: continue
+                val barList = staff.bars.toList()
+                for (bi in barList.indices) {
+                    val beats = barList[bi].voices.firstOrNull()?.beats?.toList() ?: continue
                     val index = beats.indexOf(beat)
                     if (index >= 0) {
                         currentBarIndex = bi
@@ -1134,11 +1120,11 @@ class MainActivity : Activity() {
             }
         }
 
-        private fun bars() =
-            score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.bars
+        private fun bars(): List<alphaTab.model.Bar>? =
+            score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.bars?.toList()
 
         private fun currentBeat(): alphaTab.model.Beat? =
-            bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.getOrNull(currentBeatIndex)
+            bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
 
         private fun moveBeat(delta: Int) {
             val bs = bars() ?: return
@@ -1164,7 +1150,7 @@ class MainActivity : Activity() {
         }
 
         private fun moveString(delta: Int) {
-            val maxString = score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.tuning?.tunings?.size ?: 6
+            val maxString = score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.tuning?.toList()?.size ?: 6
             currentStringIndex = (currentStringIndex + delta).coerceIn(1, maxString)
             armed = true
             updateStatus()
