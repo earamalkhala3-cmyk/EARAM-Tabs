@@ -130,7 +130,7 @@ class MainActivity : Activity() {
         instrumentButton.setOnClickListener {
             showInstrumentBrowser { category, type ->
                 selectedInstrument[0] = type
-                this.text = "$category  •  $type"
+                instrumentButton.text = "$category  •  $type"
             }
         }
 
