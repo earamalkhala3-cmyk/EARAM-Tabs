@@ -1,5 +1,7 @@
 package com.earam.tabs
 
+import com.earam.tabs.music.StrokeDirection
+
 enum class NoteDuration(val ticks: Int) {
     WHOLE(3840), HALF(1920), QUARTER(960), EIGHTH(480), SIXTEENTH(240), THIRTY_SECOND(120)
 }
