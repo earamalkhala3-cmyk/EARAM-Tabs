@@ -92,6 +92,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        // Open directly into the music editor. There is no intermediate Home screen.
         openEditor()
     }
 
@@ -111,8 +112,8 @@ class MainActivity : Activity() {
     }
 
     private fun showHome() {
-        stopPlayback()
-        setContentView(HomeView())
+        // Home is no longer a separate landing screen; return to the editor.
+        openEditor()
     }
 
     private fun dp(v: Float): Int = (v * resources.displayMetrics.density).toInt()
@@ -680,69 +681,6 @@ class MainActivity : Activity() {
             (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(it.windowToken, 0)
             it.clearFocus()
             it.visibility = View.INVISIBLE
-        }
-    }
-
-    private inner class HomeView : View(this) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-        override fun onDraw(canvas: Canvas) {
-            val d = resources.displayMetrics.density
-            canvas.save()
-            canvas.scale(d, d)
-            val logicalWidth = width / d
-            val logicalHeight = height / d
-            canvas.drawColor(0xFF0C0E10.toInt())
-            paint.color = 0xFFF1F2F3.toInt()
-            paint.textSize = 40f
-            paint.typeface = Typeface.DEFAULT_BOLD
-            paint.color = 0xFFE66A2E.toInt()
-            paint.textSize = 13f
-            paint.color = 0xFFF1F2F3.toInt()
-            canvas.drawText("Ea", 34f, 34f, paint)
-            paint.textSize = 13f
-            val rX = 34f + paint.measureText("Ea") + 10f
-            paint.color = 0xFFE66A2E.toInt()
-            canvas.drawText("r", rX, 34f, paint)
-            paint.color = 0xFFF1F2F3.toInt()
-            canvas.drawText("am", rX + paint.measureText("r") + 10f, 34f, paint)
-            paint.color = 0xFFF1F2F3.toInt()
-            paint.textSize = 40f
-            canvas.drawText("Music workspace", 34f, 78f, paint)
-            paint.color = 0xFF8F969B.toInt()
-            paint.textSize = 13f
-            paint.typeface = Typeface.DEFAULT
-            canvas.drawText("PROFESSIONAL TAB • STANDARD NOTATION • PLAYBACK", 36f, 102f, paint)
-            button(canvas, "NEW PROJECT", 36f, 140f, logicalWidth - 72f, 58f)
-            button(canvas, "OPEN PROJECT", 36f, 214f, logicalWidth - 72f, 58f)
-            button(canvas, "CHECK FOR UPDATES", 36f, 288f, logicalWidth - 72f, 58f)
-            paint.color = 0xFF24292D.toInt()
-            canvas.drawRoundRect(36f, 376f, logicalWidth - 36f, 377f, 1f, 1f, paint)
-            paint.color = 0xFF747C82.toInt(); paint.textSize = 11f
-            canvas.drawText("EARAM  •  PROFESSIONAL MUSIC WORKSPACE", 36f, 404f, paint)
-            canvas.restore()
-        }
-
-        private fun button(canvas: Canvas, text: String, x: Float, y: Float, w: Float, h: Float) {
-            paint.color = 0xFF202529.toInt()
-            canvas.drawRoundRect(x, y, x + w, y + h, 10f, 10f, paint)
-            paint.color = 0xFFF0F1F2.toInt()
-            paint.textSize = 15f
-            paint.typeface = Typeface.DEFAULT_BOLD
-            canvas.drawText(text, x + 18f, y + 36f, paint)
-        }
-
-        override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (event.action == MotionEvent.ACTION_UP) {
-                val d = resources.displayMetrics.density
-                val y = event.y / d
-                when {
-                    y in 130f..205f -> newProject()
-                    y in 205f..280f -> openProject()
-                    y in 280f..365f -> updateManager.checkForUpdates()
-                }
-            }
-            return true
         }
     }
 
