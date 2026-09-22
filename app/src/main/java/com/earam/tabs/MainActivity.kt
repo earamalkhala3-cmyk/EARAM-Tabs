@@ -780,11 +780,11 @@ class MainActivity : Activity() {
             text(canvas, "Ea", 18f, 40f, 22f, true)
             paint.textSize = 22f
             paint.typeface = Typeface.DEFAULT_BOLD
-            val editorLogoX = 18f + paint.measureText("Ea") + 10f
+            val editorLogoX = 18f + paint.measureText("Ea")
             paint.color = 0xFFE66A2E.toInt()
             canvas.drawText("r", editorLogoX, 40f, paint)
             paint.color = 0xFFE5E7E8.toInt()
-            canvas.drawText("am", editorLogoX + paint.measureText("r") + 10f, 40f, paint)
+            canvas.drawText("am", editorLogoX + paint.measureText("r"), 40f, paint)
             text(canvas, projectName, 104f, 39f, 12f, false)
             text(canvas, "$bpm BPM", w - 82f, 39f, 11f, false)
 
@@ -800,10 +800,10 @@ class MainActivity : Activity() {
             line.color = 0xFF555A5F.toInt()
             for (i in 0..4) canvas.drawLine(18f, staffTop + i * staffSpacing, w - 18f, staffTop + i * staffSpacing, line)
 
-            val gridX = 54f
+            val gridX = 60f
             val gridY = 238f
             val stringGap = if (stringCount > 6) 25f else 28f
-            val cellWidth = 44f
+            val cellWidth = 60f
             paint.color = 0xFFF7F7F7.toInt()
             canvas.drawRect(0f, 186f, w, gridY + (stringCount - 1) * stringGap + 36f, paint)
             val names = when (stringCount) {
@@ -811,7 +811,7 @@ class MainActivity : Activity() {
                 9 -> arrayOf("A", "E", "B", "F#", "C#", "G#", "D#", "A#", "F")
                 8 -> arrayOf("F#", "B", "E", "A", "D", "G", "B", "E")
                 7 -> arrayOf("e", "B", "G", "D", "A", "E", "B")
-                6 -> arrayOf("e", "B", "G", "D", "A", "E")
+                6 -> arrayOf("E", "B", "G", "D", "A", "E")
                 5 -> arrayOf("G", "D", "A", "E", "B")
                 4 -> arrayOf("D", "G", "B", "E")
                 3 -> arrayOf("G", "B", "E")
@@ -830,8 +830,8 @@ class MainActivity : Activity() {
             canvas.translate(-scrollColumn * cellWidth, 0f)
             for (index in 0..columnCount) {
                 val x = gridX + index * cellWidth
-                line.color = if (index % (timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1) == 0) 0xFF666C71.toInt() else 0xFF292D31.toInt()
-                canvas.drawLine(x, gridY - 14f, x, gridY + (stringCount - 1) * stringGap + 12f, line)
+                line.color = if (index % (timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1) == 0) 0xFF666C71.toInt() else 0xFFF7F7F7.toInt()
+                if (index % (timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1) == 0) canvas.drawLine(x, gridY - 14f, x, gridY + (stringCount - 1) * stringGap + 12f, line)
             }
 
             val cursor = audioCursorPosition()
@@ -907,6 +907,13 @@ class MainActivity : Activity() {
             canvas.drawText(value, x, y, paint)
         }
 
+        private fun pageText(canvas: Canvas, value: String, x: Float, y: Float, size: Float, bold: Boolean) {
+            paint.color = 0xFF171717.toInt()
+            paint.textSize = size
+            paint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            canvas.drawText(value, x, y, paint)
+        }
+
         private fun chip(canvas: Canvas, value: String, x: Float, y: Float, w: Float, active: Boolean) {
             paint.color = if (active) 0xFF3A4248.toInt() else 0xFF252A2E.toInt()
             canvas.drawRoundRect(x, y, x + w, y + 28f, 5f, 5f, paint)
@@ -914,10 +921,10 @@ class MainActivity : Activity() {
         }
 
         private fun drawTab(canvas: Canvas, value: String, x: Float, y: Float, active: Boolean) {
-            text(canvas, value, x, y, 15f, true)
+            pageText(canvas, value, x, y, 15f, true)
             if (active) {
                 paint.style = Paint.Style.STROKE
-                paint.color = 0xFF9AA1A6.toInt()
+                paint.color = 0xFFE66A2E.toInt()
                 canvas.drawCircle(x + 5f, y - 5f, 11f, paint)
                 paint.style = Paint.Style.FILL
             }
@@ -932,7 +939,7 @@ class MainActivity : Activity() {
             val y = top + 36f - (average - 60.0) * 2.0
             val ticks = durations[beat] ?: 960L
             val stemUp = average < 66.0
-            paint.color = 0xFFE5E7E8.toInt()
+            paint.color = 0xFF171717.toInt()
             if (ticks >= 3840L) {
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = 2f
@@ -1009,7 +1016,7 @@ class MainActivity : Activity() {
                     val dx = x - downX
                     if (kotlin.math.abs(dx) > touchSlop) dragging = true
                     if (dragging && y in 180f..(h - 125f)) {
-                        val maxScroll = maxOf(0, columnCount - ((w - 54f) / 44f).toInt())
+                        val maxScroll = maxOf(0, columnCount - ((w - 60f) / 60f).toInt())
                         scrollColumn = (scrollColumn - (dx / 44f).toInt()).coerceIn(0, maxScroll)
                         downX = x
                         invalidate()
