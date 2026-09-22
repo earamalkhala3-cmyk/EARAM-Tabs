@@ -81,8 +81,18 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(28f), dp(8f), dp(28f), 0)
         }
+
         val name = EditText(this).apply { hint = "Project name" }
-        val ins = spinner(arrayOf("Electric Guitar", "Clean Electric Guitar", "Acoustic Guitar", "Classical Guitar", "12-String Guitar", "7-String Guitar", "8-String Guitar", "Baritone Guitar", "Bass", "5-String Bass", "6-String Bass", "Fretless Bass", "Piano", "Electric Piano", "Organ", "Synth Lead", "Synth Pad", "Violin", "Viola", "Cello", "Double Bass", "Flute", "Clarinet", "Oboe", "Saxophone", "Trumpet", "Trombone", "Harmonica", "Banjo", "Mandolin", "Ukulele", "Harp", "Drums"))
+        val selectedInstrument = arrayOf("Electric Guitar")
+        val instrumentButton = Button(this).apply { text = "GUITARS  •  Electric Guitar" }
+
+        instrumentButton.setOnClickListener {
+            showInstrumentBrowser { category, type ->
+                selectedInstrument[0] = type
+                text = "$category  •  $type"
+            }
+        }
+
         val strings = spinner((3..10).map(Int::toString).toTypedArray(), 3)
         val tune = spinner(arrayOf("Standard", "Drop D", "Drop C", "Custom"))
         val sig = spinner(arrayOf("4/4", "3/4", "6/8", "5/4", "7/8"))
@@ -92,8 +102,10 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText("120")
         }
+
         listOf(
-            TextView(this).apply { text = "Instrument" }, ins,
+            TextView(this).apply { text = "Instrument family / type" },
+            instrumentButton,
             TextView(this).apply { text = "Strings" }, strings,
             TextView(this).apply { text = "Tuning" }, tune,
             TextView(this).apply { text = "Time Signature" }, sig,
@@ -108,7 +120,7 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Create") { _, _ ->
                 projectName = name.text.toString().trim().ifBlank { "UNTITLED" }
-                instrument = ins.selectedItem.toString()
+                instrument = selectedInstrument[0]
                 stringCount = strings.selectedItem.toString().toInt()
                 tuning = tune.selectedItem.toString()
                 timeSig = sig.selectedItem.toString()
@@ -119,6 +131,91 @@ class MainActivity : Activity() {
                 durations = mutableMapOf()
                 openEditor()
             }
+            .show()
+    }
+
+    private fun showInstrumentBrowser(onSelected: (String, String) -> Unit) {
+        val families = arrayOf(
+            "GUITARS",
+            "BASSES",
+            "KEYBOARDS",
+            "STRINGS",
+            "WOODWINDS",
+            "BRASS",
+            "FOLK / PLUCKED",
+            "SYNTHS",
+            "DRUMS / PERCUSSION"
+        )
+
+        val types = mapOf(
+            "GUITARS" to arrayOf(
+                "Acoustic Guitar",
+                "Classical Guitar",
+                "Electric Guitar",
+                "Distortion Guitar",
+                "Clean Electric Guitar",
+                "12-String Guitar",
+                "7-String Guitar",
+                "8-String Guitar",
+                "Baritone Guitar"
+            ),
+            "BASSES" to arrayOf(
+                "Bass",
+                "5-String Bass",
+                "6-String Bass",
+                "Fretless Bass"
+            ),
+            "KEYBOARDS" to arrayOf(
+                "Piano",
+                "Electric Piano",
+                "Organ"
+            ),
+            "STRINGS" to arrayOf(
+                "Violin",
+                "Viola",
+                "Cello",
+                "Double Bass"
+            ),
+            "WOODWINDS" to arrayOf(
+                "Flute",
+                "Clarinet",
+                "Oboe",
+                "Saxophone"
+            ),
+            "BRASS" to arrayOf(
+                "Trumpet",
+                "Trombone"
+            ),
+            "FOLK / PLUCKED" to arrayOf(
+                "Banjo",
+                "Mandolin",
+                "Ukulele",
+                "Harp",
+                "Harmonica"
+            ),
+            "SYNTHS" to arrayOf(
+                "Synth Lead",
+                "Synth Pad"
+            ),
+            "DRUMS / PERCUSSION" to arrayOf(
+                "Drums"
+            )
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("INSTRUMENTS")
+            .setItems(families) { _, familyIndex ->
+                val family = families[familyIndex]
+                val choices = types[family] ?: emptyArray()
+                AlertDialog.Builder(this)
+                    .setTitle(family)
+                    .setItems(choices) { _, typeIndex ->
+                        onSelected(family, choices[typeIndex])
+                    }
+                    .setNegativeButton("Back") { _, _ -> showInstrumentBrowser(onSelected) }
+                    .show()
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
