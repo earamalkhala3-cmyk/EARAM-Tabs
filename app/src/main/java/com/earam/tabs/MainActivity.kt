@@ -910,7 +910,7 @@ class MainActivity : Activity() {
         }
         score.api.playerStateChanged.on {
             runOnUiThread {
-                play.text = if (score.api.playerState == alphaTab.PlayerState.Playing) "Ⅱ" else "▶"
+                play.text = if (score.api.playerState.toString().contains("Playing", ignoreCase = true)) "Ⅱ" else "▶"
             }
         }
         score.api.soundFontLoaded.on {
