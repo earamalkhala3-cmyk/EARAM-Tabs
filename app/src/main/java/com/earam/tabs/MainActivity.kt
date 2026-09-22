@@ -842,12 +842,43 @@ class MainActivity : Activity() {
             4107 -> {
                 val uri = data.data!!
                 val name = uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT TAB"
-                val ext = name.substringAfterLast('.', "").lowercase()
-                Toast.makeText(
-                    this,
-                    if (ext.isBlank()) "TAB file selected" else "TAB file selected: .$ext",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Thread {
+                    try {
+                        val imported = TabImportParser.parse(this, uri, name)
+                        runOnUiThread {
+                            projectName = imported.name
+                            instrument = imported.instrument
+                            stringCount = imported.strings
+                            tuning = imported.tuning
+                            bpm = imported.bpm
+                            timeSig = imported.timeSignature
+                            keySig = imported.key
+                            cells = imported.cells
+                            durations = imported.durations
+                            chords.clear()
+                            chords.putAll(imported.chords)
+                            strokes = imported.strokes.mapValues {
+                                if (it.value.equals("UP", true)) StrokeDirection.UP else StrokeDirection.DOWN
+                            }.toMutableMap()
+                            savedColumn = 0
+                            savedRow = 0
+                            openEditor()
+                            Toast.makeText(
+                                this,
+                                "Imported TAB: " + imported.name + " • " + imported.columns + " beats",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            Toast.makeText(
+                                this,
+                                "TAB import failed: " + (e.message ?: "unsupported or damaged file"),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }.start()
             }
             4102 -> {
                 try {
