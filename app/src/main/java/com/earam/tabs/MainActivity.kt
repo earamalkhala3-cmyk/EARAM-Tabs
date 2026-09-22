@@ -808,7 +808,7 @@ class MainActivity : Activity() {
             setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
             setBackgroundColor(0xFF191C1F.toInt())
         }
-        val score = AlphaTabView(this)
+        val score = AlphaTabView(this, null)
         score.settings.display.layoutMode = LayoutMode.Page
         score.settings.display.barsPerRow = -1.0
         score.settings.display.barCount = -1.0
