@@ -1131,11 +1131,11 @@ class MainActivity : Activity() {
             var b = currentBarIndex
             var beat = currentBeatIndex + delta
             while (b >= 0 && b < bs.size) {
-                val count = bs[b].voices.firstOrNull()?.beats?.size ?: 0
+                val count = bs[b].voices.firstOrNull()?.beats?.toList()?.size ?: 0
                 if (count > 0 && beat in 0 until count) break
                 if (beat < 0) {
                     b--
-                    beat = (bs.getOrNull(b)?.voices?.firstOrNull()?.beats?.size ?: 1) - 1
+                    beat = (bs.getOrNull(b)?.voices?.firstOrNull()?.beats?.toList()?.size ?: 1) - 1
                 } else {
                     b++
                     beat = 0
