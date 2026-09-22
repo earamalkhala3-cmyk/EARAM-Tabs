@@ -87,15 +87,12 @@ jobs:
           ALIGNED="$RUNNER_TEMP/earam-aligned.apk"
           SIGNED="$RUNNER_TEMP/earam-signed.apk"
 
-          # AGP may inject baseline-profile assets after normal resource excludes.
-          # They are not needed for this sideload APK, so remove them before the
-          # final alignment and signing pass.
           if unzip -Z1 "$APK_PATH" | grep -q '^assets/dexopt/'; then
             zip -d "$APK_PATH" 'assets/dexopt/*'
           fi
 
           "$ZIPALIGN" -f -P 16 4 "$APK_PATH" "$ALIGNED"
-          "$SIGNER" sign             --ks "$ANDROID_KEYSTORE_PATH"             --ks-type PKCS12             --ks-pass "env:ANDROID_KEYSTORE_PASSWORD"             --ks-key-alias "$ANDROID_KEY_ALIAS"             --key-pass "env:ANDROID_KEY_PASSWORD"             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out "$SIGNED"             "$ALIGNED"
+          "$SIGNER" sign --ks "$ANDROID_KEYSTORE_PATH" --ks-type PKCS12 --ks-pass "env:ANDROID_KEYSTORE_PASSWORD" --ks-key-alias "$ANDROID_KEY_ALIAS" --key-pass "env:ANDROID_KEY_PASSWORD" --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out "$SIGNED" "$ALIGNED"
           mv "$SIGNED" "$APK_PATH"
           rm -f "$ALIGNED"
 
@@ -129,10 +126,19 @@ jobs:
             exit 1
           fi
           unzip -Z1 "$APK_PATH" | grep -q '^resources.arsc$'
-          if unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\.so$'; then
-            echo "ERROR: unexpected native libraries"
-            exit 1
-          fi
+
+          # AlphaTab ships its Skia native runtime. These libraries are expected.
+          # Reject any other native library so accidental/unrelated native payloads
+          # cannot be introduced later.
+          mapfile -t NATIVE_LIBS < <(unzip -Z1 "$APK_PATH" | grep -E '^lib/[^/]+/[^/]+\.so$' || true)
+          for lib in "${NATIVE_LIBS[@]}"; do
+            case "$lib" in
+              lib/arm64-v8a/libalphaskiajni.so|lib/armeabi-v7a/libalphaskiajni.so|lib/x86/libalphaskiajni.so|lib/x86_64/libalphaskiajni.so) ;;
+              *) echo "ERROR: unexpected native library: $lib"; exit 1 ;;
+            esac
+          done
+          test "${#NATIVE_LIBS[@]}" -eq 4
+
           if unzip -Z1 "$APK_PATH" | grep -E '^assets/dexopt/(baseline\.prof|baseline\.profm)$'; then
             echo "ERROR: baseline profile payload must not be shipped in this sideload APK"
             exit 1
