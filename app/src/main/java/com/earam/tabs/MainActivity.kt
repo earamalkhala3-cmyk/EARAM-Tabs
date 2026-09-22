@@ -203,6 +203,8 @@ class MainActivity : Activity() {
                 }
             }
             durations = mutableMapOf()
+            chords.clear()
+            root.optJSONObject("chords")?.let { obj -> obj.keys().forEach { key -> chords[key.toInt()] = obj.getString(key) } }
             root.optJSONObject("durations")?.let { obj ->
                 obj.keys().forEach { key -> durations[key.toInt()] = obj.getLong(key) }
             }
