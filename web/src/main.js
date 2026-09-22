@@ -120,7 +120,7 @@ fileInput.addEventListener('change', async (event) => {
     }
   } catch (error) {
     console.error(error);
-    setStatus('Could not open ' + file.name;
+    setStatus('Could not open ' + file.name);
   } finally {
     fileInput.value = '';
   }
