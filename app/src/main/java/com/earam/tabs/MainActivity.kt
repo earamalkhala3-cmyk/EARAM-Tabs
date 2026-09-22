@@ -774,15 +774,111 @@ class MainActivity : Activity() {
         else Toast.makeText(this, "Guitar Pro file selected: .$ext", Toast.LENGTH_SHORT).show()
     }
     private fun showFileMenu() {
-        val items = arrayOf("New Project", "Open Project", "Save Project", "Home")
-        AlertDialog.Builder(this).setTitle("FILE").setItems(items) { _, which ->
-            when (which) {
-                0 -> newProject()
-                1 -> openProject()
-                2 -> saveProject()
-                3 -> showHome()
+        val items = arrayOf(
+            "New File",
+            "Open File",
+            "Save File",
+            "Save File As…",
+            "Import File",
+            "Export File",
+            "Home / Close",
+            "Check for updates"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("FILE")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> newProject()
+                    1 -> openProject()
+                    2 -> saveProject()
+                    3 -> saveProjectAs()
+                    4 -> importGuitarPro()
+                    5 -> exportProject()
+                    6 -> closeToHome()
+                    7 -> updateManager.checkForUpdates()
+                }
             }
-        }.show()
+            .show()
+    }
+
+    private fun saveProjectAs() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(28f), dp(4f), dp(28f), 0)
+        }
+        val name = EditText(this).apply {
+            hint = "File name"
+            setSingleLine(true)
+            setText(projectName)
+            selectAll()
+        }
+        box.addView(name)
+        AlertDialog.Builder(this)
+            .setTitle("SAVE FILE AS")
+            .setView(box)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                val value = name.text.toString().trim().ifBlank { projectName }
+                projectName = value
+                saveProject()
+                editor?.invalidate()
+            }
+            .show()
+    }
+
+    private fun exportProject() {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, "${safeFileName(projectName)}.earam")
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(intent, 4102)
+    }
+
+    private fun closeToHome() {
+        AlertDialog.Builder(this)
+            .setTitle("HOME / CLOSE")
+            .setMessage("Earam opens directly in the editor. Close the current editor?")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Close") { _, _ -> finish() }
+            .show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 4102 || resultCode != RESULT_OK || data?.data == null) return
+        try {
+            val root = JSONObject()
+                .put("version", 5)
+                .put("name", projectName)
+                .put("instrument", instrument)
+                .put("strings", stringCount)
+                .put("tuning", tuning)
+                .put("bpm", bpm)
+                .put("timeSignature", timeSig)
+                .put("key", keySig)
+                .put("notation", notation)
+            val notes = JSONArray()
+            cells.forEach { map ->
+                val obj = JSONObject()
+                map.forEach { (k, v) -> obj.put(k.toString(), v) }
+                notes.put(obj)
+            }
+            root.put("notes", notes)
+            val strokeJson = JSONObject()
+            strokes.forEach { (k, v) -> strokeJson.put(k.toString(), if (v == StrokeDirection.UP) "UP" else "DOWN") }
+            root.put("strokes", strokeJson)
+            val chordJson = JSONObject()
+            chords.forEach { (k, v) -> chordJson.put(k.toString(), v) }
+            root.put("chords", chordJson)
+            val durationJson = JSONObject()
+            durations.forEach { (k, v) -> durationJson.put(k.toString(), v) }
+            root.put("durations", durationJson)
+            contentResolver.openOutputStream(data.data!!)?.use { it.write(root.toString(2).toByteArray()) }
+            Toast.makeText(this, "Exported: $projectName", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private var fretInput: EditText? = null
