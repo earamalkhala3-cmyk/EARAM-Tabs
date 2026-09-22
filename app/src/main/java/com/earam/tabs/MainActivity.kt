@@ -800,30 +800,51 @@ class MainActivity : Activity() {
         val dialog = AlertDialog.Builder(this).create()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF8E8E8E.toInt())
+            setBackgroundColor(0xFF777777.toInt())
         }
 
         val title = TextView(this).apply {
             text = "Earam  •  " + fileName.substringBeforeLast('.')
             setTextColor(0xFFFFFFFF.toInt())
-            textSize = 14f
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
             setBackgroundColor(0xFF191C1F.toInt())
         }
 
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8f), dp(5f), dp(8f), dp(5f))
+        val status = TextView(this).apply {
+            text = "Loading TAB…"
+            setTextColor(0xFFE8E8E8.toInt())
+            textSize = 12f
+            setPadding(dp(12f), dp(4f), dp(12f), dp(4f))
             setBackgroundColor(0xFF25292D.toInt())
         }
-        val play = Button(this).apply { text = "▶ PLAY"; isAllCaps = false }
-        val stop = Button(this).apply { text = "■ STOP"; isAllCaps = false }
-        val zoomOut = Button(this).apply { text = "−"; isAllCaps = false }
-        val zoomIn = Button(this).apply { text = "+"; isAllCaps = false }
-        controls.addView(play, LinearLayout.LayoutParams(0, dp(42f), 2f))
-        controls.addView(stop, LinearLayout.LayoutParams(0, dp(42f), 1.4f))
-        controls.addView(zoomOut, LinearLayout.LayoutParams(0, dp(42f), 1f))
-        controls.addView(zoomIn, LinearLayout.LayoutParams(0, dp(42f), 1f))
+
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setGravity(Gravity.CENTER_VERTICAL)
+            setPadding(dp(6f), dp(5f), dp(6f), dp(5f))
+            setBackgroundColor(0xFF25292D.toInt())
+        }
+
+        fun control(text: String): Button = Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            minWidth = 0
+            setPadding(dp(6f), 0, dp(6f), 0)
+        }
+
+        val play = control("▶")
+        val stop = control("■")
+        val slower = control("0.5×")
+        val slow = control("0.75×")
+        val normal = control("1.0×")
+        val fast = control("1.25×")
+        val faster = control("1.5×")
+
+        listOf(play, stop, slower, slow, normal, fast, faster).forEach { b ->
+            controls.addView(b, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        }
 
         val score = AlphaTabView(this, null)
         score.setBackgroundColor(0xFFFFFFFF.toInt())
@@ -834,9 +855,6 @@ class MainActivity : Activity() {
         score.settings.display.scale = 0.80
         score.settings.display.stretchForce = 0.75
         score.settings.core.includeNoteBounds = true
-
-        // Use alphaTab's real Android synthesizer for imported scores.
-        // The previous custom AudioTrack editor has no knowledge of imported GP/TAB notes.
         score.settings.player.playerMode = PlayerMode.EnabledSynthesizer
         score.settings.player.enablePlayer = true
         score.settings.player.enableUserInteraction = true
@@ -844,44 +862,73 @@ class MainActivity : Activity() {
         score.settings.player.enableElementHighlighting = true
         score.api.updateSettings()
 
+        fun setSpeed(value: Double) {
+            score.api.playbackSpeed = value
+            status.text = "Playback: " + String.format(java.util.Locale.US, "%.0f%%", value * 100.0)
+        }
+
         fun refreshBarsForWidth(widthPx: Int) {
             val widthDp = widthPx / resources.displayMetrics.density
-            val desired = if (widthDp >= 700f) 4.0 else 3.0
+            val desired = when {
+                widthDp >= 900f -> 5.0
+                widthDp >= 700f -> 4.0
+                else -> 3.0
+            }
             if (score.settings.display.barsPerRow != desired) {
                 score.settings.display.barsPerRow = desired
                 score.api.updateSettings()
-                score.api.renderTracks(score.tracks)
+                if (!score.tracks.isEmpty) score.api.renderTracks(score.tracks)
             }
         }
+
         score.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
             refreshBarsForWidth(right - left)
         }
 
+        // AlphaTab does not provide a built-in player toolbar; these controls are
+        // deliberately part of the Earam import window.
         play.setOnClickListener {
             score.api.playPause()
-            play.text = if (play.text.toString().startsWith("▶")) "Ⅱ PAUSE" else "▶ PLAY"
         }
         stop.setOnClickListener {
             score.api.stop()
-            play.text = "▶ PLAY"
+            play.text = "▶"
         }
-        zoomOut.setOnClickListener {
-            score.settings.display.scale = (score.settings.display.scale - 0.05).coerceAtLeast(0.55)
-            score.api.updateSettings()
-            score.api.renderTracks(score.tracks)
+        slower.setOnClickListener { setSpeed(0.50) }
+        slow.setOnClickListener { setSpeed(0.75) }
+        normal.setOnClickListener { setSpeed(1.00) }
+        fast.setOnClickListener { setSpeed(1.25) }
+        faster.setOnClickListener { setSpeed(1.50) }
+
+        score.api.playerReady.on {
+            runOnUiThread {
+                status.text = "Ready • 100% speed"
+                play.isEnabled = true
+                stop.isEnabled = true
+                setSpeed(1.0)
+            }
         }
-        zoomIn.setOnClickListener {
-            score.settings.display.scale = (score.settings.display.scale + 0.05).coerceAtMost(1.10)
-            score.api.updateSettings()
-            score.api.renderTracks(score.tracks)
+        score.api.playerStateChanged.on {
+            runOnUiThread {
+                play.text = if (score.api.playerState == alphaTab.PlayerState.Playing) "Ⅱ" else "▶"
+            }
+        }
+        score.api.soundFontLoaded.on {
+            runOnUiThread {
+                status.text = "Sound ready • 100% speed"
+            }
         }
 
         root.addView(title, LinearLayout.LayoutParams(-1, -2))
+        root.addView(status, LinearLayout.LayoutParams(-1, -2))
         root.addView(controls, LinearLayout.LayoutParams(-1, -2))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         dialog.setView(root)
         dialog.show()
         dialog.window?.setLayout(-1, -1)
+
+        play.isEnabled = false
+        stop.isEnabled = false
 
         Thread {
             try {
@@ -896,6 +943,7 @@ class MainActivity : Activity() {
                     score.tracks = arrayListOf(parsed.tracks[0])
                     title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
                     refreshBarsForWidth(score.width)
+                    status.text = "TAB loaded • preparing sound…"
                 }
             } catch (e: Exception) {
                 runOnUiThread {
