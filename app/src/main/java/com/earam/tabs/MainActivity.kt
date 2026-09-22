@@ -700,7 +700,7 @@ class MainActivity : Activity() {
     private fun showChordDialog() {
         val input = EditText(this).apply {
             hint = "Type any chord, e.g. Am7, F#maj7, Cadd9"
-            singleLine = true
+            setSingleLine(true)
             setText(chords[editor?.selectedColumn() ?: 0] ?: "")
         }
         val preview = TextView(this).apply {
@@ -764,43 +764,6 @@ class MainActivity : Activity() {
         startActivityForResult(intent, 4107)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 4107 || resultCode != RESULT_OK) return
-        val uri=data?.data ?: return
-        val name=uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT"
-        val ext=name.substringAfterLast('.', "").lowercase()
-        if (ext == "gpx") { Toast.makeText(this, "GPX selected — parser hook is ready; full GP5/GPX conversion is next.", Toast.LENGTH_LONG).show() }
-        else Toast.makeText(this, "Guitar Pro file selected: .$ext", Toast.LENGTH_SHORT).show()
-    }
-    private fun showFileMenu() {
-        val items = arrayOf(
-            "New File",
-            "Open File",
-            "Save File",
-            "Save File As…",
-            "Import File",
-            "Export File",
-            "Home / Close",
-            "Check for updates"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("FILE")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> newProject()
-                    1 -> openProject()
-                    2 -> saveProject()
-                    3 -> saveProjectAs()
-                    4 -> importGuitarPro()
-                    5 -> exportProject()
-                    6 -> closeToHome()
-                    7 -> updateManager.checkForUpdates()
-                }
-            }
-            .show()
-    }
-
     private fun saveProjectAs() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -846,38 +809,53 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 4102 || resultCode != RESULT_OK || data?.data == null) return
-        try {
-            val root = JSONObject()
-                .put("version", 5)
-                .put("name", projectName)
-                .put("instrument", instrument)
-                .put("strings", stringCount)
-                .put("tuning", tuning)
-                .put("bpm", bpm)
-                .put("timeSignature", timeSig)
-                .put("key", keySig)
-                .put("notation", notation)
-            val notes = JSONArray()
-            cells.forEach { map ->
-                val obj = JSONObject()
-                map.forEach { (k, v) -> obj.put(k.toString(), v) }
-                notes.put(obj)
+        if (resultCode != RESULT_OK || data?.data == null) return
+
+        when (requestCode) {
+            4107 -> {
+                val uri = data.data!!
+                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT"
+                val ext = name.substringAfterLast('.', "").lowercase()
+                if (ext == "gpx") {
+                    Toast.makeText(this, "GPX selected — parser hook is ready; full GP5/GPX conversion is next.", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Guitar Pro file selected: .$ext", Toast.LENGTH_SHORT).show()
+                }
             }
-            root.put("notes", notes)
-            val strokeJson = JSONObject()
-            strokes.forEach { (k, v) -> strokeJson.put(k.toString(), if (v == StrokeDirection.UP) "UP" else "DOWN") }
-            root.put("strokes", strokeJson)
-            val chordJson = JSONObject()
-            chords.forEach { (k, v) -> chordJson.put(k.toString(), v) }
-            root.put("chords", chordJson)
-            val durationJson = JSONObject()
-            durations.forEach { (k, v) -> durationJson.put(k.toString(), v) }
-            root.put("durations", durationJson)
-            contentResolver.openOutputStream(data.data!!)?.use { it.write(root.toString(2).toByteArray()) }
-            Toast.makeText(this, "Exported: $projectName", Toast.LENGTH_SHORT).show()
-        } catch (_: Exception) {
-            Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
+            4102 -> {
+                try {
+                    val root = JSONObject()
+                        .put("version", 5)
+                        .put("name", projectName)
+                        .put("instrument", instrument)
+                        .put("strings", stringCount)
+                        .put("tuning", tuning)
+                        .put("bpm", bpm)
+                        .put("timeSignature", timeSig)
+                        .put("key", keySig)
+                        .put("notation", notation)
+                    val notes = JSONArray()
+                    cells.forEach { map ->
+                        val obj = JSONObject()
+                        map.forEach { (k, v) -> obj.put(k.toString(), v) }
+                        notes.put(obj)
+                    }
+                    root.put("notes", notes)
+                    val strokeJson = JSONObject()
+                    strokes.forEach { (k, v) -> strokeJson.put(k.toString(), if (v == StrokeDirection.UP) "UP" else "DOWN") }
+                    root.put("strokes", strokeJson)
+                    val chordJson = JSONObject()
+                    chords.forEach { (k, v) -> chordJson.put(k.toString(), v) }
+                    root.put("chords", chordJson)
+                    val durationJson = JSONObject()
+                    durations.forEach { (k, v) -> durationJson.put(k.toString(), v) }
+                    root.put("durations", durationJson)
+                    contentResolver.openOutputStream(data.data!!)?.use { it.write(root.toString(2).toByteArray()) }
+                    Toast.makeText(this, "Exported: $projectName", Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
