@@ -44,7 +44,7 @@ data class EditorState(
 )
 
 class MainActivity : Activity() {
-    private var projectName = "UNTITLED"
+    private var projectName = "Untitled"
     private var instrument = "Guitar"
     private var stringCount = 6
     private var tuning = "Standard"
@@ -840,7 +840,9 @@ class MainActivity : Activity() {
         private var row = 0
         private var column = 0
         private var scrollColumn = 0
+        private var scoreScrollY = 0f
         private var downX = 0f
+        private var downYRaw = 0f
         private var downY = 0f
         private var dragging = false
         private val touchSlop = ViewConfiguration.get(this@MainActivity).scaledTouchSlop
@@ -851,7 +853,7 @@ class MainActivity : Activity() {
         private val redo = ArrayDeque<EditorState>()
         var loop = false
         fun selectedColumn(): Int = column
-        fun restoreSelection(r: Int, c: Int) { row = r.coerceIn(0, stringCount - 1); column = c.coerceIn(0, columnCount - 1); scrollColumn = c.coerceIn(0, maxOf(0, columnCount - 1)); invalidate() }
+        fun restoreSelection(r: Int, c: Int) { row = r.coerceIn(0, stringCount - 1); column = c.coerceIn(0, columnCount - 1); scoreScrollY = 0f; invalidate() }
         fun selectCell(r: Int, c: Int) { row = r; column = c; savedRow = r; savedColumn = c; invalidate() }
         fun setSelectedFret(value: Int) { selectedFret=value.coerceIn(0,24); cells[row][column]=selectedFret.toString(); assignPicking(); invalidate() }
         fun setSelectedFretFromKeyboard(value: Int) { setSelectedFret(value) }
@@ -863,16 +865,21 @@ class MainActivity : Activity() {
             canvas.scale(d, d)
             val w = width.toFloat() / d
             val h = height.toFloat() / d
+
             paint.color = 0xFF191C1F.toInt()
             canvas.drawRect(0f, 0f, w, 64f, paint)
-            text(canvas, "Ea", 18f, 40f, 22f, true)
+            text(canvas, "E", 18f, 40f, 22f, true)
             paint.textSize = 22f
             paint.typeface = Typeface.DEFAULT_BOLD
-            val editorLogoX = 18f + paint.measureText("Ea")
-            paint.color = 0xFFE66A2E.toInt()
-            canvas.drawText("r", editorLogoX, 40f, paint)
+            val eWidth = paint.measureText("E")
             paint.color = 0xFFE5E7E8.toInt()
-            canvas.drawText("am", editorLogoX + paint.measureText("r"), 40f, paint)
+            canvas.drawText("a", 18f + eWidth, 40f, paint)
+            val a1Width = paint.measureText("a")
+            paint.color = 0xFFE66A2E.toInt()
+            canvas.drawText("r", 18f + eWidth + a1Width, 40f, paint)
+            val rWidth = paint.measureText("r")
+            paint.color = 0xFFE5E7E8.toInt()
+            canvas.drawText("am", 18f + eWidth + a1Width + rWidth, 40f, paint)
             text(canvas, projectName, 104f, 39f, 12f, false)
             text(canvas, "$bpm BPM", w - 82f, 39f, 11f, false)
 
@@ -883,65 +890,93 @@ class MainActivity : Activity() {
             tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, false) }
             text(canvas, "$instrument • $stringCount-string • $tuning • $timeSig • $keySig", 18f, 143f, 10f, false)
 
-            val staffTop = 164f
-            val staffSpacing = 9f
-            line.color = 0xFF555A5F.toInt()
-            for (i in 0..4) canvas.drawLine(18f, staffTop + i * staffSpacing, w - 18f, staffTop + i * staffSpacing, line)
-
-            val gridX = 60f
-            val gridY = 238f
-            val stringGap = if (stringCount > 6) 25f else 28f
-            val cellWidth = 60f
-            paint.color = 0xFFF7F7F7.toInt()
-            canvas.drawRect(0f, 186f, w, gridY + (stringCount - 1) * stringGap + 36f, paint)
-            val names = when (stringCount) {
-                10 -> arrayOf("A", "E", "B", "F#", "C#", "G#", "D#", "A#", "F", "C")
-                9 -> arrayOf("A", "E", "B", "F#", "C#", "G#", "D#", "A#", "F")
-                8 -> arrayOf("F#", "B", "E", "A", "D", "G", "B", "E")
-                7 -> arrayOf("e", "B", "G", "D", "A", "E", "B")
-                6 -> arrayOf("E", "B", "G", "D", "A", "E")
-                5 -> arrayOf("G", "D", "A", "E", "B")
-                4 -> arrayOf("D", "G", "B", "E")
-                3 -> arrayOf("G", "B", "E")
-                else -> Array(stringCount) { "—" }
-            }
-
-            for (stringIndex in 0 until stringCount) {
-                val y = gridY + stringIndex * stringGap
-                text(canvas, names[stringIndex], 18f, y + 4f, 10f, false)
-                line.color = 0xFF222222.toInt()
-                canvas.drawLine(gridX, y, w - 12f, y, line)
-            }
+            val pageLeft = 12f
+            val pageRight = w - 12f
+            val pageWidth = (pageRight - pageLeft).coerceAtLeast(280f)
+            val systemsPerPage = 4
+            val barsPerSystem = 4
+            val beatsPerBar = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 8) ?: 4
+            val beatsPerSystem = barsPerSystem * beatsPerBar
+            val systemHeight = 132f + stringCount * 2.5f
+            val pageHeight = systemsPerPage * systemHeight + 58f
+            val pageGap = 24f
+            val firstPageTop = 158f
+            val contentBottom = h - 126f
+            val totalPages = ((columnCount + beatsPerSystem * systemsPerPage - 1) / (beatsPerSystem * systemsPerPage)).coerceAtLeast(1)
 
             canvas.save()
-            canvas.clipRect(gridX, 186f, w - 12f, gridY + (stringCount - 1) * stringGap + 36f)
-            canvas.translate(-scrollColumn * cellWidth, 0f)
-            for (index in 0..columnCount) {
-                val x = gridX + index * cellWidth
-                line.color = if (index % (timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1) == 0) 0xFF666C71.toInt() else 0xFFF7F7F7.toInt()
-                if (index % (timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1) == 0) canvas.drawLine(x, gridY - 14f, x, gridY + (stringCount - 1) * stringGap + 12f, line)
-            }
+            canvas.clipRect(0f, 151f, w, contentBottom)
+            val visibleTop = scoreScrollY
+            val visibleBottom = scoreScrollY + (contentBottom - 151f)
+            val firstPage = ((visibleTop - firstPageTop) / (pageHeight + pageGap)).toInt().coerceAtLeast(0)
+            val lastPage = ((visibleBottom - firstPageTop) / (pageHeight + pageGap)).toInt().coerceAtMost(totalPages - 1)
 
-            val cursor = audioCursorPosition()
-            if (cursor != null) {
-                val cursorX = (gridX + (cursor.first + cursor.second) * cellWidth).toFloat()
-                paint.color = 0xFFB7BEC3.toInt()
-                canvas.drawRect(cursorX - 1.5f, gridY - 22f, cursorX + 1.5f, gridY + (stringCount - 1) * stringGap + 22f, paint)
-                paint.color = 0xFFB7BEC3.toInt()
-                canvas.drawCircle(cursorX, gridY - 25f, 4f, paint)
-            }
+            for (pageIndex in firstPage..lastPage) {
+                if (pageIndex !in 0 until totalPages) continue
+                val pageY = firstPageTop + pageIndex * (pageHeight + pageGap) - scoreScrollY
+                paint.color = 0xFFFFFFFF.toInt()
+                canvas.drawRect(pageLeft, pageY, pageRight, pageY + pageHeight, paint)
+                pageText(canvas, projectName, pageLeft + 22f, pageY + 28f, 14f, true)
+                pageText(canvas, "$instrument • $bpm BPM • $timeSig", pageRight - 190f, pageY + 28f, 9f, false)
 
-            for (beat in 0 until columnCount) {
-                val x = gridX + beat * cellWidth + cellWidth / 2f
-                chords[beat]?.let { chord -> text(canvas, chord, x - 4f, gridY - 38f, 11f, true) }
-                strokes[beat]?.let { direction -> text(canvas, if (direction == StrokeDirection.DOWN) "↓" else "↑", x - 5f, gridY - 18f, 16f, true) }
-                for (stringIndex in 0 until stringCount) {
-                    cells[stringIndex][beat]?.let { value -> drawTab(canvas, value, x - 5f, gridY + stringIndex * stringGap + 5f, stringIndex == row && beat == column) }
+                for (system in 0 until systemsPerPage) {
+                    val systemTop = pageY + 42f + system * systemHeight
+                    val firstBeat = pageIndex * beatsPerSystem * systemsPerPage + system * beatsPerSystem
+                    if (firstBeat >= columnCount) continue
+
+                    val left = pageLeft + 22f
+                    val right = pageRight - 22f
+                    val beatWidth = (right - left) / beatsPerSystem.toFloat()
+                    val staffTop = systemTop + 4f
+                    val tabTop = systemTop + 47f
+                    val gap = if (stringCount > 6) 12f else 14f
+
+                    line.color = 0xFF222222.toInt()
+                    line.strokeWidth = 1f
+                    for (i in 0..4) canvas.drawLine(left, staffTop + i * 7f, right, staffTop + i * 7f, line)
+                    pageText(canvas, "𝄞", left + 3f, staffTop + 25f, 24f, false)
+
+                    val tabLineStart = tabTop + 8f
+                    for (stringIndex in 0 until stringCount) {
+                        val y = tabLineStart + stringIndex * gap
+                        canvas.drawLine(left, y, right, y, line)
+                    }
+
+                    for (beatOffset in 0 until beatsPerSystem) {
+                        val beat = firstBeat + beatOffset
+                        if (beat >= columnCount) break
+                        val x = left + beatOffset * beatWidth + beatWidth / 2f
+                        if (beatOffset % beatsPerBar == 0) {
+                            line.color = 0xFF111111.toInt()
+                            canvas.drawLine(x - beatWidth / 2f, staffTop, x - beatWidth / 2f, tabLineStart + (stringCount - 1) * gap + 6f, line)
+                        }
+                        chords[beat]?.let { chord -> pageText(canvas, chord, x - 8f, systemTop - 1f, 10f, true) }
+                        strokes[beat]?.let { direction -> pageText(canvas, if (direction == StrokeDirection.DOWN) "↓" else "↑", x - 4f, tabLineStart - 7f, 12f, true) }
+                        for (stringIndex in 0 until stringCount) {
+                            cells[stringIndex][beat]?.let { value ->
+                                drawTab(canvas, value, x - 5f, tabLineStart + stringIndex * gap + 5f, stringIndex == row && beat == column)
+                            }
+                        }
+                        drawStandard(canvas, beat, x, staffTop)
+                    }
+
+                    val finalX = left + minOf(beatsPerSystem, columnCount - firstBeat) * beatWidth
+                    line.color = 0xFF111111.toInt()
+                    canvas.drawLine(finalX, staffTop, finalX, tabLineStart + (stringCount - 1) * gap + 6f, line)
+
+                    var measure = (firstBeat / beatsPerBar) + 1
+                    for (beatOffset in 0 until beatsPerSystem step beatsPerBar) {
+                        if (firstBeat + beatOffset >= columnCount) break
+                        pageText(canvas, measure.toString(), left + beatOffset * beatWidth + 2f, systemTop - 1f, 7f, false)
+                        measure++
+                    }
                 }
-                drawStandard(canvas, beat, x, staffTop)
-            }
 
+                pageText(canvas, "Earam Tabs", pageLeft + 22f, pageY + pageHeight - 14f, 7f, false)
+                pageText(canvas, "${pageIndex + 1} / $totalPages", pageRight - 50f, pageY + pageHeight - 14f, 7f, false)
+            }
             canvas.restore()
+
             paint.color = 0xFF1C2023.toInt()
             canvas.drawRect(0f, h - 120f, w, h, paint)
             text(canvas, "DURATION", 14f, h - 94f, 9f, false)
@@ -954,7 +989,7 @@ class MainActivity : Activity() {
             chip(canvas, "↑", 292f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.UP)
             chip(canvas, "ALT", 330f, h - 78f, 44f, mode == PickingMode.ALTERNATE)
             chip(canvas, "STR", 378f, h - 78f, 42f, mode == PickingMode.STRUM)
-            text(canvas, if (cursor != null) "▶ ${cursor.first + 1}/$columnCount" else "Ready", 365f, h - 58f, 10f, false)
+            text(canvas, if (playing) "▶ PLAYING" else "Ready", 365f, h - 58f, 10f, false)
 
             if (playing) postInvalidateOnAnimation()
             canvas.restore()
@@ -1093,20 +1128,35 @@ class MainActivity : Activity() {
             val y = event.y / d
             val w = width.toFloat() / d
             val h = height.toFloat() / d
+
+            val pageLeft = 12f
+            val pageRight = w - 12f
+            val systemsPerPage = 4
+            val barsPerSystem = 4
+            val beatsPerBar = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 8) ?: 4
+            val beatsPerSystem = barsPerSystem * beatsPerBar
+            val systemHeight = 132f + stringCount * 2.5f
+            val pageHeight = systemsPerPage * systemHeight + 58f
+            val pageGap = 24f
+            val firstPageTop = 158f
+            val contentBottom = h - 126f
+            val totalPages = ((columnCount + beatsPerSystem * systemsPerPage - 1) / (beatsPerSystem * systemsPerPage)).coerceAtLeast(1)
+            val maxScroll = maxOf(0f, firstPageTop + totalPages * pageHeight + (totalPages - 1) * pageGap - contentBottom)
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = x
                     downY = y
+                    downYRaw = y
                     dragging = false
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = x - downX
-                    if (kotlin.math.abs(dx) > touchSlop) dragging = true
-                    if (dragging && y in 180f..(h - 125f)) {
-                        val maxScroll = maxOf(0, columnCount - ((w - 60f) / 60f).toInt())
-                        scrollColumn = (scrollColumn - (dx / 60f).toInt()).coerceIn(0, maxScroll)
-                        downX = x
+                    val dy = y - downY
+                    if (kotlin.math.abs(dy) > touchSlop) dragging = true
+                    if (dragging && downYRaw >= 151f && downYRaw <= contentBottom) {
+                        scoreScrollY = (scoreScrollY - dy).coerceIn(0f, maxScroll)
+                        downY = y
                         invalidate()
                     }
                     return true
@@ -1156,15 +1206,35 @@ class MainActivity : Activity() {
                 return true
             }
 
-            val gridX = 54f
-            val cellWidth = 44f
-            val stringGap = if (stringCount > 6) 25f else 28f
-            val contentX = x + scrollColumn * cellWidth
-            if (x in gridX..(w - 12f) && y in 220f..(238f + (stringCount - 1) * stringGap + 20f)) {
-                column = ((contentX - gridX) / cellWidth).toInt().coerceIn(0, columnCount - 1)
-                row = ((y - 238f + stringGap / 2f) / stringGap).toInt().coerceIn(0, stringCount - 1)
-                editFretAt(row, column)
-                invalidate()
+            if (y >= 151f && y <= contentBottom) {
+                val scoreY = y + scoreScrollY
+                val pageIndex = ((scoreY - firstPageTop) / (pageHeight + pageGap)).toInt()
+                if (pageIndex !in 0 until totalPages) return true
+                val pageY = firstPageTop + pageIndex * (pageHeight + pageGap)
+                val withinPage = scoreY - pageY
+                if (withinPage < 40f || withinPage > pageHeight) return true
+
+                val system = ((withinPage - 42f) / systemHeight).toInt().coerceIn(0, systemsPerPage - 1)
+                val systemTop = 42f + system * systemHeight
+                val tabTop = systemTop + 47f
+                val gap = if (stringCount > 6) 12f else 14f
+                val left = pageLeft + 22f
+                val right = pageRight - 22f
+                val beatWidth = (right - left) / beatsPerSystem.toFloat()
+
+                if (x in left..right) {
+                    val beatOffset = ((x - left) / beatWidth).toInt().coerceIn(0, beatsPerSystem - 1)
+                    val beat = pageIndex * beatsPerSystem * systemsPerPage + system * beatsPerSystem + beatOffset
+                    if (beat in 0 until columnCount) {
+                        val stringIndex = ((scoreY - pageY - tabTop - 8f + gap / 2f) / gap).toInt().coerceIn(0, stringCount - 1)
+                        column = beat
+                        row = stringIndex
+                        savedColumn = beat
+                        savedRow = stringIndex
+                        editFretAt(stringIndex, beat)
+                        invalidate()
+                    }
+                }
             }
             return true
         }
