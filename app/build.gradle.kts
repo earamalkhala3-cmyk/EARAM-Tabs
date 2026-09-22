@@ -1,6 +1,6 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 
-android { namespace = "com.earam.tabs"; compileSdk = 35
+android { namespace = "com.earam.tabs"; compileSdk = 36
     buildFeatures { buildConfig = true }
     defaultConfig { applicationId = "com.earam.tabs"; minSdk = 23; targetSdk = 35; versionCode = 5; versionName = "0.1.4"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
