@@ -967,6 +967,10 @@ class MainActivity : Activity() {
     }
 
     private inner class EditorView : View(this) {
+        init {
+            isFocusableInTouchMode = true
+            requestFocus()
+        }
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val line = Paint(Paint.ANTI_ALIAS_FLAG)
         private var row = 0
@@ -989,6 +993,29 @@ class MainActivity : Activity() {
         fun selectCell(r: Int, c: Int) { row = r; column = c; savedRow = r; savedColumn = c; invalidate() }
         fun setSelectedFret(value: Int) { selectedFret=value.coerceIn(0,24); cells[row][column]=selectedFret.toString(); assignPicking(); invalidate() }
         fun setSelectedFretFromKeyboard(value: Int) { setSelectedFret(value) }
+
+        private fun moveColumn(delta: Int) {
+            finishFretEdit()
+            column = (column + delta).coerceIn(0, columnCount - 1)
+            savedColumn = column
+            invalidate()
+        }
+
+        private fun moveString(delta: Int) {
+            row = (row + delta).coerceIn(0, stringCount - 1)
+            savedRow = row
+            invalidate()
+        }
+
+        override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+            return when (keyCode) {
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { moveColumn(1); true }
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { moveColumn(-1); true }
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { moveString(1); true }
+                android.view.KeyEvent.KEYCODE_DPAD_UP -> { moveString(-1); true }
+                else -> super.onKeyDown(keyCode, event)
+            }
+        }
 
         override fun onDraw(canvas: Canvas) {
             canvas.drawColor(0xFF111315.toInt())
@@ -1017,7 +1044,7 @@ class MainActivity : Activity() {
 
             paint.color = 0xFF202428.toInt()
             canvas.drawRect(0f, 64f, w, 118f, paint)
-            val tools = listOf("FILE", "NOTE", "REST", "CHORD", "IMPORT", "UNDO", "REDO", "SAVE", "PLAY", "STOP", "LOOP")
+            val tools = listOf("FILE", "NOTE", "REST", "CHORD", "IMPORT", "UNDO", "REDO", "SAVE", "◀", "▶", "PLAY", "STOP", "LOOP")
             val toolWidth = (w - 16f) / tools.size
             tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, false) }
             text(canvas, "$instrument • $stringCount-string • $tuning • $timeSig • $keySig", 18f, 143f, 10f, false)
@@ -1316,9 +1343,11 @@ class MainActivity : Activity() {
                     5 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
                     6 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
                     7 -> saveProject()
-                    8 -> startPlayback()
-                    9 -> stopPlayback()
-                    10 -> { loop = !loop; invalidate() }
+                    8 -> moveColumn(-1)
+                    9 -> moveColumn(1)
+                    10 -> startPlayback()
+                    11 -> stopPlayback()
+                    12 -> { loop = !loop; invalidate() }
                 }
                 return true
             }
