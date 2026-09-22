@@ -791,6 +791,61 @@ class MainActivity : Activity() {
         startActivityForResult(intent, 4107)
     }
 
+    private fun showAlphaTabPreview(uri: Uri, fileName: String) {
+        val dialog = AlertDialog.Builder(this).create()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF8E8E8E.toInt())
+        }
+        val title = TextView(this).apply {
+            text = "Earam  •  " + fileName.substringBeforeLast('.')
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 14f
+            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+            setBackgroundColor(0xFF191C1F.toInt())
+        }
+        val score = AlphaTabView(this)
+        score.settings.display.layoutMode = LayoutMode.Page
+        score.settings.display.barsPerRow = -1.0
+        score.settings.display.barCount = -1.0
+        score.settings.display.startBar = 1.0
+        score.settings.display.scale = 1.0
+        score.settings.core.includeNoteBounds = true
+        score.settings.player.enableUserInteraction = true
+        score.settings.player.enableCursor = true
+        score.settings.player.enablePlayer = true
+        score.api.updateSettings()
+        root.addView(title, LinearLayout.LayoutParams(-1, -2))
+        root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
+        dialog.setView(root)
+        dialog.show()
+        dialog.window?.setLayout(-1, -1)
+
+        Thread {
+            try {
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw IllegalStateException("Cannot read TAB file")
+                val parsed = ScoreLoader.loadScoreFromBytes(
+                    Uint8Array(bytes.asUByteArray()),
+                    score.settings
+                )
+                runOnUiThread {
+                    score.tracks = if (parsed.tracks.isEmpty()) arrayListOf() else arrayListOf(parsed.tracks[0])
+                    title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    dialog.dismiss()
+                    Toast.makeText(
+                        this,
+                        "TAB import failed: " + (e.message ?: "unsupported or damaged file"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
+    }
+
     private fun saveProjectAs() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -844,30 +899,11 @@ class MainActivity : Activity() {
                 val name = uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT TAB"
                 Thread {
                     try {
-                        val imported = TabImportParser.parse(this, uri, name)
                         runOnUiThread {
-                            projectName = imported.name
-                            instrument = imported.instrument
-                            stringCount = imported.strings
-                            tuning = imported.tuning
-                            bpm = imported.bpm
-                            timeSig = imported.timeSignature
-                            keySig = imported.key
-                            cells = imported.cells
-                            durations = imported.durations
-                            chords.clear()
-                            chords.putAll(imported.chords)
-                            strokes = imported.strokes.mapValues {
-                                if (it.value.equals("UP", true)) StrokeDirection.UP else StrokeDirection.DOWN
-                            }.toMutableMap()
+                            projectName = name.substringBeforeLast('.').ifBlank { "Imported TAB" }
                             savedColumn = 0
                             savedRow = 0
-                            openEditor()
-                            Toast.makeText(
-                                this,
-                                "Imported TAB: " + imported.name + " • " + imported.columns + " beats",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            showAlphaTabPreview(uri, name)
                         }
                     } catch (e: Exception) {
                         runOnUiThread {
