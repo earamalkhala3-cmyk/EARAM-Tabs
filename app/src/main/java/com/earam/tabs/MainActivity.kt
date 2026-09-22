@@ -1141,6 +1141,45 @@ class MainActivity : Activity() {
         fun setSelectedFret(value: Int) { selectedFret=value.coerceIn(0,24); cells[row][column]=selectedFret.toString(); assignPicking(); invalidate() }
         fun setSelectedFretFromKeyboard(value: Int) { setSelectedFret(value) }
 
+        private fun timeNumerator(): Int = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 16) ?: 4
+        private fun timeDenominator(): Int = timeSig.substringAfter('/', "4").toIntOrNull()?.let { if (it in setOf(1, 2, 4, 8, 16)) it else 4 } ?: 4
+        private fun beatUnitTicks(): Long = 3840L / timeDenominator().toLong()
+        private fun barTicks(): Long = timeNumerator().toLong() * beatUnitTicks()
+
+        private fun measureStarts(): List<Int> {
+            val result = mutableListOf<Int>()
+            val capacity = barTicks()
+            var cursor = 0
+            while (cursor < columnCount) {
+                result += cursor
+                var used = 0L
+                val start = cursor
+                while (cursor < columnCount) {
+                    val duration = durations[cursor] ?: 960L
+                    if (used + duration > capacity) break
+                    used += duration
+                    cursor++
+                    if (used == capacity) break
+                }
+                if (cursor == start) cursor++
+            }
+            return result
+        }
+
+        private fun measureEnd(start: Int): Int {
+            val capacity = barTicks()
+            var used = 0L
+            var cursor = start
+            while (cursor < columnCount) {
+                val duration = durations[cursor] ?: 960L
+                if (used + duration > capacity) break
+                used += duration
+                cursor++
+                if (used == capacity) break
+            }
+            return cursor.coerceAtLeast(start + 1).coerceAtMost(columnCount)
+        }
+
         private fun moveColumn(delta: Int) {
             finishFretEdit()
             column = (column + delta).coerceIn(0, columnCount - 1)
@@ -1191,24 +1230,23 @@ class MainActivity : Activity() {
 
             paint.color = 0xFF202428.toInt()
             canvas.drawRect(0f, 64f, w, 118f, paint)
-            val tools = listOf("FILE", "NOTE", "REST", "CHORD", "IMPORT", "UNDO", "REDO", "SAVE", "◀", "▶", "PLAY", "STOP", "LOOP")
+            val tools = listOf("FILE", "NOTE", "REST", "CHORD", "IMPORT", "UNDO", "REDO", "SAVE", "◀ PREV", "NEXT ▶", "PLAY", "STOP", "LOOP")
             val toolWidth = (w - 16f) / tools.size
-            tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, false) }
+            tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, index == 8 || index == 9) }
             text(canvas, "$instrument • $stringCount-string • $tuning • $timeSig • $keySig", 18f, 143f, 10f, false)
 
             val pageLeft = 12f
             val pageRight = w - 12f
-            val pageWidth = (pageRight - pageLeft).coerceAtLeast(280f)
             val systemsPerPage = 4
             val barsPerSystem = 4
-            val beatsPerBar = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 8) ?: 4
-            val beatsPerSystem = barsPerSystem * beatsPerBar
+            val bars = measureStarts()
+            val barsPerPage = systemsPerPage * barsPerSystem
+            val totalPages = ((bars.size + barsPerPage - 1) / barsPerPage).coerceAtLeast(1)
             val systemHeight = 132f + stringCount * 2.5f
             val pageHeight = systemsPerPage * systemHeight + 58f
             val pageGap = 24f
             val firstPageTop = 158f
             val contentBottom = h - 126f
-            val totalPages = ((columnCount + beatsPerSystem * systemsPerPage - 1) / (beatsPerSystem * systemsPerPage)).coerceAtLeast(1)
 
             canvas.save()
             canvas.clipRect(0f, 151f, w, contentBottom)
@@ -1223,16 +1261,21 @@ class MainActivity : Activity() {
                 paint.color = 0xFFFFFFFF.toInt()
                 canvas.drawRect(pageLeft, pageY, pageRight, pageY + pageHeight, paint)
                 pageText(canvas, projectName, pageLeft + 22f, pageY + 28f, 14f, true)
-                pageText(canvas, "$instrument • $bpm BPM • $timeSig", pageRight - 190f, pageY + 28f, 9f, false)
+                pageText(canvas, instrument + " • " + bpm + " BPM • " + timeSig, pageRight - 190f, pageY + 28f, 9f, false)
 
                 for (system in 0 until systemsPerPage) {
+                    val barIndex = pageIndex * barsPerPage + system * barsPerSystem
+                    if (barIndex >= bars.size) continue
                     val systemTop = pageY + 42f + system * systemHeight
-                    val firstBeat = pageIndex * beatsPerSystem * systemsPerPage + system * beatsPerSystem
-                    if (firstBeat >= columnCount) continue
-
                     val left = pageLeft + 22f
                     val right = pageRight - 22f
-                    val beatWidth = (right - left) / beatsPerSystem.toFloat()
+                    val systemBars = barIndex until minOf(barIndex + barsPerSystem, bars.size)
+                    val systemStart = bars[barIndex]
+                    val lastBar = systemBars.last()
+                    val systemEnd = if (lastBar + 1 < bars.size) bars[lastBar + 1] else columnCount
+                    var totalTicks = 0L
+                    for (c in systemStart until systemEnd) totalTicks += durations[c] ?: 960L
+                    val usableTicks = totalTicks.coerceAtLeast(1L)
                     val staffTop = systemTop + 4f
                     val tabTop = systemTop + 47f
                     val gap = if (stringCount > 6) 12f else 14f
@@ -1241,45 +1284,38 @@ class MainActivity : Activity() {
                     line.strokeWidth = 1f
                     for (i in 0..4) canvas.drawLine(left, staffTop + i * 7f, right, staffTop + i * 7f, line)
                     pageText(canvas, "𝄞", left + 3f, staffTop + 25f, 24f, false)
-
                     val tabLineStart = tabTop + 8f
                     for (stringIndex in 0 until stringCount) {
-                        val y = tabLineStart + stringIndex * gap
-                        canvas.drawLine(left, y, right, y, line)
+                        canvas.drawLine(left, tabLineStart + stringIndex * gap, right, tabLineStart + stringIndex * gap, line)
                     }
 
-                    for (beatOffset in 0 until beatsPerSystem) {
-                        val beat = firstBeat + beatOffset
-                        if (beat >= columnCount) break
-                        val x = left + beatOffset * beatWidth + beatWidth / 2f
-                        if (beatOffset % beatsPerBar == 0) {
-                            line.color = 0xFF111111.toInt()
-                            canvas.drawLine(x - beatWidth / 2f, staffTop, x - beatWidth / 2f, tabLineStart + (stringCount - 1) * gap + 6f, line)
-                        }
-                        chords[beat]?.let { chord -> pageText(canvas, chord, x - 8f, systemTop - 1f, 10f, true) }
-                        strokes[beat]?.let { direction -> pageText(canvas, if (direction == StrokeDirection.DOWN) "↓" else "↑", x - 4f, tabLineStart - 7f, 12f, true) }
-                        for (stringIndex in 0 until stringCount) {
-                            cells[stringIndex][beat]?.let { value ->
-                                drawTab(canvas, value, x - 5f, tabLineStart + stringIndex * gap + 5f, stringIndex == row && beat == column)
+                    var elapsedTicks = 0L
+                    for (b in systemBars) {
+                        val measureStart = bars[b]
+                        val measureEnd = if (b + 1 < bars.size) bars[b + 1] else columnCount
+                        var beatCursor = measureStart
+                        while (beatCursor < measureEnd && beatCursor < columnCount) {
+                            val duration = durations[beatCursor] ?: 960L
+                            val x = left + ((elapsedTicks + duration / 2.0) / usableTicks.toDouble() * (right - left)).toFloat()
+                            chords[beatCursor]?.let { chord -> pageText(canvas, chord, x - 8f, systemTop - 1f, 10f, true) }
+                            strokes[beatCursor]?.let { direction -> pageText(canvas, if (direction == StrokeDirection.DOWN) "↓" else "↑", x - 4f, tabLineStart - 7f, 12f, true) }
+                            for (stringIndex in 0 until stringCount) {
+                                cells[stringIndex][beatCursor]?.let { value ->
+                                    drawTab(canvas, value, x - 5f, tabLineStart + stringIndex * gap + 5f, stringIndex == row && beatCursor == column)
+                                }
                             }
+                            drawStandard(canvas, beatCursor, x, staffTop)
+                            elapsedTicks += duration
+                            beatCursor++
                         }
-                        drawStandard(canvas, beat, x, staffTop)
-                    }
-
-                    val finalX = left + minOf(beatsPerSystem, columnCount - firstBeat) * beatWidth
-                    line.color = 0xFF111111.toInt()
-                    canvas.drawLine(finalX, staffTop, finalX, tabLineStart + (stringCount - 1) * gap + 6f, line)
-
-                    var measure = (firstBeat / beatsPerBar) + 1
-                    for (beatOffset in 0 until beatsPerSystem step beatsPerBar) {
-                        if (firstBeat + beatOffset >= columnCount) break
-                        pageText(canvas, measure.toString(), left + beatOffset * beatWidth + 2f, systemTop - 1f, 7f, false)
-                        measure++
+                        val boundaryX = left + (elapsedTicks.toDouble() / usableTicks.toDouble() * (right - left)).toFloat()
+                        line.color = 0xFF111111.toInt()
+                        canvas.drawLine(boundaryX, staffTop, boundaryX, tabLineStart + (stringCount - 1) * gap + 6f, line)
+                        pageText(canvas, (b + 1).toString(), boundaryX + 2f, systemTop - 1f, 7f, false)
                     }
                 }
-
                 pageText(canvas, "Earam Tabs", pageLeft + 22f, pageY + pageHeight - 14f, 7f, false)
-                pageText(canvas, "${pageIndex + 1} / $totalPages", pageRight - 50f, pageY + pageHeight - 14f, 7f, false)
+                pageText(canvas, (pageIndex + 1).toString() + " / " + totalPages, pageRight - 50f, pageY + pageHeight - 14f, 7f, false)
             }
             canvas.restore()
 
@@ -1423,6 +1459,20 @@ class MainActivity : Activity() {
         }
 
         private fun setDuration(value: Long) {
+            val capacity = barTicks()
+            val start = measureStarts().lastOrNull { it <= column } ?: 0
+            var used = 0L
+            var cursor = start
+            while (cursor < column) {
+                used += durations[cursor] ?: 960L
+                cursor++
+            }
+            val old = durations[column] ?: 960L
+            val remaining = capacity - used + old
+            if (value > remaining) {
+                Toast.makeText(this@MainActivity, "That duration does not fit in " + timeSig + ".", Toast.LENGTH_SHORT).show()
+                return
+            }
             remember()
             durations[column] = value
             invalidate()
@@ -1439,14 +1489,14 @@ class MainActivity : Activity() {
             val pageRight = w - 12f
             val systemsPerPage = 4
             val barsPerSystem = 4
-            val beatsPerBar = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 8) ?: 4
-            val beatsPerSystem = barsPerSystem * beatsPerBar
+            val bars = measureStarts()
+            val barsPerPage = systemsPerPage * barsPerSystem
+            val totalPages = ((bars.size + barsPerPage - 1) / barsPerPage).coerceAtLeast(1)
             val systemHeight = 132f + stringCount * 2.5f
             val pageHeight = systemsPerPage * systemHeight + 58f
             val pageGap = 24f
             val firstPageTop = 158f
             val contentBottom = h - 126f
-            val totalPages = ((columnCount + beatsPerSystem * systemsPerPage - 1) / (beatsPerSystem * systemsPerPage)).coerceAtLeast(1)
             val maxScroll = maxOf(0f, firstPageTop + totalPages * pageHeight + (totalPages - 1) * pageGap - contentBottom)
 
             when (event.actionMasked) {
@@ -1481,7 +1531,7 @@ class MainActivity : Activity() {
             }
 
             if (y in 64f..118f) {
-                val toolWidth = (w - 16f) / 11f
+                val toolWidth = (w - 16f) / 13f
                 val index = ((x - 8f) / toolWidth).toInt()
                 when (index) {
                     0 -> showFileMenu()
@@ -1521,30 +1571,40 @@ class MainActivity : Activity() {
                 val pageY = firstPageTop + pageIndex * (pageHeight + pageGap)
                 val withinPage = scoreY - pageY
                 if (withinPage < 40f || withinPage > pageHeight) return true
-
                 val system = ((withinPage - 42f) / systemHeight).toInt().coerceIn(0, systemsPerPage - 1)
+                val barIndex = pageIndex * barsPerPage + system * barsPerSystem
+                if (barIndex >= bars.size) return true
                 val systemTop = 42f + system * systemHeight
                 val tabTop = systemTop + 47f
                 val gap = if (stringCount > 6) 12f else 14f
                 val left = pageLeft + 22f
                 val right = pageRight - 22f
-                val beatWidth = (right - left) / beatsPerSystem.toFloat()
-
+                val firstBar = bars[barIndex]
+                val lastBar = minOf(barIndex + barsPerSystem - 1, bars.size - 1)
+                val lastBarEnd = if (lastBar + 1 < bars.size) bars[lastBar + 1] else columnCount
+                var totalTicks = 0L
+                for (c in firstBar until lastBarEnd) totalTicks += durations[c] ?: 960L
+                totalTicks = totalTicks.coerceAtLeast(1L)
                 if (x in left..right) {
-                    val beatOffset = ((x - left) / beatWidth).toInt().coerceIn(0, beatsPerSystem - 1)
-                    val beat = pageIndex * beatsPerSystem * systemsPerPage + system * beatsPerSystem + beatOffset
-                    if (beat in 0 until columnCount) {
-                        val stringIndex = ((scoreY - pageY - tabTop - 8f + gap / 2f) / gap).toInt().coerceIn(0, stringCount - 1)
-                        column = beat
-                        row = stringIndex
-                        savedColumn = beat
-                        savedRow = stringIndex
-                        editFretAt(stringIndex, beat)
-                        invalidate()
+                    val targetTicks = (((x - left) / (right - left)) * totalTicks).toLong()
+                    var elapsed = 0L
+                    var beat = firstBar
+                    while (beat < lastBarEnd) {
+                        val dTicks = durations[beat] ?: 960L
+                        if (targetTicks < elapsed + dTicks) break
+                        elapsed += dTicks
+                        beat++
                     }
+                    beat = beat.coerceIn(firstBar, lastBarEnd - 1)
+                    val stringIndex = ((scoreY - pageY - tabTop - 8f + gap / 2f) / gap).toInt().coerceIn(0, stringCount - 1)
+                    column = beat
+                    row = stringIndex
+                    savedColumn = beat
+                    savedRow = stringIndex
+                    editFretAt(stringIndex, beat)
+                    invalidate()
                 }
-            }
-            return true
+            }            return true
         }
     }
 }
