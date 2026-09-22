@@ -142,6 +142,11 @@ class MainActivity : Activity() {
             "STRINGS",
             "WOODWINDS",
             "BRASS",
+            "WORLD / AFRICAN",
+            "WORLD / ASIAN",
+            "WORLD / MIDDLE EAST",
+            "WORLD / BRAZILIAN",
+            "MALLETS / PERCUSSION",
             "FOLK / PLUCKED",
             "SYNTHS",
             "DRUMS / PERCUSSION"
@@ -183,8 +188,29 @@ class MainActivity : Activity() {
                 "Saxophone"
             ),
             "BRASS" to arrayOf(
-                "Trumpet",
-                "Trombone"
+                "Trumpet", "Trombone", "French Horn", "Euphonium", "Tuba",
+                "Cornet", "Flugelhorn", "Baritone Horn"
+            ),
+            "WORLD / AFRICAN" to arrayOf(
+                "Djembe", "Dundun", "Talking Drum", "African Conga", "African Shekere",
+                "African Agogo", "African Bell", "Udu", "Kalimba"
+            ),
+            "WORLD / ASIAN" to arrayOf(
+                "Hang Drum", "Tabla", "Taiko", "Bodhrán", "Cajón", "Darabuka",
+                "Riq", "Bendir", "Frame Drum", "Chinese Gong", "Japanese Kotsuzumi",
+                "Japanese Shime-daiko"
+            ),
+            "WORLD / MIDDLE EAST" to arrayOf(
+                "Tabla / Doumbek", "Darbuka", "Riq", "Bendir", "Daf", "Mizhar",
+                "Zarb", "Sagat / Finger Cymbals"
+            ),
+            "WORLD / BRAZILIAN" to arrayOf(
+                "Surdo", "Pandeiro", "Repinique", "Tamborim", "Caixa",
+                "Agogô", "Berimbau", "Atabaque"
+            ),
+            "MALLETS / PERCUSSION" to arrayOf(
+                "Marimba", "Xylophone", "Vibraphone", "Glockenspiel",
+                "Tubular Bells", "Steel Tongue Drum", "Handpan"
             ),
             "FOLK / PLUCKED" to arrayOf(
                 "Banjo",
@@ -198,7 +224,12 @@ class MainActivity : Activity() {
                 "Synth Pad"
             ),
             "DRUMS / PERCUSSION" to arrayOf(
-                "Drums"
+                "Drum Kit", "Acoustic Drum Kit", "Rock Drum Kit", "Jazz Drum Kit",
+                "Metal Drum Kit", "Electronic Drum Kit", "Orchestral Percussion",
+                "Concert Bass Drum", "Snare Drum", "Kick Drum", "Tom-Tom", "Floor Tom",
+                "Hi-Hat", "Ride Cymbal", "Crash Cymbal", "China Cymbal", "Splash Cymbal",
+                "Cowbell", "Tambourine", "Claves", "Castanets", "Triangle",
+                "Wood Block", "Shaker"
             )
         )
 
