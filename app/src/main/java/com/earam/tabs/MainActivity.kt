@@ -38,6 +38,8 @@ import com.earam.tabs.music.StrokeDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.zip.ZipInputStream
 import kotlin.math.PI
 import kotlin.math.pow
@@ -943,10 +945,34 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     score.tracks = arrayListOf(parsed.tracks[0])
                     score.api.renderTracks(score.tracks.toList())
-                    score.api.loadMidiForScore()
                     title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
                     refreshBarsForWidth(score.width)
-                    status.text = if (score.api.isReadyForPlayback) "Sound ready • 100% speed" else "TAB loaded • preparing sound…"
+                    status.text = "TAB loaded • loading sound…"
+                }
+
+                // Android alphaTab does not download a SoundFont from a URL automatically.
+                // Load the bundled-version-compatible Sonivox bank explicitly, then build MIDI.
+                val sfUrl = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
+                val connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    requestMethod = "GET"
+                }
+                connection.connect()
+                if (connection.responseCode !in 200..299) {
+                    throw IllegalStateException("SoundFont download failed: HTTP " + connection.responseCode)
+                }
+                val soundFontBytes = connection.inputStream.use { it.readBytes() }
+                connection.disconnect()
+
+                runOnUiThread {
+                    val loaded = score.api.loadSoundFont(java.io.ByteArrayInputStream(soundFontBytes), false)
+                    if (!loaded) throw IllegalStateException("SoundFont format was rejected")
+                    score.api.loadMidiForScore()
+                    status.text = "Sound ready • 100% speed"
+                    play.isEnabled = true
+                    stop.isEnabled = true
                 }
             } catch (e: Exception) {
                 runOnUiThread {
