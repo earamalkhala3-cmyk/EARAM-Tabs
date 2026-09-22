@@ -29,8 +29,6 @@ import android.widget.Toast
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
 import alphaTab.PlayerMode
-import alphaTab.core.ecmaScript.Uint8Array
-import alphaTab.importer.ScoreLoader
 import com.earam.tabs.music.PickingEngine
 import com.earam.tabs.music.PickingMode
 import com.earam.tabs.music.StrumPattern
@@ -933,21 +931,25 @@ class MainActivity : Activity() {
         play.isEnabled = false
         stop.isEnabled = false
 
+        score.api.scoreLoaded.on { loadedScore ->
+            runOnUiThread {
+                title.text = "Earam  •  " + loadedScore.title.ifBlank { fileName.substringBeforeLast('.') }
+                refreshBarsForWidth(score.width)
+                status.text = "TAB loaded • loading sound…"
+            }
+        }
+
         Thread {
             try {
-                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: throw IllegalStateException("Cannot read TAB file")
-                val parsed = ScoreLoader.loadScoreFromBytes(
-                    Uint8Array(bytes.asUByteArray()),
-                    score.settings
-                )
-                val firstTrack = parsed.tracks.firstOrNull()
-                ?: throw IllegalStateException("The imported file contains no tracks")
-                runOnUiThread {
-                    score.api.renderTracks(alphaTab.collections.List(firstTrack))
-                    title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
-                    refreshBarsForWidth(score.width)
-                    status.text = "TAB loaded • loading sound…"
+                // Use alphaTab's native Android loading path. It accepts an InputStream
+                // and dispatches the raw bytes to the correct importer by file format.
+                // This is important for legacy binary Guitar Pro 3/4/5 files (.gp3/.gp4/.gp5).
+                val loaded = contentResolver.openInputStream(uri)?.use { input ->
+                    score.api.load(input)
+                } ?: throw IllegalStateException("Cannot read TAB file")
+
+                if (!loaded) {
+                    throw IllegalStateException("alphaTab rejected this file format")
                 }
 
                 // Android alphaTab does not download a SoundFont from a URL automatically.
