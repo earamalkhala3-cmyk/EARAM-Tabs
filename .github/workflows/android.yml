@@ -47,11 +47,11 @@ jobs:
 
       - name: Install Android SDK
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "emulator" "system-images;android-35;google_apis;x86_64"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.11.1'
 
       - name: Unit tests
         run: gradle :core:test --no-daemon --stacktrace
@@ -64,7 +64,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          gradle :app:clean :app:assembleRelease -Pandroid.injected.build.api=35 -Pandroid.injected.testOnly=false --no-daemon --stacktrace
+          gradle :app:clean :app:assembleRelease -Pandroid.injected.build.api=36 -Pandroid.injected.testOnly=false --no-daemon --stacktrace
 
       - name: Select exactly one APK
         run: |
@@ -82,8 +82,8 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          ZIPALIGN="$ANDROID_HOME/build-tools/35.0.0/zipalign"
+          SIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          ZIPALIGN="$ANDROID_HOME/build-tools/36.0.0/zipalign"
           ALIGNED="$RUNNER_TEMP/earam-aligned.apk"
           SIGNED="$RUNNER_TEMP/earam-signed.apk"
 
