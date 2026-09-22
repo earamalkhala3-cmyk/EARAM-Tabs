@@ -373,6 +373,7 @@ class MainActivity : Activity() {
         if (notes.isNotEmpty()) {
             val voice = when (instrument) {
                 "Electric Guitar" -> GuitarSoundEngine.Voice.ELECTRIC_GUITAR
+                "Distortion Guitar" -> GuitarSoundEngine.Voice.DISTORTION_GUITAR
                 "Clean Electric Guitar" -> GuitarSoundEngine.Voice.CLEAN_ELECTRIC_GUITAR
                 "Acoustic Guitar" -> GuitarSoundEngine.Voice.ACOUSTIC_GUITAR
                 "Classical Guitar" -> GuitarSoundEngine.Voice.CLASSICAL_GUITAR
