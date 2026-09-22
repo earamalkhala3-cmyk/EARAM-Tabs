@@ -82,7 +82,7 @@ class MainActivity : Activity() {
             setPadding(dp(28f), dp(8f), dp(28f), 0)
         }
         val name = EditText(this).apply { hint = "Project name" }
-        val ins = spinner(arrayOf("Guitar", "Acoustic Guitar", "Bass", "Drums", "Piano", "Keys", "Violin", "Cello", "Synth"))
+        val ins = spinner(arrayOf("Electric Guitar", "Clean Electric Guitar", "Acoustic Guitar", "Classical Guitar", "12-String Guitar", "7-String Guitar", "8-String Guitar", "Baritone Guitar", "Bass", "5-String Bass", "6-String Bass", "Fretless Bass", "Piano", "Electric Piano", "Organ", "Synth Lead", "Synth Pad", "Violin", "Viola", "Cello", "Double Bass", "Flute", "Clarinet", "Oboe", "Saxophone", "Trumpet", "Trombone", "Harmonica", "Banjo", "Mandolin", "Ukulele", "Harp", "Drums"))
         val strings = spinner((3..10).map(Int::toString).toTypedArray(), 3)
         val tune = spinner(arrayOf("Standard", "Drop D", "Drop C", "Custom"))
         val sig = spinner(arrayOf("4/4", "3/4", "6/8", "5/4", "7/8"))
@@ -274,10 +274,41 @@ class MainActivity : Activity() {
         val audio = track ?: return
         val direction = strokes[column] == StrokeDirection.UP
         if (notes.isNotEmpty()) {
-            val voice = if (instrument.equals("Bass", ignoreCase = true)) {
-                GuitarSoundEngine.Voice.BASS
-            } else {
-                GuitarSoundEngine.Voice.ELECTRIC_GUITAR
+            val voice = when (instrument) {
+                "Electric Guitar" -> GuitarSoundEngine.Voice.ELECTRIC_GUITAR
+                "Clean Electric Guitar" -> GuitarSoundEngine.Voice.CLEAN_ELECTRIC_GUITAR
+                "Acoustic Guitar" -> GuitarSoundEngine.Voice.ACOUSTIC_GUITAR
+                "Classical Guitar" -> GuitarSoundEngine.Voice.CLASSICAL_GUITAR
+                "12-String Guitar" -> GuitarSoundEngine.Voice.TWELVE_STRING_GUITAR
+                "7-String Guitar" -> GuitarSoundEngine.Voice.SEVEN_STRING_GUITAR
+                "8-String Guitar" -> GuitarSoundEngine.Voice.EIGHT_STRING_GUITAR
+                "Baritone Guitar" -> GuitarSoundEngine.Voice.BARITONE_GUITAR
+                "Bass" -> GuitarSoundEngine.Voice.BASS
+                "5-String Bass" -> GuitarSoundEngine.Voice.FIVE_STRING_BASS
+                "6-String Bass" -> GuitarSoundEngine.Voice.SIX_STRING_BASS
+                "Fretless Bass" -> GuitarSoundEngine.Voice.FRETLESS_BASS
+                "Piano" -> GuitarSoundEngine.Voice.PIANO
+                "Electric Piano" -> GuitarSoundEngine.Voice.ELECTRIC_PIANO
+                "Organ" -> GuitarSoundEngine.Voice.ORGAN
+                "Synth Lead" -> GuitarSoundEngine.Voice.SYNTH_LEAD
+                "Synth Pad" -> GuitarSoundEngine.Voice.SYNTH_PAD
+                "Violin" -> GuitarSoundEngine.Voice.VIOLIN
+                "Viola" -> GuitarSoundEngine.Voice.VIOLA
+                "Cello" -> GuitarSoundEngine.Voice.CELLO
+                "Double Bass" -> GuitarSoundEngine.Voice.DOUBLE_BASS
+                "Flute" -> GuitarSoundEngine.Voice.FLUTE
+                "Clarinet" -> GuitarSoundEngine.Voice.CLARINET
+                "Oboe" -> GuitarSoundEngine.Voice.OBOE
+                "Saxophone" -> GuitarSoundEngine.Voice.SAXOPHONE
+                "Trumpet" -> GuitarSoundEngine.Voice.TRUMPET
+                "Trombone" -> GuitarSoundEngine.Voice.TROMBONE
+                "Harmonica" -> GuitarSoundEngine.Voice.HARMONICA
+                "Banjo" -> GuitarSoundEngine.Voice.BANJO
+                "Mandolin" -> GuitarSoundEngine.Voice.MANDOLIN
+                "Ukulele" -> GuitarSoundEngine.Voice.UKULELE
+                "Harp" -> GuitarSoundEngine.Voice.HARP
+                "Drums" -> GuitarSoundEngine.Voice.DRUMS
+                else -> GuitarSoundEngine.Voice.ELECTRIC_GUITAR
             }
             val data = guitarEngine.render(
                 midiNotes = notes,
