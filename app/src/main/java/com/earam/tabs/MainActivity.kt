@@ -880,7 +880,7 @@ class MainActivity : Activity() {
             if (score.settings.display.barsPerRow != desired) {
                 score.settings.display.barsPerRow = desired
                 score.api.updateSettings()
-                if (score.tracks.toList().isNotEmpty()) score.api.renderTracks(score.tracks.toList())
+                score.api.render()
             }
         }
 
@@ -941,10 +941,10 @@ class MainActivity : Activity() {
                     Uint8Array(bytes.asUByteArray()),
                     score.settings
                 )
-                if (parsed.tracks.isEmpty()) throw IllegalStateException("The imported file contains no tracks")
+                val firstTrack = parsed.tracks.firstOrNull()
+                ?: throw IllegalStateException("The imported file contains no tracks")
                 runOnUiThread {
-                    score.tracks = arrayListOf(parsed.tracks[0])
-                    score.api.renderTracks(score.tracks.toList())
+                    score.api.renderTracks(alphaTab.collections.List(firstTrack))
                     title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
                     refreshBarsForWidth(score.width)
                     status.text = "TAB loaded • loading sound…"
