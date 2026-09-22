@@ -850,7 +850,7 @@ class MainActivity : Activity() {
             if (score.settings.display.barsPerRow != desired) {
                 score.settings.display.barsPerRow = desired
                 score.api.updateSettings()
-                score.api.renderTracks()
+                score.api.renderTracks(score.tracks)
             }
         }
         score.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
@@ -868,12 +868,12 @@ class MainActivity : Activity() {
         zoomOut.setOnClickListener {
             score.settings.display.scale = (score.settings.display.scale - 0.05).coerceAtLeast(0.55)
             score.api.updateSettings()
-            score.api.renderTracks()
+            score.api.renderTracks(score.tracks)
         }
         zoomIn.setOnClickListener {
             score.settings.display.scale = (score.settings.display.scale + 0.05).coerceAtMost(1.10)
             score.api.updateSettings()
-            score.api.renderTracks()
+            score.api.renderTracks(score.tracks)
         }
 
         root.addView(title, LinearLayout.LayoutParams(-1, -2))
