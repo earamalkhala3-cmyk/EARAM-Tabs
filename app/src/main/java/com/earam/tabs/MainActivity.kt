@@ -17,6 +17,7 @@ import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Button
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -378,6 +379,23 @@ class MainActivity : Activity() {
         editor?.invalidate()
     }
 
+    private fun showFretKeypad() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16f), dp(8f), dp(16f), dp(8f)) }
+        val rows = listOf((0..12).toList(), (13..24).toList() + listOf(-1))
+        rows.forEach { rowValues ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            rowValues.forEach { value ->
+                val b = Button(this).apply { text = if (value < 0) "⌫" else value.toString() }
+                b.setOnClickListener {
+                    if (value < 0) selectedFret = (selectedFret / 10).coerceAtLeast(0) else selectedFret = value
+                    editor?.setSelectedFret(selectedFret)
+                }
+                row.addView(b, LinearLayout.LayoutParams(0, dp(48f), 1f))
+            }
+            box.addView(row)
+        }
+        AlertDialog.Builder(this).setTitle("TAB NUMBER").setView(box).setNegativeButton("Close", null).show()
+    }
     private fun showChordDialog() {
         val input = EditText(this).apply { hint = "Chord (e.g. Am7)" }
         AlertDialog.Builder(this).setTitle("Chord").setView(input)
@@ -385,6 +403,23 @@ class MainActivity : Activity() {
                 val value = input.text.toString().trim()
                 if (value.isNotEmpty()) { chords[editor?.selectedColumn() ?: 0] = value; editor?.invalidate() }
             }.show()
+    }
+    private fun importGuitarPro() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/octet-stream", "application/zip"))
+        }
+        startActivityForResult(intent, 4107)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 4107 || resultCode != RESULT_OK) return
+        val uri=data?.data ?: return
+        val name=uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT"
+        val ext=name.substringAfterLast('.', "").lowercase()
+        if (ext == "gpx") { Toast.makeText(this, "GPX selected — parser hook is ready; full GP5/GPX conversion is next.", Toast.LENGTH_LONG).show() }
+        else Toast.makeText(this, "Guitar Pro file selected: .$ext", Toast.LENGTH_SHORT).show()
     }
     private fun openEditor() {
         editor = EditorView()
@@ -459,6 +494,7 @@ class MainActivity : Activity() {
         private val redo = ArrayDeque<EditorState>()
         var loop = false
         fun selectedColumn(): Int = column
+        fun setSelectedFret(value: Int) { selectedFret=value.coerceIn(0,24); cells[row][column]=selectedFret.toString(); assignPicking(); invalidate() }
 
         override fun onDraw(canvas: Canvas) {
             canvas.drawColor(0xFF111315.toInt())
@@ -628,7 +664,7 @@ class MainActivity : Activity() {
                 val index = ((x - 8f) / toolWidth).toInt()
                 when (index) {
                     2 -> showChordDialog()
-                    3 -> Toast.makeText(this@MainActivity, "Guitar Pro import will use the dedicated parser.", Toast.LENGTH_SHORT).show()
+                    3 -> importGuitarPro()
                     4 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
                     5 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
                     6 -> saveProject()
