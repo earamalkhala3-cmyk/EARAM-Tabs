@@ -472,7 +472,14 @@ class MainActivity : Activity() {
             paint.typeface = Typeface.DEFAULT_BOLD
             paint.color = 0xFFE66A2E.toInt()
             paint.textSize = 13f
-            paint.color = 0xFFF1F2F3.toInt(); canvas.drawText("Ea", 34f, 34f, paint); paint.color = 0xFFE66A2E.toInt(); canvas.drawText("r", 48f, 34f, paint); paint.color = 0xFFF1F2F3.toInt(); canvas.drawText("am", 56f, 34f, paint)
+            paint.color = 0xFFF1F2F3.toInt()
+            canvas.drawText("Ea", 34f, 34f, paint)
+            paint.textSize = 13f
+            val rX = 34f + paint.measureText("Ea") + 4f
+            paint.color = 0xFFE66A2E.toInt()
+            canvas.drawText("r", rX, 34f, paint)
+            paint.color = 0xFFF1F2F3.toInt()
+            canvas.drawText("am", rX + paint.measureText("r") + 4f, 34f, paint)
             paint.color = 0xFFF1F2F3.toInt()
             paint.textSize = 40f
             canvas.drawText("Music workspace", 34f, 78f, paint)
@@ -536,7 +543,14 @@ class MainActivity : Activity() {
             val h = height.toFloat() / d
             paint.color = 0xFF191C1F.toInt()
             canvas.drawRect(0f, 0f, w, 64f, paint)
-            text(canvas, "Ea", 18f, 40f, 22f, true); paint.color = 0xFFE66A2E.toInt(); canvas.drawText("r", 43f, 40f, paint); paint.color = 0xFFE5E7E8.toInt(); canvas.drawText("am", 55f, 40f, paint)
+            text(canvas, "Ea", 18f, 40f, 22f, true)
+            paint.textSize = 22f
+            paint.typeface = Typeface.DEFAULT_BOLD
+            val editorLogoX = 18f + paint.measureText("Ea") + 5f
+            paint.color = 0xFFE66A2E.toInt()
+            canvas.drawText("r", editorLogoX, 40f, paint)
+            paint.color = 0xFFE5E7E8.toInt()
+            canvas.drawText("am", editorLogoX + paint.measureText("r") + 5f, 40f, paint)
             text(canvas, projectName, 104f, 39f, 12f, false)
             text(canvas, "$bpm BPM", w - 82f, 39f, 11f, false)
 
