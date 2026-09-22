@@ -68,7 +68,7 @@ class MainActivity : Activity() {
     @Volatile private var track: AudioTrack? = null
     private val sampleRate = 44100
     private val guitarEngine = GuitarSoundEngine(sampleRate)
-    private val columnCount = 16
+    private val columnCount = 256
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -701,11 +701,11 @@ class MainActivity : Activity() {
             paint.color = 0xFFF1F2F3.toInt()
             canvas.drawText("Ea", 34f, 34f, paint)
             paint.textSize = 13f
-            val rX = 34f + paint.measureText("Ea") + 4f
+            val rX = 34f + paint.measureText("Ea") + 10f
             paint.color = 0xFFE66A2E.toInt()
             canvas.drawText("r", rX, 34f, paint)
             paint.color = 0xFFF1F2F3.toInt()
-            canvas.drawText("am", rX + paint.measureText("r") + 4f, 34f, paint)
+            canvas.drawText("am", rX + paint.measureText("r") + 10f, 34f, paint)
             paint.color = 0xFFF1F2F3.toInt()
             paint.textSize = 40f
             canvas.drawText("Music workspace", 34f, 78f, paint)
@@ -780,11 +780,11 @@ class MainActivity : Activity() {
             text(canvas, "Ea", 18f, 40f, 22f, true)
             paint.textSize = 22f
             paint.typeface = Typeface.DEFAULT_BOLD
-            val editorLogoX = 18f + paint.measureText("Ea") + 5f
+            val editorLogoX = 18f + paint.measureText("Ea") + 10f
             paint.color = 0xFFE66A2E.toInt()
             canvas.drawText("r", editorLogoX, 40f, paint)
             paint.color = 0xFFE5E7E8.toInt()
-            canvas.drawText("am", editorLogoX + paint.measureText("r") + 5f, 40f, paint)
+            canvas.drawText("am", editorLogoX + paint.measureText("r") + 10f, 40f, paint)
             text(canvas, projectName, 104f, 39f, 12f, false)
             text(canvas, "$bpm BPM", w - 82f, 39f, 11f, false)
 
@@ -807,10 +807,15 @@ class MainActivity : Activity() {
             paint.color = 0xFFF7F7F7.toInt()
             canvas.drawRect(0f, 186f, w, gridY + (stringCount - 1) * stringGap + 36f, paint)
             val names = when (stringCount) {
+                10 -> arrayOf("A", "E", "B", "F#", "C#", "G#", "D#", "A#", "F", "C")
+                9 -> arrayOf("A", "E", "B", "F#", "C#", "G#", "D#", "A#", "F")
+                8 -> arrayOf("F#", "B", "E", "A", "D", "G", "B", "E")
                 7 -> arrayOf("e", "B", "G", "D", "A", "E", "B")
                 6 -> arrayOf("e", "B", "G", "D", "A", "E")
                 5 -> arrayOf("G", "D", "A", "E", "B")
-                else -> arrayOf("G", "D", "A", "E")
+                4 -> arrayOf("D", "G", "B", "E")
+                3 -> arrayOf("G", "B", "E")
+                else -> Array(stringCount) { "—" }
             }
 
             for (stringIndex in 0 until stringCount) {
@@ -855,12 +860,12 @@ class MainActivity : Activity() {
             listOf("𝅝", "𝅗𝅥", "♩", "♪", "𝅘𝅥𝅯").forEachIndexed { index, symbol ->
                 chip(canvas, symbol, 12f + index * 42f, h - 78f, 34f, index == durationIndex())
             }
-            text(canvas, "MORE", 222f, h - 59f, 9f, false)
-            text(canvas, "PICKING", 190f, h - 94f, 9f, false)
-            chip(canvas, "↓", 186f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.DOWN)
-            chip(canvas, "↑", 224f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.UP)
-            chip(canvas, "ALT", 262f, h - 78f, 44f, mode == PickingMode.ALTERNATE)
-            chip(canvas, "STR", 310f, h - 78f, 42f, mode == PickingMode.STRUM)
+            text(canvas, "MORE", 212f, h - 59f, 9f, false)
+            text(canvas, "PICKING", 258f, h - 94f, 9f, false)
+            chip(canvas, "↓", 254f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.DOWN)
+            chip(canvas, "↑", 292f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.UP)
+            chip(canvas, "ALT", 330f, h - 78f, 44f, mode == PickingMode.ALTERNATE)
+            chip(canvas, "STR", 378f, h - 78f, 42f, mode == PickingMode.STRUM)
             text(canvas, if (cursor != null) "▶ ${cursor.first + 1}/$columnCount" else "Ready", 365f, h - 58f, 10f, false)
 
             if (playing) postInvalidateOnAnimation()
@@ -920,14 +925,42 @@ class MainActivity : Activity() {
 
         private fun drawStandard(canvas: Canvas, beat: Int, x: Float, top: Float) {
             if (cells.none { it.containsKey(beat) }) return
-            val values = cells.indices.filter { cells[it].containsKey(beat) }.map { midi(it, cells[it][beat]?.toIntOrNull() ?: 0) }
+            val values = cells.indices.filter { cells[it].containsKey(beat) }
+                .map { midi(it, cells[it][beat]?.toIntOrNull() ?: 0) }
             if (values.isEmpty()) return
             val average = values.average()
             val y = top + 36f - (average - 60.0) * 2.0
+            val ticks = durations[beat] ?: 960L
+            val stemUp = average < 66.0
             paint.color = 0xFFE5E7E8.toInt()
-            canvas.drawCircle(x, y.toFloat(), 5f, paint)
+            if (ticks >= 3840L) {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 2f
+                canvas.drawCircle(x, y.toFloat(), 5.5f, paint)
+                paint.style = Paint.Style.FILL
+            } else {
+                canvas.drawCircle(x, y.toFloat(), 5.5f, paint)
+            }
             line.color = 0xFFE5E7E8.toInt()
-            canvas.drawLine(x + 5f, y.toFloat(), x + 5f, y.toFloat() - 25f, line)
+            line.strokeWidth = 2f
+            val stemX = if (stemUp) x + 5.5f else x - 5.5f
+            val stemEnd = if (stemUp) y - 25f else y + 25f
+            canvas.drawLine(stemX, y.toFloat(), stemX, stemEnd, line)
+            val flags = when {
+                ticks <= 240L -> 2
+                ticks <= 480L -> 1
+                else -> 0
+            }
+            if (flags > 0) {
+                for (f in 0 until flags) {
+                    val yy = if (stemUp) y - 25f + f * 7f else y + 25f - f * 7f
+                    canvas.drawLine(stemX, yy, stemX + if (stemUp) 8f else -8f, yy + if (stemUp) 5f else -5f, line)
+                }
+            }
+            if (ticks == 2880L || ticks == 1440L || ticks == 720L || ticks == 360L) {
+                paint.color = 0xFFE5E7E8.toInt()
+                canvas.drawCircle(x + if (stemUp) 9f else -9f, y.toFloat(), 2f, paint)
+            }
         }
 
         private fun snapshot(): EditorState = EditorState(Array<Map<Int, String>>(stringCount) { cells[it].toMap() }, strokes.toMap(), durations.toMap())
@@ -1020,11 +1053,11 @@ class MainActivity : Activity() {
                     x in 116f..162f -> setDuration(960L)
                     x in 168f..204f -> setDuration(480L)
                     x in 206f..250f -> setDuration(240L)
-                    x in 252f..310f -> showDurationMenu()
-                    x in 190f..230f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
-                    x in 235f..275f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
-                    x in 280f..325f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
-                    x in 330f..375f -> { mode = PickingMode.STRUM; remember(); assignPicking() }
+                    x in 210f..250f -> showDurationMenu()
+                    x in 254f..288f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
+                    x in 292f..326f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
+                    x in 330f..374f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
+                    x in 378f..420f -> { mode = PickingMode.STRUM; remember(); assignPicking() }
                 }
                 return true
             }
