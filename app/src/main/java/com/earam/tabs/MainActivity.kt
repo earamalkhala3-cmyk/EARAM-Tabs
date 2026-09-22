@@ -13,9 +13,13 @@ import android.media.AudioTrack
 import android.os.Bundle
 import android.text.InputType
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
 import android.widget.LinearLayout
 import android.widget.Button
 import android.widget.Spinner
@@ -49,6 +53,8 @@ class MainActivity : Activity() {
     private var keySig = "C"
     private var notation = "BOTH"
     private var selectedFret = 0
+    private var savedColumn = 0
+    private var savedRow = 0
     private val chords = mutableMapOf<Int, String>()
 
     private var cells = Array(stringCount) { mutableMapOf<Int, String>() }
@@ -66,7 +72,42 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedInstanceState?.let {
+            projectName = it.getString("projectName", projectName)
+            instrument = it.getString("instrument", instrument)
+            stringCount = it.getInt("stringCount", stringCount).coerceIn(3, 10)
+            tuning = it.getString("tuning", tuning)
+            bpm = it.getInt("bpm", bpm)
+            timeSig = it.getString("timeSig", timeSig)
+            keySig = it.getString("keySig", keySig)
+            notation = it.getString("notation", notation)
+            savedColumn = it.getInt("column", 0)
+            savedRow = it.getInt("row", 0)
+            cells = Array(stringCount) { mutableMapOf() }
+            val notes = it.getStringArrayList("notes")
+            notes?.forEachIndexed { s, encoded ->
+                encoded.split("|").forEach { pair ->
+                    val p = pair.split("=", limit = 2)
+                    if (p.size == 2 && s < cells.size) cells[s][p[0].toIntOrNull() ?: return@forEach] = p[1]
+                }
+            }
+        }
         openEditor()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("projectName", projectName)
+        outState.putString("instrument", instrument)
+        outState.putInt("stringCount", stringCount)
+        outState.putString("tuning", tuning)
+        outState.putInt("bpm", bpm)
+        outState.putString("timeSig", timeSig)
+        outState.putString("keySig", keySig)
+        outState.putString("notation", notation)
+        outState.putInt("column", editor?.selectedColumn() ?: savedColumn)
+        outState.putInt("row", savedRow)
+        outState.putStringArrayList("notes", ArrayList(cells.map { map -> map.entries.joinToString("|") { "${it.key}=${it.value}" } }))
+        super.onSaveInstanceState(outState)
     }
 
     private fun showHome() {
@@ -593,9 +634,53 @@ class MainActivity : Activity() {
         }.show()
     }
 
+    private var fretInput: EditText? = null
+
     private fun openEditor() {
         editor = EditorView()
-        setContentView(editor)
+        val frame = FrameLayout(this)
+        frame.addView(editor, FrameLayout.LayoutParams(-1, -1))
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            maxLines = 1
+            maxWidth = 1
+            alpha = 0.01f
+            background = null
+            visibility = View.INVISIBLE
+        }
+        fretInput = input
+        frame.addView(input, FrameLayout.LayoutParams(1, 1))
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val value = s?.toString()?.toIntOrNull() ?: return
+                if (value in 0..24) editor?.setSelectedFretFromKeyboard(value)
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        setContentView(frame)
+        editor?.restoreSelection(savedRow, savedColumn)
+    }
+
+    private fun editFretAt(rowIndex: Int, columnIndex: Int) {
+        savedRow = rowIndex
+        savedColumn = columnIndex
+        editor?.selectCell(rowIndex, columnIndex)
+        val input = fretInput ?: return
+        input.visibility = View.VISIBLE
+        input.setText("")
+        input.requestFocus()
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+            .showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun finishFretEdit() {
+        fretInput?.let {
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(it.windowToken, 0)
+            it.clearFocus()
+            it.visibility = View.INVISIBLE
+        }
     }
 
     private inner class HomeView : View(this) {
@@ -666,6 +751,11 @@ class MainActivity : Activity() {
         private val line = Paint(Paint.ANTI_ALIAS_FLAG)
         private var row = 0
         private var column = 0
+        private var scrollColumn = 0
+        private var downX = 0f
+        private var downY = 0f
+        private var dragging = false
+        private val touchSlop = ViewConfiguration.get(this@MainActivity).scaledTouchSlop
         private var selectedStroke = StrokeDirection.DOWN
         private var mode = PickingMode.MANUAL
         private val pattern = StrumPattern.fromText("↓ ↓ ↑ ↑ ↓ ↑")
@@ -673,7 +763,10 @@ class MainActivity : Activity() {
         private val redo = ArrayDeque<EditorState>()
         var loop = false
         fun selectedColumn(): Int = column
+        fun restoreSelection(r: Int, c: Int) { row = r.coerceIn(0, stringCount - 1); column = c.coerceIn(0, columnCount - 1); scrollColumn = c.coerceIn(0, maxOf(0, columnCount - 1)); invalidate() }
+        fun selectCell(r: Int, c: Int) { row = r; column = c; savedRow = r; savedColumn = c; invalidate() }
         fun setSelectedFret(value: Int) { selectedFret=value.coerceIn(0,24); cells[row][column]=selectedFret.toString(); assignPicking(); invalidate() }
+        fun setSelectedFretFromKeyboard(value: Int) { setSelectedFret(value) }
 
         override fun onDraw(canvas: Canvas) {
             canvas.drawColor(0xFF111315.toInt())
@@ -710,7 +803,7 @@ class MainActivity : Activity() {
             val gridX = 54f
             val gridY = 238f
             val stringGap = if (stringCount > 6) 25f else 28f
-            val cellWidth = (w - gridX - 12f) / columnCount
+            val cellWidth = 44f
             paint.color = 0xFFF7F7F7.toInt()
             canvas.drawRect(0f, 186f, w, gridY + (stringCount - 1) * stringGap + 36f, paint)
             val names = when (stringCount) {
@@ -727,6 +820,9 @@ class MainActivity : Activity() {
                 canvas.drawLine(gridX, y, w - 12f, y, line)
             }
 
+            canvas.save()
+            canvas.clipRect(gridX, 186f, w - 12f, gridY + (stringCount - 1) * stringGap + 36f)
+            canvas.translate(-scrollColumn * cellWidth, 0f)
             for (index in 0..columnCount) {
                 val x = gridX + index * cellWidth
                 line.color = if (index % (timeSig.substringBefore('/').toIntOrNull() ?: 1).coerceAtLeast(1) == 0) 0xFF666C71.toInt() else 0xFF292D31.toInt()
@@ -752,6 +848,7 @@ class MainActivity : Activity() {
                 drawStandard(canvas, beat, x, staffTop)
             }
 
+            canvas.restore()
             paint.color = 0xFF1C2023.toInt()
             canvas.drawRect(0f, h - 120f, w, h, paint)
             text(canvas, "DURATION", 14f, h - 94f, 9f, false)
@@ -840,12 +937,41 @@ class MainActivity : Activity() {
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (event.action != MotionEvent.ACTION_UP) return true
             val d = resources.displayMetrics.density
             val x = event.x / d
             val y = event.y / d
             val w = width.toFloat() / d
             val h = height.toFloat() / d
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = x
+                    downY = y
+                    dragging = false
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = x - downX
+                    if (kotlin.math.abs(dx) > touchSlop) dragging = true
+                    if (dragging && y in 180f..(h - 125f)) {
+                        val maxScroll = maxOf(0, columnCount - ((w - 54f) / 44f).toInt())
+                        scrollColumn = (scrollColumn - (dx / 44f).toInt()).coerceIn(0, maxScroll)
+                        downX = x
+                        invalidate()
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (dragging) {
+                        dragging = false
+                        return true
+                    }
+                }
+                else -> return true
+            }
 
             if (y in 64f..118f) {
                 val toolWidth = (w - 16f) / 11f
@@ -869,7 +995,7 @@ class MainActivity : Activity() {
                     x in 12f..58f -> setDuration(1920L)
                     x in 64f..110f -> setDuration(960L)
                     x in 116f..162f -> setDuration(480L)
-                    x in 168f..214f -> setDuration(240L)
+                    x in 168f..184f -> setDuration(240L)
                     x in 190f..230f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 235f..275f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 280f..325f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
@@ -879,12 +1005,13 @@ class MainActivity : Activity() {
             }
 
             val gridX = 54f
-            val cellWidth = (w - gridX - 12f) / columnCount
+            val cellWidth = 44f
             val stringGap = if (stringCount > 6) 25f else 28f
+            val contentX = x + scrollColumn * cellWidth
             if (x in gridX..(w - 12f) && y in 220f..(238f + (stringCount - 1) * stringGap + 20f)) {
-                column = ((x - gridX) / cellWidth).toInt().coerceIn(0, columnCount - 1)
+                column = ((contentX - gridX) / cellWidth).toInt().coerceIn(0, columnCount - 1)
                 row = ((y - 238f + stringGap / 2f) / stringGap).toInt().coerceIn(0, stringCount - 1)
-                showFretKeypad()
+                editFretAt(row, column)
                 invalidate()
             }
             return true
