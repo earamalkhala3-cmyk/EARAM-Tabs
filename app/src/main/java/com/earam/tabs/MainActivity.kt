@@ -1109,6 +1109,7 @@ class MainActivity : Activity() {
         }
     }
 
+    @OptIn(kotlin.contracts.ExperimentalContracts::class)
     private class AlphaTabNoteEditor(
         private val activity: MainActivity,
         private val score: AlphaTabView,
