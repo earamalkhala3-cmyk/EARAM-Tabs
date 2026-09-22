@@ -21,7 +21,16 @@ const api = new alphaTab.AlphaTabApi(sheet, {
     enableCursor: true
   },
   display: {
-    staveProfile: alphaTab.StaveProfile.ScoreTab
+    // Guitar-Pro-like score pages: automatic systems, multiple measures per row,
+    // and a continuous vertical stack of full-width score pages.
+    layoutMode: alphaTab.LayoutMode.Page,
+    barsPerRow: -1,
+    barCount: -1,
+    startBar: 1,
+    staveProfile: alphaTab.StaveProfile.ScoreTab,
+    padding: [48, 42, 48, 42],
+    stretchForce: 1,
+    scale: 1
   }
 });
 
@@ -57,7 +66,7 @@ api.scoreLoaded.on((score) => {
   setStatus('Loaded');
 });
 
-api.renderStarted.on(() => setStatus('Rendering…'));
+api.renderStarted.on(() => setStatus('Rendering score pages…'));
 
 api.postRenderFinished.on(() => {
   updateButtons();
@@ -111,24 +120,26 @@ fileInput.addEventListener('change', async (event) => {
     }
   } catch (error) {
     console.error(error);
-    setStatus('Could not open ' + file.name);
+    setStatus('Could not open ' + file.name;
   } finally {
     fileInput.value = '';
   }
 });
 
 demoButton.addEventListener('click', () => {
-  const demo = String.raw`\title "EARAM Demo"
-\subtitle "alphaTab"
-\tempo 120
+  const demo = String.raw`\\title "EARAM Demo"
+\\subtitle "Guitar Pro style score pages"
+\\tempo 120
 .
-:4 0.6 2.5 3.5 2.4 | 0.6 2.5 3.5 5.4 |
-:4 5.4 3.5 2.4 0.5 | 0.6 3.5 2.5 0.4 |
-:4 0.6 2.5 3.5 2.4 | 5.4 3.5 2.4 0.5 |
+:4 0.6 2.5 3.5 2.4 | 0.6 2.5 3.5 5.4 | 5.4 3.5 2.4 0.5 | 0.6 2.5 3.5 2.4 |
+:4 5.4 3.5 2.4 0.5 | 0.6 3.5 2.5 0.4 | 0.6 2.5 3.5 2.4 | 5.4 3.5 2.4 0.5 |
+:4 0.6 2.5 3.5 2.4 | 0.6 2.5 3.5 5.4 | 5.4 3.5 2.4 0.5 | 0.6 3.5 2.5 0.4 |
+:4 5.4 3.5 2.4 0.5 | 0.6 2.5 3.5 2.4 | 5.4 3.5 2.4 0.5 | 0.6 3.5 2.5 0.4 |
+:4 0.6 2.5 3.5 2.4 | 5.4 3.5 2.4 0.5 | 0.6 2.5 3.5 5.4 | 5.4 3.5 2.4 0.5 |
 `;
-  setStatus('Loading demo…');
+  setStatus('Loading multi-page demo…');
   api.tex(demo);
 });
 
-setStatus('Ready — open a Guitar Pro file or load the demo');
+setStatus('Ready — open a Guitar Pro file or load the multi-page demo');
 updateButtons();
