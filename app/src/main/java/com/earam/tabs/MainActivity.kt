@@ -66,7 +66,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        showHome()
+        openEditor()
     }
 
     private fun showHome() {
@@ -452,6 +452,18 @@ class MainActivity : Activity() {
         if (ext == "gpx") { Toast.makeText(this, "GPX selected — parser hook is ready; full GP5/GPX conversion is next.", Toast.LENGTH_LONG).show() }
         else Toast.makeText(this, "Guitar Pro file selected: .$ext", Toast.LENGTH_SHORT).show()
     }
+    private fun showFileMenu() {
+        val items = arrayOf("New Project", "Open Project", "Save Project", "Home")
+        AlertDialog.Builder(this).setTitle("FILE").setItems(items) { _, which ->
+            when (which) {
+                0 -> newProject()
+                1 -> openProject()
+                2 -> saveProject()
+                3 -> showHome()
+            }
+        }.show()
+    }
+
     private fun openEditor() {
         editor = EditorView()
         setContentView(editor)
@@ -556,7 +568,7 @@ class MainActivity : Activity() {
 
             paint.color = 0xFF202428.toInt()
             canvas.drawRect(0f, 64f, w, 118f, paint)
-            val tools = listOf("NOTE", "REST", "CHORD", "IMPORT", "UNDO", "REDO", "SAVE", "HOME", "PLAY", "STOP", "LOOP")
+            val tools = listOf("FILE", "NOTE", "REST", "CHORD", "IMPORT", "UNDO", "REDO", "SAVE", "PLAY", "STOP", "LOOP")
             val toolWidth = (w - 16f) / tools.size
             tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, false) }
             text(canvas, "$instrument • $stringCount-string • $tuning • $timeSig • $keySig", 18f, 143f, 10f, false)
@@ -570,6 +582,8 @@ class MainActivity : Activity() {
             val gridY = 238f
             val stringGap = if (stringCount > 6) 25f else 28f
             val cellWidth = (w - gridX - 12f) / columnCount
+            paint.color = 0xFFF7F7F7.toInt()
+            canvas.drawRect(0f, 186f, w, gridY + (stringCount - 1) * stringGap + 36f, paint)
             val names = when (stringCount) {
                 7 -> arrayOf("e", "B", "G", "D", "A", "E", "B")
                 6 -> arrayOf("e", "B", "G", "D", "A", "E")
@@ -580,7 +594,7 @@ class MainActivity : Activity() {
             for (stringIndex in 0 until stringCount) {
                 val y = gridY + stringIndex * stringGap
                 text(canvas, names[stringIndex], 18f, y + 4f, 10f, false)
-                line.color = 0xFF34383C.toInt()
+                line.color = 0xFF222222.toInt()
                 canvas.drawLine(gridX, y, w - 12f, y, line)
             }
 
@@ -741,10 +755,7 @@ class MainActivity : Activity() {
             if (x in gridX..(w - 12f) && y in 220f..(238f + (stringCount - 1) * stringGap + 20f)) {
                 column = ((x - gridX) / cellWidth).toInt().coerceIn(0, columnCount - 1)
                 row = ((y - 238f + stringGap / 2f) / stringGap).toInt().coerceIn(0, stringCount - 1)
-                remember()
-                val fret = ((x - gridX) / cellWidth * 4f).toInt().coerceIn(0, 24)
-                cells[row][column] = fret.toString()
-                assignPicking()
+                showFretKeypad()
                 invalidate()
             }
             return true
