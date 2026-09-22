@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.Gravity
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
@@ -877,7 +878,7 @@ class MainActivity : Activity() {
             if (score.settings.display.barsPerRow != desired) {
                 score.settings.display.barsPerRow = desired
                 score.api.updateSettings()
-                if (!score.tracks.isEmpty) score.api.renderTracks(score.tracks)
+                if (score.tracks.toList().isNotEmpty()) score.api.renderTracks(score.tracks.toList())
             }
         }
 
@@ -941,9 +942,11 @@ class MainActivity : Activity() {
                 if (parsed.tracks.isEmpty()) throw IllegalStateException("The imported file contains no tracks")
                 runOnUiThread {
                     score.tracks = arrayListOf(parsed.tracks[0])
+                    score.api.renderTracks(score.tracks.toList())
+                    score.api.loadMidiForScore()
                     title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
                     refreshBarsForWidth(score.width)
-                    status.text = "TAB loaded • preparing sound…"
+                    status.text = if (score.api.isReadyForPlayback) "Sound ready • 100% speed" else "TAB loaded • preparing sound…"
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -1604,7 +1607,8 @@ class MainActivity : Activity() {
                     editFretAt(stringIndex, beat)
                     invalidate()
                 }
-            }            return true
+            }
+            return true
         }
     }
 }
