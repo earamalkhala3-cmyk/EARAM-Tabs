@@ -795,6 +795,7 @@ class MainActivity : Activity() {
         startActivityForResult(intent, 4107)
     }
 
+    @OptIn(kotlin.contracts.ExperimentalContracts::class)
     private fun showAlphaTabPreview(uri: Uri, fileName: String) {
         val dialog = AlertDialog.Builder(this).create()
         val root = LinearLayout(this).apply {
