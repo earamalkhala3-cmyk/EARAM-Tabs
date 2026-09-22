@@ -16,7 +16,7 @@ import kotlin.random.Random
  */
 class GuitarSoundEngine(private val sampleRate: Int = 44100) {
     enum class Voice {
-        ELECTRIC_GUITAR, CLEAN_ELECTRIC_GUITAR, ACOUSTIC_GUITAR, CLASSICAL_GUITAR,
+        ELECTRIC_GUITAR, CLEAN_ELECTRIC_GUITAR, DISTORTION_GUITAR, ACOUSTIC_GUITAR, CLASSICAL_GUITAR,
         TWELVE_STRING_GUITAR, SEVEN_STRING_GUITAR, EIGHT_STRING_GUITAR, BARITONE_GUITAR,
         BASS, FIVE_STRING_BASS, SIX_STRING_BASS, FRETLESS_BASS,
         PIANO, ELECTRIC_PIANO, ORGAN, SYNTH_LEAD, SYNTH_PAD,
@@ -32,8 +32,8 @@ class GuitarSoundEngine(private val sampleRate: Int = 44100) {
         val out = DoubleArray(length)
         midiNotes.forEachIndexed { index, midi ->
             val note = when (voice) {
-                Voice.ELECTRIC_GUITAR, Voice.CLEAN_ELECTRIC_GUITAR, Voice.ACOUSTIC_GUITAR,
-                Voice.CLASSICAL_GUITAR, Voice.TWELVE_STRING_GUITAR, Voice.SEVEN_STRING_GUITAR,
+                Voice.ELECTRIC_GUITAR, Voice.CLEAN_ELECTRIC_GUITAR, Voice.DISTORTION_GUITAR, Voice.ACOUSTIC_GUITAR, Voice.CLASSICAL_GUITAR,
+                Voice.TWELVE_STRING_GUITAR, Voice.SEVEN_STRING_GUITAR,
                 Voice.EIGHT_STRING_GUITAR, Voice.BARITONE_GUITAR, Voice.BASS, Voice.FIVE_STRING_BASS,
                 Voice.SIX_STRING_BASS, Voice.FRETLESS_BASS -> guitarFamily(midi, durationSeconds, voice, velocity, upstroke, index)
                 Voice.PIANO, Voice.ELECTRIC_PIANO -> pianoFamily(midi, durationSeconds, voice, velocity)
@@ -82,7 +82,7 @@ class GuitarSoundEngine(private val sampleRate: Int = 44100) {
             val pick = rnd.nextDouble(-1.0, 1.0) * exp(-t / 0.008) * if (upstroke) .78 else 1.0
             val bodyFreq = if (voice.name.contains("BASS")) 95.0 else 185.0
             var v = (tone * .20 + pick * .20 * attack + sin(2.0 * PI * bodyFreq * t) * exp(-t / .45) * .07) * velocity
-            if (voice == Voice.ELECTRIC_GUITAR || voice == Voice.EIGHT_STRING_GUITAR || voice == Voice.SEVEN_STRING_GUITAR) v = tanh(v * drive) * .82
+            if (voice == Voice.ELECTRIC_GUITAR || voice == Voice.DISTORTION_GUITAR || voice == Voice.EIGHT_STRING_GUITAR || voice == Voice.SEVEN_STRING_GUITAR) v = tanh(v * drive) * .82
             out[n] = v
         }
         return out
