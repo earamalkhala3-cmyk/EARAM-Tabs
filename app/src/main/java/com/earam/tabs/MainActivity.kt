@@ -29,6 +29,7 @@ import android.widget.Toast
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
 import alphaTab.PlayerMode
+import alphaTab.model.Note
 import com.earam.tabs.music.PickingEngine
 import com.earam.tabs.music.PickingMode
 import com.earam.tabs.music.StrumPattern
@@ -863,6 +864,9 @@ class MainActivity : Activity() {
         score.settings.player.enableElementHighlighting = true
         score.api.updateSettings()
 
+        val noteEditor = AlphaTabNoteEditor(this, score, status)
+        noteEditor.attach()
+
         fun setSpeed(value: Double) {
             score.api.playbackSpeed = value
             status.text = "Playback: " + String.format(java.util.Locale.US, "%.0f%%", value * 100.0)
@@ -1102,6 +1106,138 @@ class MainActivity : Activity() {
                     Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    private class AlphaTabNoteEditor(
+        private val activity: MainActivity,
+        private val score: AlphaTabView,
+        private val status: TextView
+    ) {
+        var currentBarIndex: Int = 0
+            private set
+        var currentBeatIndex: Int = 0
+            private set
+        var currentStringIndex: Int = 1
+            private set
+
+        private var armed = false
+
+        fun attach() {
+            score.isFocusableInTouchMode = true
+            score.setOnKeyListener { _, keyCode, event ->
+                if (event.action != android.view.KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                when (keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { moveBeat(-1); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { moveBeat(1); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_UP -> { moveString(-1); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { moveString(1); true }
+                    android.view.KeyEvent.KEYCODE_DEL,
+                    android.view.KeyEvent.KEYCODE_FORWARD_DEL -> { deleteCurrentNote(); true }
+                    else -> {
+                        val n = event.unicodeChar
+                        if (n in '0'.code..'9'.code) {
+                            enterDigit(n - '0'.code)
+                            true
+                        } else false
+                    }
+                }
+            }
+
+            score.api.noteMouseDown.on { note ->
+                val beat = note.beat
+                val track = score.api.score?.tracks?.firstOrNull() ?: return@on
+                val staff = track.staves.firstOrNull() ?: return@on
+                for (bi in staff.bars.indices) {
+                    val beats = staff.bars[bi].voices.firstOrNull()?.beats ?: continue
+                    val index = beats.indexOf(beat)
+                    if (index >= 0) {
+                        currentBarIndex = bi
+                        currentBeatIndex = index
+                        currentStringIndex = note.string.toInt().coerceAtLeast(1)
+                        armed = true
+                        updateStatus()
+                        score.requestFocus()
+                        break
+                    }
+                }
+            }
+
+            score.setOnTouchListener { _, event ->
+                if (event.action == android.view.MotionEvent.ACTION_DOWN) {
+                    armed = true
+                    score.requestFocus()
+                }
+                false
+            }
+        }
+
+        private fun bars() =
+            score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.bars
+
+        private fun currentBeat(): alphaTab.model.Beat? =
+            bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.getOrNull(currentBeatIndex)
+
+        private fun moveBeat(delta: Int) {
+            val bs = bars() ?: return
+            var b = currentBarIndex
+            var beat = currentBeatIndex + delta
+            while (b >= 0 && b < bs.size) {
+                val count = bs[b].voices.firstOrNull()?.beats?.size ?: 0
+                if (count > 0 && beat in 0 until count) break
+                if (beat < 0) {
+                    b--
+                    beat = (bs.getOrNull(b)?.voices?.firstOrNull()?.beats?.size ?: 1) - 1
+                } else {
+                    b++
+                    beat = 0
+                }
+            }
+            if (b in bs.indices) {
+                currentBarIndex = b
+                currentBeatIndex = beat.coerceAtLeast(0)
+                armed = true
+                updateStatus()
+            }
+        }
+
+        private fun moveString(delta: Int) {
+            val maxString = score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.tuning?.tunings?.size ?: 6
+            currentStringIndex = (currentStringIndex + delta).coerceIn(1, maxString)
+            armed = true
+            updateStatus()
+        }
+
+        private fun enterDigit(digit: Int) {
+            if (!armed) armed = true
+            val beat = currentBeat() ?: return
+            val existing = beat.getNoteOnString(currentStringIndex.toDouble())
+            if (existing != null) {
+                existing.fret = digit.toDouble()
+                existing.finish(score.settings, null)
+            } else {
+                val note = Note()
+                note.string = currentStringIndex.toDouble()
+                note.fret = digit.toDouble()
+                beat.addNote(note)
+            }
+            score.api.score?.finish(score.settings)
+            score.api.render()
+            updateStatus("Fret $digit entered")
+        }
+
+        private fun deleteCurrentNote() {
+            val beat = currentBeat() ?: return
+            val note = beat.getNoteOnString(currentStringIndex.toDouble()) ?: return
+            beat.removeNote(note)
+            score.api.score?.finish(score.settings)
+            score.api.render()
+            updateStatus("Note deleted")
+        }
+
+        private fun updateStatus(message: String? = null) {
+            val text = message ?: "EDIT  •  Bar ${currentBarIndex + 1}  •  Beat ${currentBeatIndex + 1}  •  String $currentStringIndex"
+            activity.runOnUiThread { status.text = text }
         }
     }
 
