@@ -1,4 +1,5 @@
 name: EARAM Tabs Android
+run-name: EARAM Tabs Android — release validation #${{ github.run_number }}
 
 on:
   push:
