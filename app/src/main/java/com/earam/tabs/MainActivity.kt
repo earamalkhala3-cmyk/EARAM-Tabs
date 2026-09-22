@@ -756,11 +756,38 @@ class MainActivity : Activity() {
             "NOTES: " + shape.notes.joinToString("  ") + "\\nTAB:  " + fingering + "\\n\\nPUT ON TAB places the chord at the selected beat."
         }
     }
+    private fun showFileMenu() {
+        val items = arrayOf(
+            "New File",
+            "Open File",
+            "Save File",
+            "Save File As…",
+            "Import TAB",
+            "Export File",
+            "Home / Close",
+            "Check for updates"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("FILE")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> newProject()
+                    1 -> openProject()
+                    2 -> saveProject()
+                    3 -> saveProjectAs()
+                    4 -> importTab()
+                    5 -> exportProject()
+                    6 -> closeToHome()
+                    7 -> updateManager.checkForUpdates()
+                }
+            }
+            .show()
+    }
+
     private fun importTab() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/octet-stream", "application/zip"))
-        }
+                    }
         startActivityForResult(intent, 4107)
     }
 
