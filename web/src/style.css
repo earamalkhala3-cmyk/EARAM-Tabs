@@ -5,7 +5,7 @@
 :root {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #202124;
-  background: #e9e9e9;
+  background: #d7d7d7;
 }
 
 body {
@@ -142,20 +142,25 @@ button:disabled {
 .sheet-shell {
   flex: 1;
   overflow: auto;
-  padding: 20px;
+  padding: 28px 16px 56px;
+  background: #d7d7d7;
 }
 
 .alpha-tab {
-  max-width: 1200px;
-  min-height: 700px;
+  width: min(100%, 920px);
+  min-height: 1100px;
   margin: 0 auto;
   background: #fff;
-  box-shadow: 0 1px 7px rgba(0, 0, 0, .14);
-  overflow: auto;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .18);
+  overflow: visible;
+  position: relative;
 }
 
+/* AlphaTab owns the score geometry. Do not constrain its rendered width. */
 .alpha-tab .at {
-  min-width: 700px;
+  width: 100%;
+  min-width: 0;
+  background: #fff;
 }
 
 @media (max-width: 760px) {
@@ -164,10 +169,25 @@ button:disabled {
   }
 
   .sheet-shell {
-    padding: 8px;
+    padding: 12px 8px 40px;
+  }
+
+  .alpha-tab {
+    width: 100%;
+    min-height: 900px;
   }
 
   .topbar {
     padding: 14px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 600px) {
+  .sheet-shell {
+    padding: 12px 10px 40px;
+  }
+
+  .alpha-tab {
+    width: min(100%, 980px);
   }
 }
