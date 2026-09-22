@@ -142,7 +142,7 @@ class MainActivity : Activity() {
 
         val strings = spinner((3..10).map(Int::toString).toTypedArray(), 3)
         val tune = spinner(arrayOf("Standard", "Drop D", "Drop C", "Custom"))
-        val sig = spinner(arrayOf("4/4", "3/4", "6/8", "5/4", "7/8"))
+        val sig = spinner(arrayOf("2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "9/8", "12/8"))
         val key = spinner(arrayOf("C", "G", "D", "A", "E", "F", "Am", "Em"))
         val tempo = EditText(this).apply {
             hint = "BPM"
