@@ -170,6 +170,16 @@ jobs:
           adb -s emulator-5554 shell pm path com.earam.tabs
           adb -s emulator-5554 install -r --no-incremental "$APK_PATH"
 
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Earam-APK-${{ github.run_number }}
+          path: |
+            ${{ env.APK_PATH }}
+            ${{ env.APK_PATH }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
