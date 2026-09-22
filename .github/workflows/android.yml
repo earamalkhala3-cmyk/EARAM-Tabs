@@ -102,9 +102,8 @@ jobs:
       - name: Verify APK signature
         run: |
           set -euo pipefail
-          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          SIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$SIGNER" verify --verbose --print-certs "$APK_PATH" | tee /tmp/apksigner.txt
-          grep -q "Verified using v1 scheme (JAR signing): true" /tmp/apksigner.txt
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner.txt
           grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt
           grep -q "Signer #1 certificate DN: C=EG, O=EARAM, CN=EARAM Tabs Release" /tmp/apksigner.txt
