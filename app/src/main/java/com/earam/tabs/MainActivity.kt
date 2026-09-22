@@ -475,7 +475,7 @@ class MainActivity : Activity() {
 
             paint.color = 0xFF202428.toInt()
             canvas.drawRect(0f, 64f, w, 118f, paint)
-            val tools = listOf("NOTE", "REST", "CHORD", "DUR", "UNDO", "REDO", "SAVE", "HOME", "PLAY", "STOP", "LOOP")
+            val tools = listOf("NOTE", "REST", "CHORD", "IMPORT", "UNDO", "REDO", "SAVE", "HOME", "PLAY", "STOP", "LOOP")
             val toolWidth = (w - 16f) / tools.size
             tools.forEachIndexed { index, label -> text(canvas, label, 8f + index * toolWidth, 97f, 9f, false) }
             text(canvas, "$instrument • $stringCount-string • $tuning • $timeSig • $keySig", 18f, 143f, 10f, false)
@@ -628,6 +628,7 @@ class MainActivity : Activity() {
                 val index = ((x - 8f) / toolWidth).toInt()
                 when (index) {
                     2 -> showChordDialog()
+                    3 -> Toast.makeText(this@MainActivity, "Guitar Pro import will use the dedicated parser.", Toast.LENGTH_SHORT).show()
                     4 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
                     5 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
                     6 -> saveProject()
