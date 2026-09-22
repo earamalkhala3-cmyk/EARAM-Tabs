@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EARAM Tabs — Guitar Pro Viewer</title>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div>
+        <h1>EARAM Tabs</h1>
+        <p>Guitar Pro viewer powered by alphaTab</p>
+      </div>
+      <div class="actions">
+        <label class="file-button">
+          Open Guitar Pro
+          <input id="fileInput" type="file" accept=".gp,.gp3,.gp4,.gp5,.gpx,.GP,.GP3,.GP4,.GP5,.GPX">
+        </label>
+        <button id="demoButton" type="button">Load Demo</button>
+      </div>
+    </header>
+
+    <section class="score-info">
+      <div><span>Title</span><strong id="title">No score loaded</strong></div>
+      <div><span>Instrument</span><strong id="instrument">—</strong></div>
+      <div><span>Tempo</span><strong id="tempo">—</strong></div>
+      <div><span>Status</span><strong id="status">Ready</strong></div>
+    </section>
+
+    <section class="player">
+      <button id="play" type="button" disabled>▶ Play</button>
+      <button id="pause" type="button" disabled>Ⅱ Pause</button>
+      <button id="stop" type="button" disabled>■ Stop</button>
+      <span id="position">0:00 / 0:00</span>
+      <div class="progress"><div id="progressBar"></div></div>
+    </section>
+
+    <section class="sheet-shell">
+      <div id="alphaTab" class="alpha-tab"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
