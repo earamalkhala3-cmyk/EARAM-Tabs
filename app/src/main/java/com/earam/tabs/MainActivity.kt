@@ -756,7 +756,7 @@ class MainActivity : Activity() {
             "NOTES: " + shape.notes.joinToString("  ") + "\\nTAB:  " + fingering + "\\n\\nPUT ON TAB places the chord at the selected beat."
         }
     }
-    private fun importGuitarPro() {
+    private fun importTab() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/octet-stream", "application/zip"))
@@ -814,13 +814,13 @@ class MainActivity : Activity() {
         when (requestCode) {
             4107 -> {
                 val uri = data.data!!
-                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT"
+                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT TAB"
                 val ext = name.substringAfterLast('.', "").lowercase()
-                if (ext == "gpx") {
-                    Toast.makeText(this, "GPX selected — parser hook is ready; full GP5/GPX conversion is next.", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "Guitar Pro file selected: .$ext", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(
+                    this,
+                    if (ext.isBlank()) "TAB file selected" else "TAB file selected: .$ext",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
             4102 -> {
                 try {
@@ -1254,7 +1254,7 @@ class MainActivity : Activity() {
                 when (index) {
                     0 -> showFileMenu()
                     3 -> showChordDialog()
-                    4 -> importGuitarPro()
+                    4 -> importTab()
                     5 -> if (undo.isNotEmpty()) { redo.addLast(snapshot()); restore(undo.removeLast()); invalidate() }
                     6 -> if (redo.isNotEmpty()) { undo.addLast(snapshot()); restore(redo.removeLast()); invalidate() }
                     7 -> saveProject()
