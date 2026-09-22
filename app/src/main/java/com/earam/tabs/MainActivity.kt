@@ -967,12 +967,21 @@ class MainActivity : Activity() {
                 connection.disconnect()
 
                 runOnUiThread {
-                    val loaded = score.api.loadSoundFont(java.io.ByteArrayInputStream(soundFontBytes), false)
-                    if (!loaded) throw IllegalStateException("SoundFont format was rejected")
-                    score.api.loadMidiForScore()
-                    status.text = "Sound ready • 100% speed"
-                    play.isEnabled = true
-                    stop.isEnabled = true
+                    try {
+                        val loaded = score.api.loadSoundFont(java.io.ByteArrayInputStream(soundFontBytes), false)
+                        if (!loaded) throw IllegalStateException("SoundFont format was rejected")
+                        score.api.loadMidiForScore()
+                        status.text = "Sound ready • 100% speed"
+                        play.isEnabled = true
+                        stop.isEnabled = true
+                    } catch (e: Exception) {
+                        dialog.dismiss()
+                        Toast.makeText(
+                            this,
+                            "Playback setup failed: " + (e.message ?: "SoundFont error"),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
