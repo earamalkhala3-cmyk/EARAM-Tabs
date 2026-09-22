@@ -130,7 +130,7 @@ class MainActivity : Activity() {
         instrumentButton.setOnClickListener {
             showInstrumentBrowser { category, type ->
                 selectedInstrument[0] = type
-                text = "$category  •  $type"
+                this.text = "$category  •  $type"
             }
         }
 
@@ -944,8 +944,8 @@ class MainActivity : Activity() {
             line.color = 0xFFE5E7E8.toInt()
             line.strokeWidth = 2f
             val stemX = if (stemUp) x + 5.5f else x - 5.5f
-            val stemEnd = if (stemUp) y - 25f else y + 25f
-            canvas.drawLine(stemX, y.toFloat(), stemX, stemEnd, line)
+            val stemEnd = if (stemUp) y - 25.0 else y + 25.0
+            canvas.drawLine(stemX, y.toFloat(), stemX, stemEnd.toFloat(), line)
             val flags = when {
                 ticks <= 240L -> 2
                 ticks <= 480L -> 1
@@ -953,8 +953,8 @@ class MainActivity : Activity() {
             }
             if (flags > 0) {
                 for (f in 0 until flags) {
-                    val yy = if (stemUp) y - 25f + f * 7f else y + 25f - f * 7f
-                    canvas.drawLine(stemX, yy, stemX + if (stemUp) 8f else -8f, yy + if (stemUp) 5f else -5f, line)
+                    val yy = if (stemUp) y - 25.0 + f * 7.0 else y + 25.0 - f * 7.0
+                    canvas.drawLine(stemX, yy.toFloat(), stemX + if (stemUp) 8f else -8f, (yy + if (stemUp) 5.0 else -5.0).toFloat(), line)
                 }
             }
             if (ticks == 2880L || ticks == 1440L || ticks == 720L || ticks == 360L) {
