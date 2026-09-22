@@ -1122,6 +1122,8 @@ class MainActivity : Activity() {
             private set
 
         private var armed = false
+        private var pendingFret: String = ""
+        private var pendingAtMs: Long = 0L
 
         fun attach() {
             score.isFocusableInTouchMode = true
@@ -1137,7 +1139,7 @@ class MainActivity : Activity() {
                     else -> {
                         val n = event.unicodeChar
                         if (n in '0'.code..'9'.code) {
-                            enterDigit(n - '0'.code)
+                            acceptDigit(n - '0'.code)
                             true
                         } else false
                     }
@@ -1208,24 +1210,52 @@ class MainActivity : Activity() {
             updateStatus()
         }
 
-        private fun enterDigit(digit: Int) {
+        private fun acceptDigit(digit: Int) {
             if (!armed) armed = true
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - pendingAtMs > 900L) pendingFret = ""
+            pendingAtMs = now
+            val candidate = (pendingFret + digit).take(2)
+            val value = candidate.toIntOrNull() ?: return
+            if (value > 24) {
+                pendingFret = digit.toString()
+                writeFret(digit)
+                pendingAtMs = now
+                return
+            }
+            pendingFret = candidate
+            if (candidate.length == 2 || value == 0) {
+                writeFret(value)
+                pendingFret = ""
+            } else {
+                updateStatus("Fret $candidate…")
+                activity.window.decorView.postDelayed({
+                    val t = android.os.SystemClock.uptimeMillis()
+                    if (t - pendingAtMs >= 850L && pendingFret == candidate) {
+                        writeFret(value)
+                        pendingFret = ""
+                    }
+                }, 900L)
+            }
+        }
+
+        private fun writeFret(fret: Int) {
+            if (fret !in 0..24) return
             val beat = currentBeat() ?: return
             val existing = beat.getNoteOnString(currentStringIndex.toDouble())
             if (existing != null) {
-                existing.fret = digit.toDouble()
+                existing.fret = fret.toDouble()
                 existing.finish(score.settings, null)
             } else {
                 val note = Note()
                 note.string = currentStringIndex.toDouble()
-                note.fret = digit.toDouble()
+                note.fret = fret.toDouble()
                 beat.addNote(note)
             }
             score.api.score?.finish(score.settings)
             score.api.render()
-            updateStatus("Fret $digit entered")
+            updateStatus("Fret $fret • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
         }
-
         private fun deleteCurrentNote() {
             val beat = currentBeat() ?: return
             val note = beat.getNoteOnString(currentStringIndex.toDouble()) ?: return
