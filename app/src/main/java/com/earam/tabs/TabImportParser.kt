@@ -36,7 +36,7 @@ object TabImportParser {
         ZipInputStream(ByteArrayInputStream(bytes)).use { z ->
             while (true) {
                 val e = z.nextEntry ?: break
-                if (!e.isDirectory && (e.name.endsWith("score.gpif", true) || e.name.endsWith("score.xml", true))) {
+                if (!e.isDirectory && (e.name.endsWith("score.gpif", true) || e.name.endsWith("score.xml", true) || e.name.endsWith("Score.gpif", true))) {
                     score = z.readBytes()
                     break
                 }
@@ -103,7 +103,10 @@ object TabImportParser {
                         if (n != null) strings = maxOf(strings, n).coerceAtMost(10)
                         if (n == 1 && t == 64) tuning = "Standard"
                     }
-                    "beat" -> { finish(); inBeat = track == 0 }
+                    "beat" -> {
+                        if (track == 0 && inBeat) finish()
+                        inBeat = track == 0
+                    }
                     "note" -> if (inBeat) {
                         stringIndex = p.getAttributeValue(null, "string")?.toIntOrNull() ?: -1
                         fret = p.getAttributeValue(null, "fret")?.toIntOrNull() ?: -1
@@ -121,7 +124,7 @@ object TabImportParser {
             }
             e = p.next()
         }
-        finish()
+        if (inBeat && track == 0) finish()
         val out = Array(strings) { mutableMapOf<Int, String>() }
         for (s in 0 until strings) raw[s].forEach { (k,v) -> out[s][k] = v }
         return Imported(title, "Electric Guitar", strings, tuning, bpm, sig, "C", out, durations, chords, mutableMapOf(), maxOf(1, beat))
