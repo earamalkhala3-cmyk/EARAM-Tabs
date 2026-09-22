@@ -867,7 +867,7 @@ class MainActivity : Activity() {
             canvas.restore()
         }
 
-        private fun durationIndex(): Int = listOf(3840L, 2880L, 1920L, 1440L, 960L, 720L, 480L, 360L, 240L, 120L).indexOf(durations[column] ?: 960L).coerceAtLeast(0)
+        private fun durationIndex(): Int = when (durations[column] ?: 960L) { 3840L -> 0; 1920L -> 1; 960L -> 2; 480L -> 3; 240L -> 4; else -> -1 }
 
         private fun showDurationMenu() {
             val values = longArrayOf(3840L, 2880L, 1920L, 1440L, 960L, 720L, 480L, 360L, 240L, 120L)
@@ -1020,7 +1020,7 @@ class MainActivity : Activity() {
                     x in 116f..162f -> setDuration(960L)
                     x in 168f..204f -> setDuration(480L)
                     x in 206f..250f -> setDuration(240L)
-                    x in 214f..270f -> showDurationMenu()
+                    x in 252f..310f -> showDurationMenu()
                     x in 190f..230f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 235f..275f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 280f..325f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
