@@ -852,7 +852,10 @@ class MainActivity : Activity() {
             paint.color = 0xFF1C2023.toInt()
             canvas.drawRect(0f, h - 120f, w, h, paint)
             text(canvas, "DURATION", 14f, h - 94f, 9f, false)
-            listOf("½", "♩", "♪", "♬").forEachIndexed { index, symbol -> chip(canvas, symbol, 12f + index * 42f, h - 78f, 34f, index == durationIndex()) }
+            listOf("𝅝", "𝅗𝅥", "♩", "♪", "𝅘𝅥𝅯").forEachIndexed { index, symbol ->
+                chip(canvas, symbol, 12f + index * 42f, h - 78f, 34f, index == durationIndex())
+            }
+            text(canvas, "MORE", 222f, h - 59f, 9f, false)
             text(canvas, "PICKING", 190f, h - 94f, 9f, false)
             chip(canvas, "↓", 186f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.DOWN)
             chip(canvas, "↑", 224f, h - 78f, 34f, mode == PickingMode.MANUAL && selectedStroke == StrokeDirection.UP)
@@ -864,12 +867,32 @@ class MainActivity : Activity() {
             canvas.restore()
         }
 
-        private fun durationIndex(): Int = when (durations[column] ?: 960L) {
-            1920L -> 0
-            960L -> 1
-            480L -> 2
-            240L -> 3
-            else -> 1
+        private fun durationIndex(): Int = listOf(3840L, 2880L, 1920L, 1440L, 960L, 720L, 480L, 360L, 240L, 120L).indexOf(durations[column] ?: 960L).coerceAtLeast(0)
+
+        private fun showDurationMenu() {
+            val values = longArrayOf(3840L, 2880L, 1920L, 1440L, 960L, 720L, 480L, 360L, 240L, 120L)
+            val labels = arrayOf(
+                "Whole  (𝅝)",
+                "Dotted Half  (𝅗𝅥.)",
+                "Half  (𝅗𝅥)",
+                "Dotted Quarter  (♩.)",
+                "Quarter  (♩)",
+                "Dotted Eighth  (♪.)",
+                "Eighth  (♪)",
+                "Dotted Sixteenth  (𝅘𝅥𝅯.)",
+                "Sixteenth  (𝅘𝅥𝅯)",
+                "Thirty-second  (𝅘𝅥𝅰)"
+            )
+            val current = durations[column] ?: 960L
+            val checked = values.indexOf(current).coerceAtLeast(0)
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("NOTE DURATION")
+                .setSingleChoiceItems(labels, checked) { dialog, which ->
+                    setDuration(values[which])
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         private fun text(canvas: Canvas, value: String, x: Float, y: Float, size: Float, bold: Boolean) {
@@ -992,10 +1015,12 @@ class MainActivity : Activity() {
 
             if (y >= h - 120f) {
                 when {
-                    x in 12f..58f -> setDuration(1920L)
-                    x in 64f..110f -> setDuration(960L)
-                    x in 116f..162f -> setDuration(480L)
-                    x in 168f..184f -> setDuration(240L)
+                    x in 12f..58f -> setDuration(3840L)
+                    x in 64f..110f -> setDuration(1920L)
+                    x in 116f..162f -> setDuration(960L)
+                    x in 168f..204f -> setDuration(480L)
+                    x in 206f..250f -> setDuration(240L)
+                    x in 214f..270f -> showDurationMenu()
                     x in 190f..230f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 235f..275f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 280f..325f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
