@@ -1052,8 +1052,7 @@ class MainActivity : Activity() {
                     x in 64f..110f -> setDuration(1920L)
                     x in 116f..162f -> setDuration(960L)
                     x in 168f..204f -> setDuration(480L)
-                    x in 206f..250f -> setDuration(240L)
-                    x in 210f..250f -> showDurationMenu()
+                    x in 206f..250f -> showDurationMenu()
                     x in 254f..288f -> { selectedStroke = StrokeDirection.DOWN; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 292f..326f -> { selectedStroke = StrokeDirection.UP; mode = PickingMode.MANUAL; remember(); assignPicking() }
                     x in 330f..374f -> { mode = PickingMode.ALTERNATE; remember(); assignPicking() }
