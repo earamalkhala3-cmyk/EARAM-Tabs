@@ -325,6 +325,10 @@ class MainActivity : Activity() {
             strokes.forEach { (k, v) -> strokeJson.put(k.toString(), if (v == StrokeDirection.UP) "UP" else "DOWN") }
             root.put("strokes", strokeJson)
 
+            val chordJson = JSONObject()
+            chords.forEach { (k, v) -> chordJson.put(k.toString(), v) }
+            root.put("chords", chordJson)
+
             val durationJson = JSONObject()
             durations.forEach { (k, v) -> durationJson.put(k.toString(), v) }
             root.put("durations", durationJson)
@@ -598,13 +602,159 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this).setTitle("TAB NUMBER").setView(box).setNegativeButton("Close", null).show()
     }
+    private data class ChordShape(val name: String, val notes: List<String>, val frets: List<Int>)
+
+    private val commonChords = listOf(
+        "C", "Cm", "C7", "Cmaj7", "Cm7", "C5", "Csus2", "Csus4", "Cadd9",
+        "D", "Dm", "D7", "Dmaj7", "Dm7", "D5", "Dsus2", "Dsus4", "Dadd9",
+        "E", "Em", "E7", "Emaj7", "Em7", "E5", "Esus2", "Esus4", "Eadd9",
+        "F", "Fm", "F7", "Fmaj7", "Fm7", "F5", "Fsus2", "Fsus4", "Fadd9",
+        "G", "Gm", "G7", "Gmaj7", "Gm7", "G5", "Gsus2", "Gsus4", "Gadd9",
+        "A", "Am", "A7", "Amaj7", "Am7", "A5", "Asus2", "Asus4", "Aadd9",
+        "B", "Bm", "B7", "Bmaj7", "Bm7", "B5", "Bsus2", "Bsus4", "Badd9"
+    )
+
+    private fun chordIntervals(symbol: String): Pair<String, IntArray>? {
+        val m = Regex("^([A-Ga-g])([#b]?)(.*)$").find(symbol.trim()) ?: return null
+        val root = m.groupValues[1].uppercase() + m.groupValues[2]
+        val q = m.groupValues[3].lowercase()
+        val intervals = when {
+            q.startsWith("maj13") -> intArrayOf(0,4,7,11,14,17)
+            q.startsWith("13") -> intArrayOf(0,4,7,10,14,17)
+            q.startsWith("maj11") -> intArrayOf(0,4,7,11,14,17)
+            q.startsWith("11") -> intArrayOf(0,4,7,10,14,17)
+            q.startsWith("maj9") -> intArrayOf(0,4,7,11,14)
+            q.startsWith("9") -> intArrayOf(0,4,7,10,14)
+            q.startsWith("maj7") -> intArrayOf(0,4,7,11)
+            q.startsWith("m7") || q.startsWith("min7") -> intArrayOf(0,3,7,10)
+            q.startsWith("7") -> intArrayOf(0,4,7,10)
+            q.startsWith("dim7") -> intArrayOf(0,3,6,9)
+            q.startsWith("dim") -> intArrayOf(0,3,6)
+            q.startsWith("aug") || q.startsWith("+") -> intArrayOf(0,4,8)
+            q.startsWith("sus4") -> intArrayOf(0,5,7)
+            q.startsWith("sus2") -> intArrayOf(0,2,7)
+            q.startsWith("add9") -> intArrayOf(0,4,7,14)
+            q.startsWith("m") || q.startsWith("min") -> intArrayOf(0,3,7)
+            q.startsWith("5") -> intArrayOf(0,7)
+            else -> intArrayOf(0,4,7)
+        }
+        return root to intervals
+    }
+
+    private fun noteClass(name: String): Int = when (name) {
+        "C" -> 0; "C#" -> 1; "Db" -> 1; "D" -> 2; "D#" -> 3; "Eb" -> 3
+        "E" -> 4; "F" -> 5; "F#" -> 6; "Gb" -> 6; "G" -> 7; "G#" -> 8
+        "Ab" -> 8; "A" -> 9; "A#" -> 10; "Bb" -> 10; "B" -> 11; else -> 0
+    }
+
+    private fun buildChordShape(symbol: String): ChordShape? {
+        val parsed = chordIntervals(symbol) ?: return null
+        val rootPc = noteClass(parsed.first)
+        val target = parsed.second.map { (rootPc + it) % 12 }.toSet()
+        val candidates = Array(stringCount) { stringIndex ->
+            (0..12).filter { fret -> (midi(stringIndex, fret) % 12) in target }.take(7)
+        }
+        var best: List<Int>? = null
+        var bestScore = Int.MAX_VALUE
+        fun search(s: Int, shape: MutableList<Int>, minFret: Int, maxFret: Int) {
+            if (s == stringCount) {
+                val sounded = shape.withIndex().filter { it.value >= 0 }
+                if (sounded.size < 3) return
+                val pcs = sounded.map { midi(it.index, it.value) % 12 }.toSet()
+                if (!pcs.contains(rootPc) || !target.all { it in pcs }) return
+                val score = (maxFret - minFret) * 8 + shape.count { it < 0 } * 3 + shape.sumOf { if (it > 0) it else 0 }
+                if (score < bestScore) { bestScore = score; best = shape.toList() }
+                return
+            }
+            for (fret in listOf(-1) + candidates[s]) {
+                val nextMin = if (fret >= 0) minOf(minFret, fret) else minFret
+                val nextMax = if (fret >= 0) maxOf(maxFret, fret) else maxFret
+                if (nextMax - nextMin > 5) continue
+                shape.add(fret)
+                search(s + 1, shape, nextMin, nextMax)
+                shape.removeAt(shape.lastIndex)
+            }
+        }
+        search(0, mutableListOf(), 99, 0)
+        val shape = best ?: return null
+        val noteNames = shape.withIndex().filter { it.value >= 0 }.map { midiToNoteName(midi(it.index, it.value)) }.distinct()
+        return ChordShape(symbol, noteNames, shape)
+    }
+
+    private fun midiToNoteName(value: Int): String {
+        val names = arrayOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+        return names[(value % 12 + 12) % 12]
+    }
+
+    private fun applyChord(shape: ChordShape, columnIndex: Int) {
+        chords[columnIndex] = shape.name
+        shape.frets.forEachIndexed { stringIndex, fret ->
+            if (stringIndex >= cells.size) return@forEachIndexed
+            if (fret < 0) cells[stringIndex].remove(columnIndex)
+            else cells[stringIndex][columnIndex] = fret.toString()
+        }
+        editor?.selectCell(0, columnIndex)
+        editor?.invalidate()
+    }
+
     private fun showChordDialog() {
-        val input = EditText(this).apply { hint = "Chord (e.g. Am7)" }
-        AlertDialog.Builder(this).setTitle("Chord").setView(input)
-            .setNegativeButton("Cancel", null).setPositiveButton("Apply") { _, _ ->
+        val input = EditText(this).apply {
+            hint = "Type any chord, e.g. Am7, F#maj7, Cadd9"
+            singleLine = true
+            setText(chords[editor?.selectedColumn() ?: 0] ?: "")
+        }
+        val preview = TextView(this).apply {
+            text = "Type a chord to see its notes and TAB fingering."
+            setPadding(dp(18f), dp(8f), dp(18f), dp(8f))
+        }
+        val list = ArrayAdapter(this, android.R.layout.simple_list_item_1, commonChords.toTypedArray())
+        val chordList = android.widget.ListView(this).apply {
+            adapter = list
+            layoutParams = LinearLayout.LayoutParams(-1, dp(180f))
+            setOnItemClickListener { _, _, position, _ ->
+                input.setText(commonChords[position])
+                input.setSelection(input.text.length)
+                updateChordPreview(input, preview)
+            }
+        }
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = updateChordPreview(input, preview)
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16f), dp(4f), dp(16f), 0)
+            addView(input)
+            addView(preview)
+            addView(chordList)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("CHORDS — NOTES + TAB")
+            .setView(box)
+            .setNegativeButton("Close", null)
+            .setPositiveButton("PUT ON TAB") { _, _ ->
                 val value = input.text.toString().trim()
-                if (value.isNotEmpty()) { chords[editor?.selectedColumn() ?: 0] = value; editor?.invalidate() }
-            }.show()
+                val shape = buildChordShape(value)
+                if (shape == null) Toast.makeText(this, "Chord not recognized or no playable voicing found", Toast.LENGTH_LONG).show()
+                else applyChord(shape, editor?.selectedColumn() ?: 0)
+            }
+            .show()
+        updateChordPreview(input, preview)
+    }
+
+    private fun updateChordPreview(input: EditText, preview: TextView) {
+        val value = input.text.toString().trim()
+        if (value.isBlank()) {
+            preview.text = "Type a chord to see its notes and TAB fingering."
+            return
+        }
+        val shape = buildChordShape(value)
+        preview.text = if (shape == null) "No playable voicing found for: " + value
+        else {
+            val fingering = shape.frets.joinToString(" ") { if (it < 0) "x" else it.toString() }
+            "NOTES: " + shape.notes.joinToString("  ") + "\\nTAB:  " + fingering + "\\n\\nPUT ON TAB places the chord at the selected beat."
+        }
     }
     private fun importGuitarPro() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
