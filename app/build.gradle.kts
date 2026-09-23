@@ -2,7 +2,7 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 
 android { namespace = "com.earam.tabs"; compileSdk = 36
     buildFeatures { buildConfig = true }
-    defaultConfig { applicationId = "com.earam.tabs"; minSdk = 26; targetSdk = 35; versionCode = 5; versionName = "0.1.4"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    defaultConfig { applicationId = "com.earam.tabs"; minSdk = 26; targetSdk = 35; versionCode = 5; versionName = "0.1.5"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
         getByName("debug") {
