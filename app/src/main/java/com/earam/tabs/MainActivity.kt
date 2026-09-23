@@ -1112,7 +1112,7 @@ class MainActivity : Activity() {
         }
         fun fits(bar: Bar, beat: Beat, duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Boolean = candidateTicks(duration, dots, tupletNumerator, tupletDenominator) <= remainingTicks(bar, beat)
         fun apply(beat: Beat, duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1) {
-            beat.duration = duration; beat.dots = dots.coerceIn(0, 2).toDouble(); beat.tupletNumerator = tupletNumerator; beat.tupletDenominator = tupletDenominator
+            beat.duration = duration; beat.dots = dots.coerceIn(0, 2).toDouble(); beat.tupletNumerator = tupletNumerator.toDouble(); beat.tupletDenominator = tupletDenominator.toDouble()
         }
         fun nextBeat(bar: Bar, beat: Beat): Beat? {
             val beats = bar.voices.firstOrNull()?.beats?.toList() ?: return null
