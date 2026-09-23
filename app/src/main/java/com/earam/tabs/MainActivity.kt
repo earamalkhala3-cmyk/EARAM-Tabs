@@ -1255,6 +1255,7 @@ class MainActivity : Activity() {
      * are performed against the same alphaTab.model.Score instance that is
      * rendered and used for playback.
      */
+    @OptIn(kotlin.contracts.ExperimentalContracts::class)
     private fun showAlphaTabNewScoreEditor() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
