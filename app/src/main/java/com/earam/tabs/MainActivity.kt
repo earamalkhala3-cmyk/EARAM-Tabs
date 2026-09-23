@@ -1150,8 +1150,7 @@ class MainActivity : Activity() {
                     android.view.KeyEvent.KEYCODE_DPAD_UP -> { moveString(-1); true }
                     android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { moveString(1); true }
                     android.view.KeyEvent.KEYCODE_HOME -> { moveToEdge(false); true }
-                    android.view.KeyEvent.KEYCODE_MOVE_END,
-                    android.view.KeyEvent.KEYCODE_END -> { moveToEdge(true); true }
+                    android.view.KeyEvent.KEYCODE_MOVE_END -> { moveToEdge(true); true }
                     android.view.KeyEvent.KEYCODE_DEL,
                     android.view.KeyEvent.KEYCODE_FORWARD_DEL -> { deleteCurrentNote(); true }
                     else -> {
