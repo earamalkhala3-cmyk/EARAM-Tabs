@@ -1516,6 +1516,33 @@ class MainActivity : Activity() {
                 }
             }
         }
+        root.addView(header, LinearLayout.LayoutParams(-1, -2))
+        root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+
+        val title = projectName.replace("\"", "\\\"")
+        val safeTempo = bpm.coerceIn(30, 300)
+        val sig = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 16) ?: 4
+        val den = timeSig.substringAfter('/', "4").toIntOrNull()?.let { if (it in setOf(1, 2, 4, 8, 16)) it else 4 } ?: 4
+
+        // Always create a real, visible AlphaTex score.
+        val alphaTex = StringBuilder()
+            .append("\\title \"").append(title).append("\"\n")
+            .append("\\tempo ").append(safeTempo).append("\n")
+            .append("\\track \"Electric Guitar\"\n")
+            .append("\\tuning E4 B3 G3 D3 A2 E2\n")
+            .append("\\ts ").append(sig).append(" ").append(den).append("\n")
+            .append(":4 (0.6 2.5 2.4) 3.4 5.4 7.4 | ")
+            .append("(0.6 2.5 2.4) 3.4 5.4 7.4 | ")
+            .append("(3.6 5.5 5.4) 5.4 7.4 8.4 | ")
+            .append("(0.6 2.5 2.4) r r r |")
+            .append("\n")
+            .toString()
+
+        status.text = "Loading AlphaTab score…"
+        score.api.tex(alphaTex)
+    }
+
     private fun editFretAt(rowIndex: Int, columnIndex: Int) {
         savedRow = rowIndex
         savedColumn = columnIndex
