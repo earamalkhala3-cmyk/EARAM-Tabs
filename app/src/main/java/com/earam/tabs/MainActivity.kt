@@ -3,6 +3,7 @@ package com.earam.tabs
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.app.AlertDialog
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -29,6 +30,8 @@ import android.widget.Toast
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
 import alphaTab.PlayerMode
+import alphaTab.core.ecmaScript.Uint8Array
+import alphaTab.importer.ScoreLoader
 import alphaTab.model.Note
 import com.earam.tabs.music.PickingEngine
 import com.earam.tabs.music.PickingMode
@@ -37,7 +40,6 @@ import com.earam.tabs.music.StrokeDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.ZipInputStream
@@ -907,8 +909,20 @@ class MainActivity : Activity() {
                     ?: throw IllegalStateException("Cannot read selected file from the document provider")
                 if (inputBytes.isEmpty()) throw IllegalStateException("Selected TAB file is empty")
                 runOnUiThread { status.text = "Importing " + inputBytes.size + " bytes • " + fileName.substringAfterLast('.', "unknown").uppercase() + "…" }
-                val loaded = score.api.load(ByteArrayInputStream(inputBytes))
-                if (!loaded) throw IllegalStateException("AlphaTab returned false: no importer accepted this file format. Bytes=" + inputBytes.size)
+                // Do not use AlphaTabApi.load(InputStream) here. In the Android facade
+                // shipped with alphaTab 1.8.4 that path is only a dispatcher; direct
+                // ScoreLoader loading is the reliable native path for GP3/GP4/GP5.
+                val parsed = ScoreLoader.loadScoreFromBytes(
+                    Uint8Array(inputBytes.asUByteArray()),
+                    score.settings
+                )
+                val firstTrack = parsed.tracks.firstOrNull()
+                    ?: throw IllegalStateException("The imported file contains no tracks")
+                runOnUiThread {
+                    score.api.renderTracks(alphaTab.collections.List(firstTrack))
+                    title.text = "Earam  •  " + parsed.title.ifBlank { fileName.substringBeforeLast('.') }
+                    status.text = "TAB loaded • preparing sound…"
+                }
                 val sfUrl = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
                 val connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
@@ -996,7 +1010,9 @@ class MainActivity : Activity() {
         when (requestCode) {
             4107 -> {
                 val uri = data.data!!
-                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT TAB"
+                val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)) else null
+                } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT TAB"
                 Thread {
                     try {
                         runOnUiThread {
