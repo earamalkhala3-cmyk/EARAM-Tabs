@@ -1,3 +1,5 @@
+@file:OptIn(kotlin.contracts.ExperimentalContracts::class)
+
 package com.earam.tabs
 
 import android.app.Activity
