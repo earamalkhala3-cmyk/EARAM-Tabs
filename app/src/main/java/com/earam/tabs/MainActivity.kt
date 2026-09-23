@@ -1521,20 +1521,29 @@ class MainActivity : Activity() {
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
-        val title = projectName.replace("\"", "\\\"")
+        val title = projectName.replace(""", "\\"")
         val safeTempo = bpm.coerceIn(30, 300)
-        val sig = timeSig.substringBefore('/').toIntOrNull()?.coerceAtLeast(1) ?: 4
-        val den = timeSig.substringAfter('/', "4").toIntOrNull()?.coerceIn(1, 64) ?: 4
+        val sig = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 16) ?: 4
+        val den = timeSig.substringAfter('/', "4").toIntOrNull()?.let { if (it in setOf(1, 2, 4, 8, 16)) it else 4 } ?: 4
+
+        // Always create a real, visible AlphaTex score. The previous empty-beat
+        // bootstrap could produce a blank score and made the startup screen look
+        // like a rhythm-engine/debug screen. AlphaTab remains the single active
+        // score/editor model.
         val alphaTex = StringBuilder()
-            .append("\\title \"").append(title).append("\"\n")
+            .append("\\title "").append(title).append(""\n")
             .append("\\tempo ").append(safeTempo).append("\n")
-            .append(".\n")
-            .append(":").append(den).append(" ")
-            .append((0 until sig).joinToString(" ") { "()" })
+            .append("\\track "Electric Guitar"\n")
+            .append("\\tuning E4 B3 G3 D3 A2 E2\n")
+            .append("\\ts ").append(sig).append(" ").append(den).append("\n")
+            .append(":4 (0.6 2.5 2.4) 3.4 5.4 7.4 | ")
+            .append("(0.6 2.5 2.4) 3.4 5.4 7.4 | ")
+            .append("(3.6 5.5 5.4) 5.4 7.4 8.4 | ")
+            .append("(0.6 2.5 2.4) r r r |")
             .append("\n")
             .toString()
 
-        status.text = "Creating AlphaTab Score…"
+        status.text = "Loading AlphaTab score…"
         score.api.tex(alphaTex)
     }
 
