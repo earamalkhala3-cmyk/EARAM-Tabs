@@ -1121,6 +1121,7 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Phase 3: deterministic keyboard navigation over the real AlphaTab Score. */
     private class AlphaTabNoteEditor(
         private val activity: MainActivity,
         private val score: AlphaTabView,
@@ -1138,40 +1139,45 @@ class MainActivity : Activity() {
         private var pendingAtMs: Long = 0L
 
         fun attach() {
+            score.isFocusable = true
             score.isFocusableInTouchMode = true
-            score.setOnKeyListener { _, keyCode, event ->
-                if (event.action != android.view.KeyEvent.ACTION_DOWN) return@setOnKeyListener false
-                when (keyCode) {
+
+            val keyHandler: (View, Int, android.view.KeyEvent) -> Boolean = { _, keyCode, event ->
+                if (event.action != android.view.KeyEvent.ACTION_DOWN || event.repeatCount > 0) false
+                else when (keyCode) {
                     android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { moveBeat(-1); true }
                     android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { moveBeat(1); true }
                     android.view.KeyEvent.KEYCODE_DPAD_UP -> { moveString(-1); true }
                     android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { moveString(1); true }
+                    android.view.KeyEvent.KEYCODE_HOME -> { moveToEdge(false); true }
+                    android.view.KeyEvent.KEYCODE_MOVE_END,
+                    android.view.KeyEvent.KEYCODE_END -> { moveToEdge(true); true }
                     android.view.KeyEvent.KEYCODE_DEL,
                     android.view.KeyEvent.KEYCODE_FORWARD_DEL -> { deleteCurrentNote(); true }
                     else -> {
                         val n = event.unicodeChar
-                        if (n in '0'.code..'9'.code) {
-                            acceptDigit(n - '0'.code)
-                            true
-                        } else false
+                        if (n in '0'.code..'9'.code) { acceptDigit(n - '0'.code); true } else false
                     }
                 }
             }
 
+            score.setOnKeyListener(keyHandler)
+            score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
+
             score.api.noteMouseDown.on { note ->
-                val beat = note.beat
                 val track = score.api.score?.tracks?.firstOrNull() ?: return@on
                 val staff = track.staves.firstOrNull() ?: return@on
                 val barList = staff.bars.toList()
                 for (bi in barList.indices) {
                     val beats = barList[bi].voices.firstOrNull()?.beats?.toList() ?: continue
-                    val index = beats.indexOf(beat)
+                    val index = beats.indexOf(note.beat)
                     if (index >= 0) {
                         currentBarIndex = bi
                         currentBeatIndex = index
-                        currentStringIndex = note.string.toInt().coerceAtLeast(1)
+                        currentStringIndex = note.string.toInt().coerceIn(1, maxStringIndex())
                         armed = true
-                        updateStatus()
+                        pendingFret = ""
+                        updateCursor()
                         score.requestFocus()
                         break
                     }
@@ -1193,6 +1199,9 @@ class MainActivity : Activity() {
         private fun currentBeat(): alphaTab.model.Beat? =
             bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
 
+        private fun maxStringIndex(): Int =
+            score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.tuning?.toList()?.size?.coerceAtLeast(1) ?: 6
+
         fun currentBeatDurationTicks(): Long = currentBeat()?.let { AlphaTabRhythmEngine.beatTicks(it) } ?: 0L
         fun currentBarCapacityTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barCapacityTicks(it) } ?: 0L
         fun currentBarUsedTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barUsedTicks(it) } ?: 0L
@@ -1208,6 +1217,7 @@ class MainActivity : Activity() {
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
             score.api.render()
+            updateCursor()
             updateStatus("Duration " + duration.name)
             return true
         }
@@ -1224,57 +1234,103 @@ class MainActivity : Activity() {
             }
             song.addMasterBar(master)
             for (track in song.tracks.toList()) for (sourceStaff in track.staves.toList()) {
-                val newBar = Bar(); sourceStaff.addBar(newBar)
+                val newBar = Bar()
+                sourceStaff.addBar(newBar)
                 val voiceCount = sourceBar.voices.toList().size.coerceAtLeast(1)
                 repeat(voiceCount) {
-                    val voice = alphaTab.model.Voice(); newBar.addVoice(voice)
+                    val voice = alphaTab.model.Voice()
+                    newBar.addVoice(voice)
                     val numerator = master.timeSignatureNumerator.toInt().coerceAtLeast(1)
                     val denominator = master.timeSignatureDenominator.toInt().coerceAtLeast(1)
                     val unit = when (denominator) {
-                        1 -> Duration.DoubleWhole; 2 -> Duration.Half; 4 -> Duration.Quarter; 8 -> Duration.Eighth; 16 -> Duration.Sixteenth; else -> Duration.Quarter
+                        1 -> Duration.DoubleWhole
+                        2 -> Duration.Half
+                        4 -> Duration.Quarter
+                        8 -> Duration.Eighth
+                        16 -> Duration.Sixteenth
+                        else -> Duration.Quarter
                     }
                     repeat(numerator) { voice.addBeat(Beat().apply { duration = unit }) }
                 }
             }
-            song.finish(score.settings); score.api.render(); return true
+            song.finish(score.settings)
+            score.api.render()
+            return true
         }
 
         private fun advanceAfterEntry() {
             val bs = bars() ?: return
             val bar = bs.getOrNull(currentBarIndex) ?: return
             val beat = currentBeat() ?: return
-            if (AlphaTabRhythmEngine.nextBeat(bar, beat) != null) { currentBeatIndex++; updateStatus(); return }
-            if (currentBarIndex == bs.lastIndex && createNextMeasure()) { currentBarIndex++; currentBeatIndex = 0; updateStatus("New measure • " + (currentBarIndex + 1)) }
-            else if (currentBarIndex < bs.lastIndex) { currentBarIndex++; currentBeatIndex = 0; updateStatus() }
-        }
-
-        private fun moveBeat(delta: Int) {
-            val bs = bars() ?: return
-            var b = currentBarIndex
-            var beat = currentBeatIndex + delta
-            while (b >= 0 && b < bs.size) {
-                val count = bs[b].voices.firstOrNull()?.beats?.toList()?.size ?: 0
-                if (count > 0 && beat in 0 until count) break
-                if (beat < 0) {
-                    b--
-                    beat = (bs.getOrNull(b)?.voices?.firstOrNull()?.beats?.toList()?.size ?: 1) - 1
-                } else {
-                    b++
-                    beat = 0
-                }
+            if (AlphaTabRhythmEngine.nextBeat(bar, beat) != null) {
+                currentBeatIndex++
+                updateCursor()
+                updateStatus()
+                return
             }
-            if (b in bs.indices) {
-                currentBarIndex = b
-                currentBeatIndex = beat.coerceAtLeast(0)
-                armed = true
+            if (currentBarIndex == bs.lastIndex) {
+                if (createNextMeasure()) {
+                    currentBarIndex++
+                    currentBeatIndex = 0
+                    updateCursor()
+                    updateStatus("New measure • " + (currentBarIndex + 1))
+                }
+            } else {
+                currentBarIndex++
+                currentBeatIndex = 0
+                updateCursor()
                 updateStatus()
             }
         }
 
-        private fun moveString(delta: Int) {
-            val maxString = score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.tuning?.toList()?.size ?: 6
-            currentStringIndex = (currentStringIndex + delta).coerceIn(1, maxString)
+        /** Arrow navigation never creates a measure. It only moves inside existing Score beats. */
+        private fun moveBeat(delta: Int) {
+            val bs = bars() ?: return
+            if (bs.isEmpty()) return
+            var b = currentBarIndex.coerceIn(0, bs.lastIndex)
+            var beat = currentBeatIndex
+            val step = if (delta < 0) -1 else 1
+            repeat(kotlin.math.abs(delta)) {
+                val count = bs[b].voices.firstOrNull()?.beats?.toList()?.size ?: 0
+                if (count <= 0) return@repeat
+                var candidate = beat + step
+                if (candidate < 0) {
+                    if (b == 0) return@repeat
+                    b--
+                    candidate = (bs[b].voices.firstOrNull()?.beats?.toList()?.size ?: 1) - 1
+                } else if (candidate >= count) {
+                    if (b == bs.lastIndex) return@repeat
+                    b++
+                    candidate = 0
+                }
+                beat = candidate.coerceAtLeast(0)
+            }
+            currentBarIndex = b
+            currentBeatIndex = beat
             armed = true
+            pendingFret = ""
+            updateCursor()
+            updateStatus()
+        }
+
+        private fun moveToEdge(end: Boolean) {
+            val bs = bars() ?: return
+            if (bs.isEmpty()) return
+            currentBarIndex = if (end) bs.lastIndex else 0
+            val beats = bs[currentBarIndex].voices.firstOrNull()?.beats?.toList().orEmpty()
+            currentBeatIndex = if (end) (beats.size - 1).coerceAtLeast(0) else 0
+            armed = true
+            pendingFret = ""
+            updateCursor()
+            updateStatus()
+        }
+
+        /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
+        private fun moveString(delta: Int) {
+            currentStringIndex = (currentStringIndex + delta).coerceIn(1, maxStringIndex())
+            armed = true
+            pendingFret = ""
+            updateCursor()
             updateStatus()
         }
 
@@ -1315,35 +1371,49 @@ class MainActivity : Activity() {
                 existing.fret = fret.toDouble()
                 existing.finish(score.settings, null)
             } else {
-                val note = Note()
-                note.string = currentStringIndex.toDouble()
-                note.fret = fret.toDouble()
+                val note = Note().apply {
+                    string = currentStringIndex.toDouble()
+                    this.fret = fret.toDouble()
+                }
                 beat.addNote(note)
             }
             score.api.score?.finish(score.settings)
             val column = currentBarIndex * 16 + currentBeatIndex
-            if (currentStringIndex in 1..activity.cells.lastIndex) {
-                activity.cells[currentStringIndex - 1][column] = fret.toString()
-            }
+            if (currentStringIndex in 1..activity.cells.lastIndex) activity.cells[currentStringIndex - 1][column] = fret.toString()
             score.api.render()
+            updateCursor()
             updateStatus("Fret $fret • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
             advanceAfterEntry()
         }
+
         private fun deleteCurrentNote() {
             val beat = currentBeat() ?: return
-            val note = beat.getNoteOnString(currentStringIndex.toDouble()) ?: return
+            val note = beat.getNoteOnString(currentStringIndex.toDouble()) ?: run {
+                updateStatus("No note on current string")
+                return
+            }
             beat.removeNote(note)
             score.api.score?.finish(score.settings)
             val column = currentBarIndex * 16 + currentBeatIndex
-            if (currentStringIndex in 1..activity.cells.lastIndex) {
-                activity.cells[currentStringIndex - 1].remove(column)
-            }
+            if (currentStringIndex in 1..activity.cells.lastIndex) activity.cells[currentStringIndex - 1].remove(column)
             score.api.render()
+            updateCursor()
             updateStatus("Note deleted")
         }
 
+        /**
+         * Uses AlphaTab's own playback-range highlight as the visual editor cursor.
+         * The cursor is therefore anchored to the real rendered Beat, not a fake grid.
+         */
+        private fun updateCursor() {
+            val beat = currentBeat() ?: return
+            try {
+                score.api.highlightPlaybackRange(beat, beat)
+            } catch (_: Throwable) { }
+        }
+
         private fun updateStatus(message: String? = null) {
-            val text = message ?: "EDIT  •  Bar ${currentBarIndex + 1}  •  Beat ${currentBeatIndex + 1}  •  String $currentStringIndex"
+            val text = message ?: ("EDIT • Bar ${currentBarIndex + 1} • Beat ${currentBeatIndex + 1} • String $currentStringIndex")
             activity.runOnUiThread { status.text = text }
         }
     }
