@@ -33,6 +33,10 @@ import alphaTab.PlayerMode
 import alphaTab.core.ecmaScript.Uint8Array
 import alphaTab.importer.ScoreLoader
 import alphaTab.model.Note
+import alphaTab.model.Beat
+import alphaTab.model.Bar
+import alphaTab.model.MasterBar
+import alphaTab.model.Duration
 import com.earam.tabs.music.PickingEngine
 import com.earam.tabs.music.PickingMode
 import com.earam.tabs.music.StrumPattern
@@ -1070,6 +1074,51 @@ class MainActivity : Activity() {
     }
 
     @OptIn(kotlin.contracts.ExperimentalContracts::class)
+    /** Phase 2: AlphaTab-native rhythmic calculations. */
+    private object AlphaTabRhythmEngine {
+        const val QUARTER_TICKS = 960L
+        fun durationTicks(duration: Duration): Long = when (duration) {
+            Duration.QuadrupleWhole -> QUARTER_TICKS * 16
+            Duration.DoubleWhole -> QUARTER_TICKS * 8
+            Duration.Whole -> QUARTER_TICKS * 4
+            Duration.Half -> QUARTER_TICKS * 2
+            Duration.Quarter -> QUARTER_TICKS
+            Duration.Eighth -> QUARTER_TICKS / 2
+            Duration.Sixteenth -> QUARTER_TICKS / 4
+            Duration.ThirtySecond -> QUARTER_TICKS / 8
+            Duration.SixtyFourth -> QUARTER_TICKS / 16
+            Duration.OneHundredTwentyEighth -> QUARTER_TICKS / 32
+            Duration.TwoHundredFiftySixth -> QUARTER_TICKS / 64
+        }
+        fun beatTicks(beat: Beat): Long {
+            var ticks = durationTicks(beat.duration)
+            when (beat.dots.toInt()) { 1 -> ticks += ticks / 2; 2 -> ticks += (ticks / 4) * 3 }
+            if (beat.tupletNumerator >= 0 && beat.tupletDenominator > 0) ticks = (ticks * beat.tupletDenominator.toLong()) / beat.tupletNumerator.toLong()
+            return ticks.coerceAtLeast(1L)
+        }
+        fun barCapacityTicks(bar: Bar): Long {
+            val m = bar.masterBar
+            return (m.timeSignatureNumerator.toLong().coerceAtLeast(1L) * QUARTER_TICKS * 4L) / m.timeSignatureDenominator.toLong().coerceAtLeast(1L)
+        }
+        fun barUsedTicks(bar: Bar, excluding: Beat? = null): Long = bar.voices.firstOrNull()?.beats?.toList()?.filter { it !== excluding }?.sumOf { beatTicks(it) } ?: 0L
+        fun remainingTicks(bar: Bar, excluding: Beat? = null): Long = (barCapacityTicks(bar) - barUsedTicks(bar, excluding)).coerceAtLeast(0L)
+        fun candidateTicks(duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Long {
+            var ticks = durationTicks(duration)
+            when (dots.coerceIn(0, 2)) { 1 -> ticks += ticks / 2; 2 -> ticks += (ticks / 4) * 3 }
+            if (tupletNumerator >= 0 && tupletDenominator > 0) ticks = (ticks * tupletDenominator.toLong()) / tupletNumerator.toLong()
+            return ticks.coerceAtLeast(1L)
+        }
+        fun fits(bar: Bar, beat: Beat, duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Boolean = candidateTicks(duration, dots, tupletNumerator, tupletDenominator) <= remainingTicks(bar, beat)
+        fun apply(beat: Beat, duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1) {
+            beat.duration = duration; beat.dots = dots.coerceIn(0, 2).toDouble(); beat.tupletNumerator = tupletNumerator; beat.tupletDenominator = tupletDenominator
+        }
+        fun nextBeat(bar: Bar, beat: Beat): Beat? {
+            val beats = bar.voices.firstOrNull()?.beats?.toList() ?: return null
+            val i = beats.indexOf(beat)
+            return if (i >= 0 && i + 1 < beats.size) beats[i + 1] else null
+        }
+    }
+
     private class AlphaTabNoteEditor(
         private val activity: MainActivity,
         private val score: AlphaTabView,
@@ -1141,6 +1190,61 @@ class MainActivity : Activity() {
 
         private fun currentBeat(): alphaTab.model.Beat? =
             bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
+
+        fun currentBeatDurationTicks(): Long = currentBeat()?.let { AlphaTabRhythmEngine.beatTicks(it) } ?: 0L
+        fun currentBarCapacityTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barCapacityTicks(it) } ?: 0L
+        fun currentBarUsedTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barUsedTicks(it) } ?: 0L
+
+        fun setCurrentDuration(duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1): Boolean {
+            val beat = currentBeat() ?: return false
+            val bar = bars()?.getOrNull(currentBarIndex) ?: return false
+            if (!AlphaTabRhythmEngine.fits(bar, beat, duration, dots, tupletNumerator, tupletDenominator)) {
+                updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
+                return false
+            }
+            AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
+            beat.finish(score.settings, null)
+            score.api.score?.finish(score.settings)
+            score.api.render()
+            updateStatus("Duration " + duration.name)
+            return true
+        }
+
+        private fun createNextMeasure(): Boolean {
+            val song = score.api.score ?: return false
+            val sourceBar = bars()?.lastOrNull() ?: return false
+            val master = MasterBar().apply {
+                timeSignatureNumerator = sourceBar.masterBar.timeSignatureNumerator
+                timeSignatureDenominator = sourceBar.masterBar.timeSignatureDenominator
+                timeSignatureCommon = sourceBar.masterBar.timeSignatureCommon
+                keySignature = sourceBar.masterBar.keySignature
+                keySignatureType = sourceBar.masterBar.keySignatureType
+            }
+            song.addMasterBar(master)
+            for (track in song.tracks.toList()) for (sourceStaff in track.staves.toList()) {
+                val newBar = Bar(); sourceStaff.addBar(newBar)
+                val voiceCount = sourceBar.voices.toList().size.coerceAtLeast(1)
+                repeat(voiceCount) {
+                    val voice = alphaTab.model.Voice(); newBar.addVoice(voice)
+                    val numerator = master.timeSignatureNumerator.toInt().coerceAtLeast(1)
+                    val denominator = master.timeSignatureDenominator.toInt().coerceAtLeast(1)
+                    val unit = when (denominator) {
+                        1 -> Duration.DoubleWhole; 2 -> Duration.Half; 4 -> Duration.Quarter; 8 -> Duration.Eighth; 16 -> Duration.Sixteenth; else -> Duration.Quarter
+                    }
+                    repeat(numerator) { voice.addBeat(Beat().apply { duration = unit }) }
+                }
+            }
+            song.finish(score.settings); score.api.render(); return true
+        }
+
+        private fun advanceAfterEntry() {
+            val bs = bars() ?: return
+            val bar = bs.getOrNull(currentBarIndex) ?: return
+            val beat = currentBeat() ?: return
+            if (AlphaTabRhythmEngine.nextBeat(bar, beat) != null) { currentBeatIndex++; updateStatus(); return }
+            if (currentBarIndex == bs.lastIndex && createNextMeasure()) { currentBarIndex++; currentBeatIndex = 0; updateStatus("New measure • " + (currentBarIndex + 1)) }
+            else if (currentBarIndex < bs.lastIndex) { currentBarIndex++; currentBeatIndex = 0; updateStatus() }
+        }
 
         private fun moveBeat(delta: Int) {
             val bs = bars() ?: return
@@ -1221,6 +1325,7 @@ class MainActivity : Activity() {
             }
             score.api.render()
             updateStatus("Fret $fret • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
+            advanceAfterEntry()
         }
         private fun deleteCurrentNote() {
             val beat = currentBeat() ?: return
