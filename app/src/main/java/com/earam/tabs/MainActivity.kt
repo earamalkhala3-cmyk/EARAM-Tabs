@@ -1215,6 +1215,10 @@ class MainActivity : Activity() {
                 beat.addNote(note)
             }
             score.api.score?.finish(score.settings)
+            val column = currentBarIndex * 16 + currentBeatIndex
+            if (currentStringIndex in 1..activity.cells.lastIndex) {
+                activity.cells[currentStringIndex - 1][column] = fret.toString()
+            }
             score.api.render()
             updateStatus("Fret $fret • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
         }
@@ -1223,6 +1227,10 @@ class MainActivity : Activity() {
             val note = beat.getNoteOnString(currentStringIndex.toDouble()) ?: return
             beat.removeNote(note)
             score.api.score?.finish(score.settings)
+            val column = currentBarIndex * 16 + currentBeatIndex
+            if (currentStringIndex in 1..activity.cells.lastIndex) {
+                activity.cells[currentStringIndex - 1].remove(column)
+            }
             score.api.render()
             updateStatus("Note deleted")
         }
@@ -1236,30 +1244,121 @@ class MainActivity : Activity() {
     private var fretInput: EditText? = null
 
     private fun openEditor() {
-        editor = EditorView()
-        val frame = FrameLayout(this)
-        frame.addView(editor, FrameLayout.LayoutParams(-1, -1))
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setSingleLine(true)
-            maxLines = 1
-            maxWidth = 1
-            alpha = 0.01f
-            background = null
-            visibility = View.INVISIBLE
+        showAlphaTabNewScoreEditor()
+    }
+
+    /**
+     * Phase 1: AlphaTab is the active editor/rendering model.
+     *
+     * The old grid EditorView remains in the source for later migration work,
+     * but it is no longer the active Note Entry surface. All active note edits
+     * are performed against the same alphaTab.model.Score instance that is
+     * rendered and used for playback.
+     */
+    private fun showAlphaTabNewScoreEditor() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFFFFFFFF.toInt())
         }
-        fretInput = input
-        frame.addView(input, FrameLayout.LayoutParams(1, 1))
-        input.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val value = s?.toString()?.toIntOrNull() ?: return
-                if (value in 0..24) editor?.setSelectedFretFromKeyboard(value)
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
+            setBackgroundColor(0xFF191C1F.toInt())
+        }
+
+        fun headerButton(label: String): Button = Button(this).apply {
+            text = label
+            isAllCaps = false
+            minWidth = 0
+            setPadding(dp(6f), 0, dp(6f), 0)
+        }
+
+        val file = headerButton("FILE")
+        val play = headerButton("PLAY")
+        val stop = headerButton("STOP")
+        val status = TextView(this).apply {
+            text = "New Score • AlphaTab"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 12f
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8f), 0, dp(8f), 0)
+        }
+
+        header.addView(file, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        header.addView(play, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        header.addView(stop, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        header.addView(status, LinearLayout.LayoutParams(0, dp(44f), 2.2f))
+
+        val score = AlphaTabView(this, null).apply {
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            settings.display.layoutMode = LayoutMode.Page
+            settings.display.barsPerRow = 2.0
+            settings.display.barCount = -1.0
+            settings.display.startBar = 1.0
+            settings.display.scale = 0.72
+            settings.display.stretchForce = 0.0
+            settings.core.includeNoteBounds = true
+            settings.player.playerMode = PlayerMode.EnabledSynthesizer
+            settings.player.enablePlayer = true
+            settings.player.enableUserInteraction = true
+            settings.player.enableCursor = true
+            settings.player.enableElementHighlighting = true
+            api.updateSettings()
+        }
+
+        val editor = AlphaTabNoteEditor(this, score, status)
+        editor.attach()
+
+        file.setOnClickListener { showFileMenu() }
+        play.setOnClickListener {
+            if (score.api.isReadyForPlayback) score.api.playPause()
+            else status.text = "Playback not ready"
+        }
+        stop.setOnClickListener { score.api.stop() }
+
+        score.api.scoreLoaded.on { loaded ->
+            runOnUiThread {
+                projectName = loaded.title.ifBlank { projectName }
+                status.text = "AlphaTab Score • ready"
             }
-            override fun afterTextChanged(s: android.text.Editable?) = Unit
-        })
-        setContentView(frame)
-        editor?.restoreSelection(savedRow, savedColumn)
+        }
+        score.api.error.on { error ->
+            runOnUiThread { status.text = "AlphaTab error: " + (error.message ?: "unknown") }
+        }
+        score.api.playerReady.on {
+            runOnUiThread { status.text = "AlphaTab Score • sound ready" }
+        }
+        score.api.playerStateChanged.on {
+            runOnUiThread {
+                if (score.api.playerState.toString().contains("Playing", true)) {
+                    status.text = "Playing • AlphaTab Score"
+                } else {
+                    status.text = "AlphaTab Score"
+                }
+            }
+        }
+
+        root.addView(header, LinearLayout.LayoutParams(-1, -2))
+        root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+
+        val title = projectName.replace("\\", "\\\\").replace(""", "\\"")
+        val safeTempo = bpm.coerceIn(30, 300)
+        val sig = timeSig.substringBefore('/').toIntOrNull()?.coerceAtLeast(1) ?: 4
+        val den = timeSig.substringAfter('/', "4").toIntOrNull()?.coerceIn(1, 64) ?: 4
+        val alphaTex = StringBuilder()
+            .append("\\title \"").append(title).append("\"\n")
+            .append("\\tempo ").append(safeTempo).append("\n")
+            .append(".\n")
+            .append(":").append(den).append(" ")
+            .append((0 until sig).joinToString(" ") { "()" })
+            .append("\n")
+            .toString()
+
+        status.text = "Creating AlphaTab Score…"
+        score.api.tex(alphaTex)
     }
 
     private fun editFretAt(rowIndex: Int, columnIndex: Int) {
