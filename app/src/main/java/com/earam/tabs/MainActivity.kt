@@ -1344,7 +1344,7 @@ class MainActivity : Activity() {
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
-        val title = projectName.replace("\\", "\\\\").replace(""", "\\"")
+        val title = projectName.replace("\"", "\\\"")
         val safeTempo = bpm.coerceIn(30, 300)
         val sig = timeSig.substringBefore('/').toIntOrNull()?.coerceAtLeast(1) ?: 4
         val den = timeSig.substringAfter('/', "4").toIntOrNull()?.coerceIn(1, 64) ?: 4
