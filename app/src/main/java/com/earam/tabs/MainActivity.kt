@@ -286,9 +286,8 @@ class MainActivity : Activity() {
             view.settings
         )
 
-        if (parsed.tracks.size <= 0) {
-            throw IllegalStateException("The imported file contains no tracks")
-        }
+        val firstTrack = parsed.tracks.firstOrNull()
+            ?: throw IllegalStateException("The imported file contains no tracks")
 
         // CRITICAL PHASE 1 PATH:
         // raw GP bytes -> ScoreLoader -> parsed Score -> AlphaTab renderScore(parsed)
