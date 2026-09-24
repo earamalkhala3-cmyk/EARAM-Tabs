@@ -286,7 +286,7 @@ class MainActivity : Activity() {
             view.settings
         )
 
-        if (parsed.tracks.isEmpty()) {
+        if (parsed.tracks.size <= 0) {
             throw IllegalStateException("The imported file contains no tracks")
         }
 
@@ -432,6 +432,17 @@ class MainActivity : Activity() {
             private set
         var currentStringIndex: Int = 1
             private set
+
+        fun resetSelection() {
+            currentBarIndex = 0
+            currentBeatIndex = 0
+            currentStringIndex = 1
+            armed = false
+            pendingFret = ""
+            updateCursor()
+            updateStatus()
+        }
+
 
         private var armed = false
         private var pendingFret: String = ""
