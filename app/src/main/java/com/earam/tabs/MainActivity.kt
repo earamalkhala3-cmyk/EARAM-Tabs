@@ -1438,35 +1438,56 @@ class MainActivity : Activity() {
             setBackgroundColor(0xFFFFFFFF.toInt())
         }
 
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val title = TextView(this).apply {
+            text = projectName
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 15f
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dp(12f), 0, dp(12f), 0)
             setBackgroundColor(0xFF191C1F.toInt())
         }
 
-        fun headerButton(label: String): Button = Button(this).apply {
-            text = label
-            isAllCaps = false
-            minWidth = 0
-            setPadding(dp(6f), 0, dp(6f), 0)
-        }
-
-        val file = headerButton("FILE")
-        val play = headerButton("PLAY")
-        val stop = headerButton("STOP")
         val status = TextView(this).apply {
-            text = "New Score • AlphaTab"
+            text = "Loading AlphaTab score…"
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 12f
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8f), 0, dp(8f), 0)
+            setPadding(dp(12f), 0, dp(12f), 0)
+            setBackgroundColor(0xFF25292D.toInt())
         }
 
-        header.addView(file, LinearLayout.LayoutParams(0, dp(44f), 1f))
-        header.addView(play, LinearLayout.LayoutParams(0, dp(44f), 1f))
-        header.addView(stop, LinearLayout.LayoutParams(0, dp(44f), 1f))
-        header.addView(status, LinearLayout.LayoutParams(0, dp(44f), 2.2f))
+        val controlsScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF202428.toInt())
+        }
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(3f), dp(4f), dp(3f))
+        }
+
+        fun control(label: String): Button = Button(this).apply {
+            text = label
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(dp(10f), 0, dp(10f), 0)
+        }
+
+        val file = control("FILE")
+        val play = control("PLAY")
+        val stop = control("STOP")
+        val speed05 = control("0.5×")
+        val speed075 = control("0.75×")
+        val speed1 = control("1×")
+        val speed125 = control("1.25×")
+        val speed15 = control("1.5×")
+
+        listOf(file, play, stop, speed05, speed075, speed1, speed125, speed15).forEach {
+            controls.addView(it, LinearLayout.LayoutParams(dp(82f), dp(46f)))
+        }
+        controlsScroll.addView(controls, LinearLayout.LayoutParams(-2, dp(52f)))
 
         val score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFFFF.toInt())
@@ -1495,48 +1516,68 @@ class MainActivity : Activity() {
         }
         stop.setOnClickListener { score.api.stop() }
 
+        fun setSpeed(value: Double) {
+            score.api.playbackSpeed = value
+            status.text = "Playback speed • " + String.format(java.util.Locale.US, "%.0f%%", value * 100.0)
+        }
+        speed05.setOnClickListener { setSpeed(0.50) }
+        speed075.setOnClickListener { setSpeed(0.75) }
+        speed1.setOnClickListener { setSpeed(1.00) }
+        speed125.setOnClickListener { setSpeed(1.25) }
+        speed15.setOnClickListener { setSpeed(1.50) }
+
         score.api.scoreLoaded.on { loaded ->
             runOnUiThread {
                 projectName = loaded.title.ifBlank { projectName }
-                status.text = "AlphaTab Score • ready"
+                title.text = projectName
+                status.text = "TAB ready • " + instrument + " • " + bpm + " BPM • " + timeSig
             }
         }
         score.api.error.on { error ->
-            runOnUiThread { status.text = "AlphaTab error: " + (error.message ?: "unknown") }
+            runOnUiThread {
+                status.text = "AlphaTab error: " + (error.message ?: "unknown")
+            }
         }
         score.api.playerReady.on {
-            runOnUiThread { status.text = "AlphaTab Score • sound ready" }
+            runOnUiThread {
+                status.text = "Sound ready • " + bpm + " BPM"
+                play.isEnabled = true
+            }
         }
         score.api.playerStateChanged.on {
             runOnUiThread {
-                if (score.api.playerState.toString().contains("Playing", true)) {
-                    status.text = "Playing • AlphaTab Score"
-                } else {
-                    status.text = "AlphaTab Score"
-                }
+                play.text = if (score.api.playerState.toString().contains("Playing", true)) "PAUSE" else "PLAY"
+                if (score.api.isReadyForPlayback) score.api.scrollToCursor()
             }
         }
-        root.addView(header, LinearLayout.LayoutParams(-1, -2))
+
+        root.addView(title, LinearLayout.LayoutParams(-1, dp(34f)))
+        root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
+        root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
-        val title = projectName.replace("\"", "\\\"")
+        play.isEnabled = false
+
+        val safeTitle = projectName.replace("\"", "\\\"")
         val safeTempo = bpm.coerceIn(30, 300)
         val sig = timeSig.substringBefore('/').toIntOrNull()?.coerceIn(1, 16) ?: 4
-        val den = timeSig.substringAfter('/', "4").toIntOrNull()?.let { if (it in setOf(1, 2, 4, 8, 16)) it else 4 } ?: 4
+        val den = timeSig.substringAfter('/', "4").toIntOrNull()
+            ?.let { if (it in setOf(1, 2, 4, 8, 16)) it else 4 } ?: 4
 
-        // Always create a real, visible AlphaTex score.
+        // Valid AlphaTex guitar score: explicit staff, tuning list and fretted notes.
         val alphaTex = StringBuilder()
-            .append("\\title \"").append(title).append("\"\n")
-            .append("\\tempo ").append(safeTempo).append("\n")
-            .append("\\track \"Electric Guitar\"\n")
-            .append("\\tuning E4 B3 G3 D3 A2 E2\n")
-            .append("\\ts ").append(sig).append(" ").append(den).append("\n")
-            .append(":4 (0.6 2.5 2.4) 3.4 5.4 7.4 | ")
-            .append("(0.6 2.5 2.4) 3.4 5.4 7.4 | ")
-            .append("(3.6 5.5 5.4) 5.4 7.4 8.4 | ")
-            .append("(0.6 2.5 2.4) r r r |")
-            .append("\n")
+            .append("\\title \"").append(safeTitle).append("\"\\n")
+            .append("\\tempo ").append(safeTempo).append("\\n")
+            .append("\\track \"Electric Guitar\"\\n")
+            .append("\\staff {score tabs}\\n")
+            .append("\\tuning (E4 B3 G3 D3 A2 E2)\\n")
+            .append("\\ts ").append(sig).append(" ").append(den).append("\\n")
+            .append(":4 0.6 2.5 3.4 5.4 | ")
+            .append(":4 7.4 5.4 3.4 2.4 | ")
+            .append(":4 0.6 2.5 5.4 7.4 | ")
+            .append(":4 3.4 5.4 2.4 0.6 |")
+            .append("\\n")
             .toString()
 
         status.text = "Loading AlphaTab score…"
