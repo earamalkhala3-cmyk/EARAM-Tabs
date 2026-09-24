@@ -41,8 +41,7 @@ class MainActivity : Activity() {
      * Imported GP3/4/5/GPX bytes are parsed directly by ScoreLoader into this Score.
      * AlphaTab renders that same Score through renderScore().
      *
-     * No Canvas editor, no cells[][], no drawTab/drawStandard, and no AlphaTex
-     * generation/parsing are part of the application.
+     * The application has no second music representation and no custom score renderer.
      */
     private var currentScore: Score? = null
     private var alphaTabView: AlphaTabView? = null
@@ -293,7 +292,7 @@ class MainActivity : Activity() {
 
         // CRITICAL PHASE 1 PATH:
         // raw GP bytes -> ScoreLoader -> parsed Score -> AlphaTab renderScore(parsed)
-        // There is deliberately no GP -> AlphaTex conversion here.
+        // The imported Score is rendered directly; no textual music representation is created.
         currentScore = parsed
         projectName = parsed.title.ifBlank { fileName.substringBeforeLast('.') }
 
