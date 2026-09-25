@@ -290,13 +290,15 @@ class MainActivity : Activity() {
             ?: throw IllegalStateException("The imported file contains no tracks")
 
         // CRITICAL PHASE 1 PATH:
-        // raw GP bytes -> ScoreLoader -> parsed Score -> AlphaTab renderScore(parsed)
-        // The imported Score is rendered directly; no textual music representation is created.
+        // raw GP bytes -> ScoreLoader -> one AlphaTab Score -> AlphaTabView.tracks.
+        // The Android AlphaTabView binds the same Score directly to its renderer.
         currentScore = parsed
         projectName = parsed.title.ifBlank { fileName.substringBeforeLast('.') }
 
         runOnUiThread {
-            view.api.renderScore(parsed)
+            // AlphaTab's Android UI facade renders through its tracks property.
+            // This is the documented Android path for a loaded Score.
+            view.tracks = arrayListOf(firstTrack)
             noteEditor?.resetSelection()
         }
 
