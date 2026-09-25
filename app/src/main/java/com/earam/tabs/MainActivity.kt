@@ -46,6 +46,7 @@ class MainActivity : Activity() {
     private var currentScore: Score? = null
     private var alphaTabView: AlphaTabView? = null
     private var noteEditor: AlphaTabNoteEditor? = null
+    private var statusView: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,6 +142,7 @@ class MainActivity : Activity() {
         }
 
         alphaTabView = score
+        statusView = status
 
         val editor = AlphaTabNoteEditor(this, score, status)
         noteEditor = editor
@@ -286,20 +288,36 @@ class MainActivity : Activity() {
             view.settings
         )
 
-        val firstTrack = parsed.tracks.firstOrNull()
-            ?: throw IllegalStateException("The imported file contains no tracks")
+        val trackCount = parsed.tracks.toList().size
+        val masterBarCount = parsed.masterBars.toList().size
+        parsed.tracks.firstOrNull()
+            ?: throw IllegalStateException(
+                "The imported file contains no tracks (tracks=$trackCount, masterBars=$masterBarCount)"
+            )
 
-        // CRITICAL PHASE 1 PATH:
-        // raw GP bytes -> ScoreLoader -> one AlphaTab Score -> AlphaTabView.tracks.
-        // The Android AlphaTabView binds the same Score directly to its renderer.
         currentScore = parsed
         projectName = parsed.title.ifBlank { fileName.substringBeforeLast('.') }
 
         runOnUiThread {
-            // AlphaTab's Android UI facade renders through its tracks property.
-            // This is the documented Android path for a loaded Score.
-            view.tracks = arrayListOf(firstTrack)
-            noteEditor?.resetSelection()
+            try {
+                val width = view.width
+                val height = view.height
+                if (width <= 0 || height <= 0) {
+                    throw IllegalStateException(
+                        "AlphaTabView has invalid size: " + width + "x" + height
+                    )
+                }
+
+                // GP bytes -> one AlphaTab Score -> AlphaTab renderer.
+                // Do not bind only the first track through view.tracks.
+                view.api.renderScore(parsed)
+                noteEditor?.resetSelection()
+                statusView?.text =
+                    "Parsed OK • tracks=$trackCount • masterBars=$masterBarCount • view=" +
+                    width + "x" + height + " • renderScore() called"
+            } catch (t: Throwable) {
+                showImportError("AlphaTab render", t)
+            }
         }
 
         loadSoundFontForCurrentScore(view)
