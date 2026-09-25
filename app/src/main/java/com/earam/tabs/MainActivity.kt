@@ -29,7 +29,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class MainActivity : Activity() {
-    private var projectName = "Untitled"
+    private var projectName = "Music Home"
     private var instrument = "Guitar"
     private var bpm = 120
     private var timeSig = "4/4"
@@ -51,6 +51,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         openEditor()
+        // Do not start on an empty AlphaTabView. Create and render the real AlphaTab Score after layout.
+        window.decorView.post { newScore() }
     }
 
     override fun onDestroy() {
@@ -262,7 +264,7 @@ class MainActivity : Activity() {
             score.finish(alphaTabView?.settings ?: return)
             currentScore = score
             alphaTabView?.api?.renderScore(score)
-            projectName = "Untitled"
+            projectName = "Music Home"
             noteEditor?.resetSelection()
         } catch (t: Throwable) {
             showImportError("New Score", t)
