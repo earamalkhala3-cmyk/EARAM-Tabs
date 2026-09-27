@@ -13,6 +13,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ImageView
 import android.widget.Toast
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
@@ -81,9 +82,24 @@ class MainActivity : Activity() {
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 15f
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), 0, dp(12f), 0)
+            setPadding(dp(10f), 0, dp(12f), 0)
             setBackgroundColor(0xFF191C1F.toInt())
         }
+
+        // Internal Earam branding; launcher icon remains the separate simple-note variant.
+        val brandBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xFF191C1F.toInt())
+        }
+        val logo = ImageView(this).apply {
+            setImageResource(com.earam.tabs.R.drawable.earam_internal)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(5f), dp(5f), dp(5f), dp(5f))
+            contentDescription = "Earam"
+        }
+        brandBar.addView(logo, LinearLayout.LayoutParams(dp(50f), dp(50f)))
+        brandBar.addView(title, LinearLayout.LayoutParams(0, dp(50f), 1f))
 
         val status = TextView(this).apply {
             text = "Open a GP3 / GP4 / GP5 / GPX file to load its Score."
@@ -200,7 +216,7 @@ class MainActivity : Activity() {
             }
         }
 
-        root.addView(title, LinearLayout.LayoutParams(-1, dp(34f)))
+        root.addView(brandBar, LinearLayout.LayoutParams(-1, dp(50f)))
         root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
         root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
