@@ -22,6 +22,7 @@ import android.widget.Toast
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
 import alphaTab.PlayerMode
+import alphaTab.StaveProfile
 import alphaTab.core.ecmaScript.Uint8Array
 import alphaTab.importer.ScoreLoader
 import alphaTab.model.Bar
@@ -166,6 +167,7 @@ class MainActivity : Activity() {
         val score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFFFF.toInt())
             settings.display.layoutMode = LayoutMode.Page
+            settings.display.staveProfile = StaveProfile.ScoreTab
             settings.display.barsPerRow = 2.0
             settings.display.barCount = -1.0
             settings.display.startBar = 1.0
@@ -375,6 +377,11 @@ class MainActivity : Activity() {
 
             val track = alphaTab.model.Track()
             val staff = alphaTab.model.Staff()
+            staff.showStandardNotation = true
+            staff.showTablature = true
+            staff.stringTuning = alphaTab.model.Tuning.getDefaultTuningFor(6.0)
+                ?: throw IllegalStateException("AlphaTab has no default 6-string tuning")
+            staff.stringTuning.finish()
             track.addStaff(staff)
             score.addTrack(track)
 
