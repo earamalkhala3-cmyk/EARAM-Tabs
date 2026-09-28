@@ -636,7 +636,7 @@ class MainActivity : Activity() {
                     if (index >= 0) {
                         currentBarIndex = bi
                         currentBeatIndex = index
-                        currentStringIndex = note.string.toInt().coerceIn(1, maxStringIndex())
+                        // UI numbering is top-to-bottom (1 = thin/high E). AlphaTab is bottom-to-top.\n                        currentStringIndex = (7 - note.string.toInt()).coerceIn(1, maxStringIndex())
                         armed = true
                         pendingFret = ""
                         updateCursor()
@@ -835,13 +835,13 @@ class MainActivity : Activity() {
         private fun writeFret(fret: Int) {
             if (fret !in 0..24) return
             val beat = currentBeat() ?: return
-            val existing = beat.getNoteOnString(currentStringIndex.toDouble())
+            val alphaTabString = alphaTabString(currentStringIndex)\n            val existing = beat.getNoteOnString(alphaTabString.toDouble())
             if (existing != null) {
                 existing.fret = fret.toDouble()
                 existing.finish(score.settings, null)
             } else {
                 val note = Note().apply {
-                    string = currentStringIndex.toDouble()
+                    string = alphaTabString.toDouble()
                     this.fret = fret.toDouble()
                 }
                 beat.addNote(note)
@@ -856,7 +856,7 @@ class MainActivity : Activity() {
 
         private fun deleteCurrentNote() {
             val beat = currentBeat() ?: return
-            val note = beat.getNoteOnString(currentStringIndex.toDouble()) ?: run {
+            val alphaTabString = alphaTabString(currentStringIndex)\n            val note = beat.getNoteOnString(alphaTabString.toDouble()) ?: run {
                 updateStatus("No note on current string")
                 return
             }
