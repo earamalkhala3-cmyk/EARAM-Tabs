@@ -145,7 +145,8 @@ class MainActivity : Activity() {
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
-            setPadding(dp(10f), 0, dp(10f), 0)
+            setPadding(dp(5f), 0, dp(5f), 0)
+            textSize = 11f
         }
 
         val file = control("FILE")
@@ -158,7 +159,7 @@ class MainActivity : Activity() {
         val speed15 = control("1.5×")
 
         listOf(file, play, stop, speed05, speed075, speed1, speed125, speed15).forEach {
-            controls.addView(it, LinearLayout.LayoutParams(dp(82f), dp(46f)))
+            controls.addView(it, LinearLayout.LayoutParams(dp(66f), dp(40f)))
         }
         controlsScroll.addView(controls, LinearLayout.LayoutParams(-2, dp(52f)))
 
@@ -200,7 +201,8 @@ class MainActivity : Activity() {
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
-            setPadding(dp(9f), 0, dp(9f), 0)
+            setPadding(dp(5f), 0, dp(5f), 0)
+            textSize = 10f
             setOnClickListener { action() }
         }
         val durationButtons = listOf(
@@ -213,7 +215,7 @@ class MainActivity : Activity() {
             durationButton("DOT") { editor.setCurrentDuration(editor.currentBeatDuration().first, (editor.currentBeatDuration().second + 1).coerceAtMost(2)) },
             durationButton("TRIPLET") { editor.setCurrentDuration(editor.currentBeatDuration().first, 0, 3, 2) }
         )
-        durationButtons.forEach { durations.addView(it, LinearLayout.LayoutParams(dp(108f), dp(46f))) }
+        durationButtons.forEach { durations.addView(it, LinearLayout.LayoutParams(dp(78f), dp(40f))) }
         durationScroll.addView(durations, LinearLayout.LayoutParams(-2, dp(52f)))
 
         val editScroll = android.widget.HorizontalScrollView(this).apply {
@@ -230,51 +232,55 @@ class MainActivity : Activity() {
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
-            setPadding(dp(8f), 0, dp(8f), 0)
+            setPadding(dp(4f), 0, dp(4f), 0)
+            textSize = 11f
             setOnClickListener { action() }
         }
-        // Fret entry is intentionally the FIRST control so it is visible without horizontal scrolling.
-        // Tapping it opens the numeric keyboard; WRITE commits the value to the current AlphaTab Score beat/string.
-        val fret = EditText(this).apply {
-            hint = "Fret #"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setSingleLine(true)
-            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-            textSize = 16f
+        // Compact numeric fret row: tap 0–9 directly to enter a fret on the
+        // currently selected AlphaTab Beat/string. Two taps in succession can form 10–24.
+        val numberScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF25292D.toInt())
+        }
+        val numbers = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setPadding(dp(4f), 0, dp(4f), 0)
+            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
         }
-        fun commitFret() {
-            val value = fret.text.toString().toIntOrNull()
-            if (value != null && value in 0..24) {
-                editor.writeFretFromUi(value)
-                fret.text.clear()
-            } else {
-                status.text = "Enter fret 0–24"
+        for (digit in 0..9) {
+            val button = Button(this).apply {
+                text = digit.toString()
+                isAllCaps = false
+                minWidth = 0
+                minimumWidth = 0
+                textSize = 15f
+                setPadding(0, 0, 0, 0)
+                setOnClickListener { editor.enterDigitFromUi(digit) }
             }
+            numbers.addView(button, LinearLayout.LayoutParams(dp(40f), dp(38f)))
         }
-        fret.setOnEditorActionListener { _, _, _ -> commitFret(); true }
-        fret.setOnClickListener {
-            fret.requestFocus()
-            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-                .showSoftInput(fret, InputMethodManager.SHOW_IMPLICIT)
+        numberScroll.addView(numbers, LinearLayout.LayoutParams(-2, dp(42f)))
+
+        fun editTool(label: String, action: () -> Unit): Button = Button(this).apply {
+            text = label
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(dp(4f), 0, dp(4f), 0)
+            textSize = 11f
+            setOnClickListener { action() }
         }
 
-        val enter = editTool("WRITE") { commitFret() }
         val prev = editTool("‹") { editor.moveBeatFromUi(-1) }
         val next = editTool("›") { editor.moveBeatFromUi(1) }
         val up = editTool("↑") { editor.moveStringFromUi(-1) }
         val down = editTool("↓") { editor.moveStringFromUi(1) }
-        val del = editTool("DELETE") { editor.deleteCurrentNoteFromUi() }
+        val del = editTool("DEL") { editor.deleteCurrentNoteFromUi() }
 
-        editTools.addView(fret, LinearLayout.LayoutParams(dp(88f), dp(46f)))
-        editTools.addView(enter, LinearLayout.LayoutParams(dp(82f), dp(46f)))
         listOf(prev, next, up, down, del).forEach {
-            editTools.addView(it, LinearLayout.LayoutParams(dp(72f), dp(46f)))
+            editTools.addView(it, LinearLayout.LayoutParams(dp(54f), dp(38f)))
         }
-        editScroll.addView(editTools, LinearLayout.LayoutParams(-2, dp(52f)))
+        editScroll.addView(editTools, LinearLayout.LayoutParams(-2, dp(42f)))
 
         file.setOnClickListener { showFileMenu() }
 
@@ -328,9 +334,10 @@ class MainActivity : Activity() {
 
         root.addView(brandBar, LinearLayout.LayoutParams(-1, dp(50f)))
         root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
-        root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(52f)))
-        root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(52f)))
-        root.addView(editScroll, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(editScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(numberScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
@@ -745,6 +752,7 @@ class MainActivity : Activity() {
         /** Arrow navigation never creates a measure. It only moves inside existing Score beats. */
         fun moveBeatFromUi(delta: Int) = moveBeat(delta)
         fun moveStringFromUi(delta: Int) = moveString(delta)
+        fun enterDigitFromUi(digit: Int) = acceptDigit(digit)
         fun writeFretFromUi(fret: Int) = writeFret(fret)
         fun deleteCurrentNoteFromUi() = deleteCurrentNote()
 
