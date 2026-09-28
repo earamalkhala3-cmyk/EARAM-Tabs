@@ -116,7 +116,7 @@ jobs:
           BADGING="$("$AAPT2" dump badging "$APK_PATH")"
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.earam.tabs'" <<< "$BADGING"
-          grep -q "versionName='0.1.5'" <<< "$BADGING"
+          grep -q "versionName='0.1.6'" <<< "$BADGING"
           if grep -q "testOnly='true'" <<< "$BADGING"; then
             echo "ERROR: testOnly APK"
             exit 1
@@ -190,13 +190,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="v0.1.4"
+          TAG="v0.1.6"
           SHA_FILE="$APK_PATH.sha256"
           sha256sum "$APK_PATH" > "$SHA_FILE"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --clobber
           else
-            gh release create "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --title "Earam 0.1.4" --notes "Earam Android release 0.1.4."
+            gh release create "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --title "Earam 0.1.6" --notes "Earam Android release 0.1.6."
           fi
 
       - name: Final SHA-256
