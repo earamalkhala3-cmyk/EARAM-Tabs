@@ -233,29 +233,47 @@ class MainActivity : Activity() {
             setPadding(dp(8f), 0, dp(8f), 0)
             setOnClickListener { action() }
         }
-        val prev = editTool("‹") { editor.moveBeatFromUi(-1) }
-        val next = editTool("›") { editor.moveBeatFromUi(1) }
-        val up = editTool("↑") { editor.moveStringFromUi(-1) }
-        val down = editTool("↓") { editor.moveStringFromUi(1) }
+        // Fret entry is intentionally the FIRST control so it is visible without horizontal scrolling.
+        // Tapping it opens the numeric keyboard; WRITE commits the value to the current AlphaTab Score beat/string.
         val fret = EditText(this).apply {
-            hint = "Fret"
+            hint = "Fret #"
             inputType = InputType.TYPE_CLASS_NUMBER
             setSingleLine(true)
-            textSize = 14f
-            setPadding(dp(8f), 0, dp(8f), 0)
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            textSize = 16f
+            gravity = Gravity.CENTER
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setPadding(dp(4f), 0, dp(4f), 0)
         }
-        val enter = editTool("WRITE") {
+        fun commitFret() {
             val value = fret.text.toString().toIntOrNull()
             if (value != null && value in 0..24) {
                 editor.writeFretFromUi(value)
                 fret.text.clear()
+            } else {
+                status.text = "Enter fret 0–24"
             }
         }
+        fret.setOnEditorActionListener { _, _, _ -> commitFret(); true }
+        fret.setOnClickListener {
+            fret.requestFocus()
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                .showSoftInput(fret, InputMethodManager.SHOW_IMPLICIT)
+        }
+
+        val enter = editTool("WRITE") { commitFret() }
+        val prev = editTool("‹") { editor.moveBeatFromUi(-1) }
+        val next = editTool("›") { editor.moveBeatFromUi(1) }
+        val up = editTool("↑") { editor.moveStringFromUi(-1) }
+        val down = editTool("↓") { editor.moveStringFromUi(1) }
         val del = editTool("DELETE") { editor.deleteCurrentNoteFromUi() }
-        listOf(prev, next, up, down, enter, del).forEach {
+
+        editTools.addView(fret, LinearLayout.LayoutParams(dp(88f), dp(46f)))
+        editTools.addView(enter, LinearLayout.LayoutParams(dp(82f), dp(46f)))
+        listOf(prev, next, up, down, del).forEach {
             editTools.addView(it, LinearLayout.LayoutParams(dp(72f), dp(46f)))
         }
-        editTools.addView(fret, LinearLayout.LayoutParams(dp(92f), dp(46f)))
         editScroll.addView(editTools, LinearLayout.LayoutParams(-2, dp(52f)))
 
         file.setOnClickListener { showFileMenu() }
