@@ -10,7 +10,11 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
+import android.text.InputType
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ImageView
@@ -86,19 +90,35 @@ class MainActivity : Activity() {
             setBackgroundColor(0xFF191C1F.toInt())
         }
 
-        // Internal Earam branding; launcher icon remains the separate simple-note variant.
+        // Internal Earam branding: text is deliberately rendered as Android text so the
+        // exact spelling and orange center r remain visible on every density/device.
         val brandBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(0xFF191C1F.toInt())
+            setPadding(dp(10f), 0, dp(10f), 0)
         }
-        val logo = ImageView(this).apply {
-            setImageResource(com.earam.tabs.R.drawable.earam_internal)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(5f), dp(5f), dp(5f), dp(5f))
-            contentDescription = "Earam"
+        val brand = TextView(this).apply {
+            text = "Ea"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 23f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
-        brandBar.addView(logo, LinearLayout.LayoutParams(dp(50f), dp(50f)))
+        val brandR = TextView(this).apply {
+            text = "r"
+            setTextColor(0xFFFF8A00.toInt())
+            textSize = 23f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val brandEnd = TextView(this).apply {
+            text = "am"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 23f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        brandBar.addView(brand, LinearLayout.LayoutParams(-2, dp(50f)))
+        brandBar.addView(brandR, LinearLayout.LayoutParams(-2, dp(50f)))
+        brandBar.addView(brandEnd, LinearLayout.LayoutParams(-2, dp(50f)))
         brandBar.addView(title, LinearLayout.LayoutParams(0, dp(50f), 1f))
 
         val status = TextView(this).apply {
@@ -196,6 +216,47 @@ class MainActivity : Activity() {
         durationButtons.forEach { durations.addView(it, LinearLayout.LayoutParams(dp(108f), dp(46f))) }
         durationScroll.addView(durations, LinearLayout.LayoutParams(-2, dp(52f)))
 
+        val editScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF25292D.toInt())
+        }
+        val editTools = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(3f), dp(4f), dp(3f))
+        }
+        fun editTool(label: String, action: () -> Unit): Button = Button(this).apply {
+            text = label
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(dp(8f), 0, dp(8f), 0)
+            setOnClickListener { action() }
+        }
+        val prev = editTool("‹") { editor.moveBeatFromUi(-1) }
+        val next = editTool("›") { editor.moveBeatFromUi(1) }
+        val up = editTool("↑") { editor.moveStringFromUi(-1) }
+        val down = editTool("↓") { editor.moveStringFromUi(1) }
+        val fret = EditText(this).apply {
+            hint = "Fret"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            textSize = 14f
+            setPadding(dp(8f), 0, dp(8f), 0)
+        }
+        val enter = editTool("WRITE") {
+            val value = fret.text.toString().toIntOrNull()
+            if (value != null && value in 0..24) {
+                editor.writeFretFromUi(value)
+                fret.text.clear()
+            }
+        }
+        val del = editTool("DELETE") { editor.deleteCurrentNoteFromUi() }
+        listOf(prev, next, up, down, enter, del).forEach {
+            editTools.addView(it, LinearLayout.LayoutParams(dp(72f), dp(46f)))
+        }
+        editTools.addView(fret, LinearLayout.LayoutParams(dp(92f), dp(46f)))
+        editScroll.addView(editTools, LinearLayout.LayoutParams(-2, dp(52f)))
 
         file.setOnClickListener { showFileMenu() }
 
@@ -251,6 +312,7 @@ class MainActivity : Activity() {
         root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
         root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(editScroll, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
@@ -663,6 +725,11 @@ class MainActivity : Activity() {
         }
 
         /** Arrow navigation never creates a measure. It only moves inside existing Score beats. */
+        fun moveBeatFromUi(delta: Int) = moveBeat(delta)
+        fun moveStringFromUi(delta: Int) = moveString(delta)
+        fun writeFretFromUi(fret: Int) = writeFret(fret)
+        fun deleteCurrentNoteFromUi() = deleteCurrentNote()
+
         private fun moveBeat(delta: Int) {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
