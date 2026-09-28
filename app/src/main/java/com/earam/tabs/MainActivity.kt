@@ -74,7 +74,7 @@ class MainActivity : Activity() {
     private fun showAlphaTabEditor() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xFFD7D9DC.toInt())
         }
 
         val title = TextView(this).apply {
@@ -141,6 +141,36 @@ class MainActivity : Activity() {
             controls.addView(it, LinearLayout.LayoutParams(dp(82f), dp(46f)))
         }
         controlsScroll.addView(controls, LinearLayout.LayoutParams(-2, dp(52f)))
+
+        val durationScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF30353A.toInt())
+        }
+        val durations = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(3f), dp(4f), dp(3f))
+        }
+        fun durationButton(label: String, action: () -> Unit): Button = Button(this).apply {
+            text = label
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(dp(9f), 0, dp(9f), 0)
+            setOnClickListener { action() }
+        }
+        val durationButtons = listOf(
+            durationButton("WHOLE") { editor.setCurrentDuration(Duration.Whole) },
+            durationButton("HALF") { editor.setCurrentDuration(Duration.Half) },
+            durationButton("QUARTER") { editor.setCurrentDuration(Duration.Quarter) },
+            durationButton("EIGHTH") { editor.setCurrentDuration(Duration.Eighth) },
+            durationButton("16TH") { editor.setCurrentDuration(Duration.Sixteenth) },
+            durationButton("32ND") { editor.setCurrentDuration(Duration.ThirtySecond) },
+            durationButton("DOT") { editor.setCurrentDuration(editor.currentBeatDuration().first, (editor.currentBeatDuration().second + 1).coerceAtMost(2)) },
+            durationButton("TRIPLET") { editor.setCurrentDuration(editor.currentBeatDuration().first, 0, 3, 2) }
+        )
+        durationButtons.forEach { durations.addView(it, LinearLayout.LayoutParams(dp(108f), dp(46f))) }
+        durationScroll.addView(durations, LinearLayout.LayoutParams(-2, dp(52f)))
 
         val score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFFFF.toInt())
@@ -219,6 +249,7 @@ class MainActivity : Activity() {
         root.addView(brandBar, LinearLayout.LayoutParams(-1, dp(50f)))
         root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
         root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
@@ -549,6 +580,7 @@ class MainActivity : Activity() {
             score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.tuning?.toList()?.size?.coerceAtLeast(1) ?: 6
 
         fun currentBeatDurationTicks(): Long = currentBeat()?.let { AlphaTabRhythmEngine.beatTicks(it) } ?: 0L
+        fun currentBeatDuration(): Pair<Duration, Int> = currentBeat()?.let { Pair(it.duration, it.dots.toInt().coerceIn(0, 2)) } ?: Pair(Duration.Quarter, 0)
         fun currentBarCapacityTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barCapacityTicks(it) } ?: 0L
         fun currentBarUsedTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barUsedTicks(it) } ?: 0L
 
