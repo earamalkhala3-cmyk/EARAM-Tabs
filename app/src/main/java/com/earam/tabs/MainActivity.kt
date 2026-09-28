@@ -142,6 +142,30 @@ class MainActivity : Activity() {
         }
         controlsScroll.addView(controls, LinearLayout.LayoutParams(-2, dp(52f)))
 
+        val score = AlphaTabView(this, null).apply {
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            settings.display.layoutMode = LayoutMode.Page
+            settings.display.barsPerRow = 2.0
+            settings.display.barCount = -1.0
+            settings.display.startBar = 1.0
+            settings.display.scale = 0.72
+            settings.display.stretchForce = 0.0
+            settings.core.includeNoteBounds = true
+            settings.player.playerMode = PlayerMode.EnabledSynthesizer
+            settings.player.enablePlayer = true
+            settings.player.enableUserInteraction = true
+            settings.player.enableCursor = true
+            settings.player.enableElementHighlighting = true
+            api.updateSettings()
+        }
+
+        alphaTabView = score
+        statusView = status
+
+        val editor = AlphaTabNoteEditor(this, score, status)
+        noteEditor = editor
+        editor.attach()
+
         val durationScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(0xFF30353A.toInt())
@@ -172,29 +196,6 @@ class MainActivity : Activity() {
         durationButtons.forEach { durations.addView(it, LinearLayout.LayoutParams(dp(108f), dp(46f))) }
         durationScroll.addView(durations, LinearLayout.LayoutParams(-2, dp(52f)))
 
-        val score = AlphaTabView(this, null).apply {
-            setBackgroundColor(0xFFFFFFFF.toInt())
-            settings.display.layoutMode = LayoutMode.Page
-            settings.display.barsPerRow = 2.0
-            settings.display.barCount = -1.0
-            settings.display.startBar = 1.0
-            settings.display.scale = 0.72
-            settings.display.stretchForce = 0.0
-            settings.core.includeNoteBounds = true
-            settings.player.playerMode = PlayerMode.EnabledSynthesizer
-            settings.player.enablePlayer = true
-            settings.player.enableUserInteraction = true
-            settings.player.enableCursor = true
-            settings.player.enableElementHighlighting = true
-            api.updateSettings()
-        }
-
-        alphaTabView = score
-        statusView = status
-
-        val editor = AlphaTabNoteEditor(this, score, status)
-        noteEditor = editor
-        editor.attach()
 
         file.setOnClickListener { showFileMenu() }
 
