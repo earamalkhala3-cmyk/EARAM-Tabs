@@ -833,6 +833,10 @@ class MainActivity : Activity() {
             }
         }
 
+        /** UI String 1 is the thin/high E; AlphaTab string 1 is the lowest/bottom string. */
+        private fun alphaTabString(uiString: Int): Int =
+            (7 - uiString).coerceIn(1, maxStringIndex())
+
         private fun writeFret(fret: Int) {
             if (fret !in 0..24) return
             val beat = currentBeat() ?: return
