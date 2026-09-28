@@ -10,7 +10,8 @@
     <path android:fillColor="#FF8A00" android:pathData="M190,203 L190,137 L208,137 L208,148 Q216,135 231,135 L231,154 Q220,152 212,160 L212,203 Z"/>
     <path android:fillType="evenOdd" android:fillColor="#FFFFFF" android:pathData="M304,159 Q304,137 280,137 Q265,137 253,145 L259,158 Q268,151 277,151 Q288,151 288,160 L288,164 L274,164 Q252,164 252,184 Q252,204 272,204 Q283,204 289,196 L289,203 L306,203 Z M288,176 L275,176 Q267,176 267,183 Q267,191 275,191 Q288,191 288,176 Z"/>
     <path android:fillColor="#FFFFFF" android:pathData="M299,137 L317,137 L317,146 Q324,135 336,135 Q347,135 352,145 Q360,135 372,135 Q389,135 389,154 L389,203 L371,203 L371,157 Q371,151 365,151 Q357,151 357,160 L357,203 L340,203 L340,157 Q340,151 334,151 Q326,151 326,161 L326,203 L308,203 L308,154 Q308,146 299,146 Z"/>
-    <!-- simple elegant music note -->
+    <!-- simple elegant music note, deliberately smaller than the Earam wordmark -->
+    <group android:pivotX="300" android:pivotY="327" android:scaleX="0.65" android:scaleY="0.65">
     <path android:fillColor="#FF8A00" android:pathData="M286,245 L386,220 L386,348
         C386,371 367,388 343,388
         C319,388 300,372 300,351
