@@ -261,16 +261,6 @@ class MainActivity : Activity() {
         }
         numberScroll.addView(numbers, LinearLayout.LayoutParams(-2, dp(42f)))
 
-        fun editTool(label: String, action: () -> Unit): Button = Button(this).apply {
-            text = label
-            isAllCaps = false
-            minWidth = 0
-            minimumWidth = 0
-            setPadding(dp(4f), 0, dp(4f), 0)
-            textSize = 11f
-            setOnClickListener { action() }
-        }
-
         val prev = editTool("‹") { editor.moveBeatFromUi(-1) }
         val next = editTool("›") { editor.moveBeatFromUi(1) }
         val up = editTool("↑") { editor.moveStringFromUi(-1) }
