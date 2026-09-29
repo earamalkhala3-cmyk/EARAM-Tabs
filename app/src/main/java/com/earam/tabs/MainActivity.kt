@@ -291,7 +291,12 @@ class MainActivity : Activity() {
         file.setOnClickListener { showFileMenu() }
 
         score.api.renderFinished.on { runOnUiThread { editor.refreshVisualCursor() } }
-        score.api.postRenderFinished.on { runOnUiThread { editor.refreshVisualCursor() } }
+        score.api.postRenderFinished.on {
+            runOnUiThread {
+                editor.refreshVisualCursor()
+                editor.logRenderState()
+            }
+        }
 
         play.setOnClickListener {
             if (score.api.isReadyForPlayback) score.api.playPause()
@@ -420,7 +425,7 @@ class MainActivity : Activity() {
             track.addStaff(staff)
             score.addTrack(track)
 
-            // A new project starts with four complete 4/4 measures of real AlphaTab rests.
+            // A new project starts with four complete 4/4 measures of real AlphaTab Empty Beats (no Rests).
             repeat(4) { barNumber ->
                 if (barNumber > 0) {
                     val master = MasterBar().apply {
@@ -679,7 +684,9 @@ class MainActivity : Activity() {
             return ticks.coerceAtLeast(1L)
         }
         fun barCapacityTicks(bar: Bar): Long {
-            val m = bar.masterBar
+            return barCapacityTicksForMaster(bar.masterBar)
+        }
+        fun barCapacityTicksForMaster(m: MasterBar): Long {
             return (m.timeSignatureNumerator.toLong().coerceAtLeast(1L) * QUARTER_TICKS * 4L) / m.timeSignatureDenominator.toLong().coerceAtLeast(1L)
         }
         fun barUsedTicks(bar: Bar, excluding: Beat? = null): Long = bar.voices.firstOrNull()?.beats?.toList()?.filter { it !== excluding }?.sumOf { beatTicks(it) } ?: 0L
@@ -694,7 +701,7 @@ class MainActivity : Activity() {
         fun apply(beat: Beat, duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1) {
             beat.duration = duration; beat.dots = dots.coerceIn(0, 2).toDouble(); beat.tupletNumerator = tupletNumerator.toDouble(); beat.tupletDenominator = tupletDenominator.toDouble()
         }
-        fun largestRestSpec(ticks: Long): Quintuple? {
+        fun largestEmptyBeatSpec(ticks: Long): Quintuple? {
             val candidates = listOf(
                 Quintuple(Duration.Whole, 0, -1, -1, QUARTER_TICKS * 4),
                 Quintuple(Duration.Half, 1, -1, -1, QUARTER_TICKS * 3),
@@ -838,57 +845,43 @@ class MainActivity : Activity() {
                 updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
                 return false
             }
-
-            if (beat.isRest) {
-                val originalTicks = AlphaTabRhythmEngine.beatTicks(beat)
-                val selectedTicks = AlphaTabRhythmEngine.candidateTicks(duration, dots, tupletNumerator, tupletDenominator)
-                if (selectedTicks < originalTicks) {
-                    splitRestBeat(beat, duration, dots, tupletNumerator, tupletDenominator, originalTicks)
-                } else {
-                    AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
-                }
-            } else {
-                AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
-            }
-
+            AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
+            if (beat.notes.toList().isEmpty()) beat.isEmpty = true
             score.api.score?.finish(score.settings)
-            score.api.render()
+            renderAndLog("duration")
             updateCursor()
             updateStatus("Duration " + duration.name)
             return true
         }
 
-        private fun splitRestBeat(
-            beat: Beat,
-            duration: Duration,
-            dots: Int,
-            tupletNumerator: Int,
-            tupletDenominator: Int,
-            originalTicks: Long
-        ) {
-            val selectedTicks = AlphaTabRhythmEngine.candidateTicks(duration, dots, tupletNumerator, tupletDenominator)
-            AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
-
-            var remaining = originalTicks - selectedTicks
-            var insertAfter = beat
-            while (remaining > 0L) {
-                val spec = AlphaTabRhythmEngine.largestRestSpec(remaining) ?: break
-                val rest = Beat().apply {
-                    this.duration = spec.first
-                    this.dots = spec.second.toDouble()
-                    this.tupletNumerator = spec.third.toDouble()
-                    this.tupletDenominator = spec.fourth.toDouble()
-                    isEmpty = true
-                }
-                beat.voice.insertBeat(insertAfter, rest)
-                insertAfter = rest
-                remaining -= spec.fifth
-            }
-        }
-
         private fun createNextMeasures(count: Int = 4): Boolean {
             val song = score.api.score ?: return false
             val sourceBar = bars()?.lastOrNull() ?: return false
+            val selectedDuration = currentSelectedDuration()
+            val selectedDots = currentSelectedDots()
+            val selectedTupletN = currentSelectedTupletNumerator()
+            val selectedTupletD = currentSelectedTupletDenominator()
+
+            fun appendEmptyBeats(voice: alphaTab.model.Voice, master: MasterBar) {
+                var remaining = AlphaTabRhythmEngine.barCapacityTicksForMaster(master)
+                val selectedTicks = AlphaTabRhythmEngine.candidateTicks(selectedDuration, selectedDots, selectedTupletN, selectedTupletD)
+                while (remaining > 0L) {
+                    val spec = if (selectedTicks <= remaining) {
+                        AlphaTabRhythmEngine.Quintuple(selectedDuration, selectedDots, selectedTupletN, selectedTupletD, selectedTicks)
+                    } else {
+                        AlphaTabRhythmEngine.largestEmptyBeatSpec(remaining) ?: break
+                    }
+                    voice.addBeat(Beat().apply {
+                        duration = spec.first
+                        dots = spec.second.toDouble()
+                        tupletNumerator = spec.third.toDouble()
+                        tupletDenominator = spec.fourth.toDouble()
+                        isEmpty = true
+                    })
+                    remaining -= spec.fifth
+                }
+            }
+
             repeat(count.coerceAtLeast(1)) {
                 val master = MasterBar().apply {
                     timeSignatureNumerator = sourceBar.masterBar.timeSignatureNumerator
@@ -898,7 +891,6 @@ class MainActivity : Activity() {
                     keySignatureType = sourceBar.masterBar.keySignatureType
                 }
                 song.addMasterBar(master)
-
                 for (track in song.tracks.toList()) for (sourceStaff in track.staves.toList()) {
                     val newBar = Bar()
                     sourceStaff.addBar(newBar)
@@ -906,28 +898,12 @@ class MainActivity : Activity() {
                     repeat(voiceCount) {
                         val voice = alphaTab.model.Voice()
                         newBar.addVoice(voice)
-                        val numerator = master.timeSignatureNumerator.toInt().coerceAtLeast(1)
-                        val denominator = master.timeSignatureDenominator.toInt().coerceAtLeast(1)
-                        val unit = when (denominator) {
-                            1 -> Duration.DoubleWhole
-                            2 -> Duration.Half
-                            4 -> Duration.Quarter
-                            8 -> Duration.Eighth
-                            16 -> Duration.Sixteenth
-                            else -> Duration.Quarter
-                        }
-                        // Every newly created measure is fully occupied by rests.
-                        repeat(numerator) {
-                            voice.addBeat(Beat().apply {
-                                duration = unit
-                                isEmpty = true
-                            })
-                        }
+                        appendEmptyBeats(voice, master)
                     }
                 }
             }
             song.finish(score.settings)
-            score.api.render()
+            renderAndLog("create-next-measures")
             return true
         }
 
@@ -950,7 +926,7 @@ class MainActivity : Activity() {
 
             // The current measure is complete. Crossing its last beat always moves
             // to beat 1 of the next measure. If this was the trailing measure,
-            // append four more rest-filled measures first.
+            // append four more Empty-Beat measures first.
             if (currentBarIndex == bs.lastIndex) {
                 if (!createNextMeasures(4)) return
             }
@@ -986,7 +962,7 @@ class MainActivity : Activity() {
                 } else if (candidate >= count) {
                     if (b == bs.lastIndex) {
                         // Reaching the trailing measure expands the score by four
-                        // rest-filled measures before the move continues.
+                        // Empty-Beat measures before the move continues.
                         if (!createNextMeasures(4)) return@repeat
                     }
                     b++
@@ -1063,23 +1039,8 @@ class MainActivity : Activity() {
             try {
                 val song = score.api.score ?: return
                 val beat = currentBeat() ?: return
-                val voice = beat.voice
                 val alphaTabString = alphaTabString(currentStringIndex)
                 val existing = beat.getNoteOnString(alphaTabString.toDouble())
-                val requestedTicks = AlphaTabRhythmEngine.candidateTicks(
-                    currentSelectedDuration(),
-                    currentSelectedDots(),
-                    currentSelectedTupletNumerator(),
-                    currentSelectedTupletDenominator()
-                )
-
-                // Empty/rest beats may be split when the selected note is shorter.
-                // The remainder is inserted immediately after the written beat, so
-                // the timeline stays exact instead of leaving a hole in the measure.
-                val beatWasRest = beat.isRest
-                val beatTicks = AlphaTabRhythmEngine.beatTicks(beat)
-                val shouldSplit = beatWasRest && requestedTicks > 0L && requestedTicks < beatTicks
-
                 if (existing != null) {
                     existing.fret = fret.toDouble()
                     existing.finish(score.settings, null)
@@ -1091,62 +1052,67 @@ class MainActivity : Activity() {
                     beat.addNote(note)
                     note.finish(score.settings, null)
                 }
-
-                if (shouldSplit) {
-                    val selectedDuration = currentSelectedDuration()
-                    val selectedDots = currentSelectedDots()
-                    val selectedTupletN = currentSelectedTupletNumerator()
-                    val selectedTupletD = currentSelectedTupletDenominator()
-                    AlphaTabRhythmEngine.apply(
-                        beat, selectedDuration, selectedDots, selectedTupletN, selectedTupletD
-                    )
-
-                    var remaining = beatTicks - requestedTicks
-                    var insertAfter = beat
-                    while (remaining > 0L) {
-                        val restSpec = AlphaTabRhythmEngine.largestRestSpec(remaining)
-                            ?: break
-                        val rest = Beat().apply {
-                            duration = restSpec.first
-                            dots = restSpec.second.toDouble()
-                            tupletNumerator = restSpec.third.toDouble()
-                            tupletDenominator = restSpec.fourth.toDouble()
-                            isEmpty = true
-                        }
-                        voice.insertBeat(insertAfter, rest)
-                        insertAfter = rest
-                        remaining -= restSpec.fifth
-                    }
-                }
-
+                beat.isEmpty = beat.notes.toList().isEmpty()
                 beat.finish(score.settings, null)
                 song.finish(score.settings)
-                score.api.render()
+                renderAndLog("fret=" + fret)
                 updateCursor()
-                updateStatus("Fret $fret • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
+                updateStatus("Fret " + fret + " • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
                 advanceAfterEntry()
             } catch (t: Throwable) {
                 pendingFret = ""
                 inputGeneration++
-                activity.runOnUiThread {
-                    status.text = "Note entry error • " + (t.message ?: t.javaClass.simpleName)
-                }
+                activity.runOnUiThread { status.text = "Note entry error • " + (t.message ?: t.javaClass.simpleName) }
             }
+        }
+
+        private var lastRenderReason: String = "unspecified"
+
+        private fun renderAndLog(reason: String) {
+            lastRenderReason = reason
+            score.api.render()
+        }
+
+        fun logRenderState() {
+            val song = score.api.score
+            val staff = song?.tracks?.firstOrNull()?.staves?.firstOrNull()
+            val barCounts = staff?.bars?.toList()?.mapIndexed { index, bar ->
+                "bar=" + (index + 1) + ":beats=" + (bar.voices.firstOrNull()?.beats?.toList()?.size ?: 0)
+            }?.joinToString(", ") ?: "no-score"
+            val beat = currentBeat()
+            val lookup = score.api.renderer.boundsLookup
+            val found = beat != null && lookup?.findBeat(beat) != null
+            val fret = beat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble())?.fret?.toInt()
+            android.util.Log.d(
+                "EARAM_RENDER",
+                "reason=" + lastRenderReason +
+                    " | " + barCounts +
+                    " | current=bar/" + (currentBarIndex + 1) +
+                    " beat/" + (currentBeatIndex + 1) +
+                    " string/" + currentStringIndex +
+                    " fret/" + (fret ?: "-") +
+                    " | boundsLookupFound=" + found
+            )
         }
 
         private fun deleteCurrentNote() {
             val beat = currentBeat() ?: return
             val alphaTabString = alphaTabString(currentStringIndex)
             val note = beat.getNoteOnString(alphaTabString.toDouble()) ?: run {
+                beat.isEmpty = beat.notes.toList().isEmpty()
+                score.api.score?.finish(score.settings)
+                renderAndLog("delete-empty")
+                updateCursor()
                 updateStatus("No note on current string")
                 return
             }
             beat.removeNote(note)
+            beat.isEmpty = beat.notes.toList().isEmpty()
+            beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
-            val column = currentBarIndex * 16 + currentBeatIndex
-            score.api.render()
+            renderAndLog("delete")
             updateCursor()
-            updateStatus("Note deleted")
+            updateStatus(if (beat.isEmpty) "Beat cleared" else "Note deleted")
         }
 
         /**
@@ -1156,30 +1122,43 @@ class MainActivity : Activity() {
         fun refreshVisualCursor() {
             val beat = currentBeat() ?: run { overlay.hideCursor(); return }
             try {
-                val bounds = score.api.renderer.boundsLookup?.findBeat(beat)
-                if (bounds == null) { overlay.hideCursor(); return }
+                val lookup = score.api.renderer.boundsLookup
+                val bounds = lookup?.findBeat(beat)
+                if (bounds == null) {
+                    overlay.hideCursor()
+                    return
+                }
 
                 val visual = bounds.visualBounds
                 val x = if (bounds.onNotesX > 0.0) bounds.onNotesX else visual.x + visual.w / 2.0
-
-                val barReal = bounds.barBounds.realBounds
-                // Keep the overlay in the same renderer coordinate space. The current
-                // AlphaTab display scale is fixed at 0.72 in showAlphaTabEditor().
-                // Use a stable TAB line spacing here; note bounds override the Y position
-                // whenever a note exists, while this fallback also works for empty beats.
-                val tabLineSpacing = 10.0 * 0.72
-                val standardHeight = 4.0 * 10.0 * 0.72
-                val tabTop = barReal.y + standardHeight + tabLineSpacing
-                val y = tabTop + (currentStringIndex - 1) * tabLineSpacing
-
                 val alphaString = alphaTabString(currentStringIndex)
-                val noteBounds = bounds.notes?.toList()
+
+                val sameStringNoteY = bounds.notes?.toList()
                     ?.firstOrNull { it.note.string.toInt() == alphaString }
+                    ?.noteHeadBounds
+                    ?.let { it.y + it.h / 2.0 }
+                    ?: bounds.barBounds.beats.toList()
+                        .asSequence()
+                        .flatMap { it.notes?.toList().orEmpty().asSequence() }
+                        .firstOrNull { it.note.string.toInt() == alphaString }
+                        ?.noteHeadBounds
+                        ?.let { it.y + it.h / 2.0 }
+
+                val y = sameStringNoteY ?: run {
+                    val scale = score.settings.display.scale
+                    val oneStaffSpace = score.settings.display.resources.engravingSettings.oneStaffSpace * scale
+                    val tabLineSpacing = score.settings.display.resources.engravingSettings.tabLineSpacing * scale
+                    val barReal = bounds.barBounds.realBounds
+                    val tabTop = barReal.y + (oneStaffSpace * 4.0) + tabLineSpacing
+                    tabTop + (currentStringIndex - 1) * tabLineSpacing
+                }
+
+                val noteBounds = bounds.notes?.toList()?.firstOrNull { it.note.string.toInt() == alphaString }
                 val target = noteBounds?.noteHeadBounds
                 val left = (target?.x ?: x - 8.0) - 5.0
-                val top = (target?.y ?: y - tabLineSpacing * 0.55) - 5.0
+                val top = (target?.y ?: y - 8.0) - 5.0
                 val width = (target?.w ?: 16.0) + 10.0
-                val height = (target?.h ?: tabLineSpacing) + 10.0
+                val height = (target?.h ?: 16.0) + 10.0
 
                 overlay.showCursor(
                     (left - score.scrollX).toFloat(),
