@@ -16,9 +16,13 @@ import android.content.Context
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.ImageView
 import android.widget.Toast
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
 import alphaTab.PlayerMode
@@ -191,7 +195,11 @@ class MainActivity : Activity() {
         alphaTabView = score
         statusView = status
 
-        val editor = AlphaTabNoteEditor(this, score, status)
+        val scoreLayer = FrameLayout(this).apply { setBackgroundColor(0xFFFFFFFF.toInt()) }
+        val editorOverlay = TabEditOverlayView(this)
+        scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
+        scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(dp(44f), dp(44f)))
+        val editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
         noteEditor = editor
         editor.attach()
 
@@ -282,6 +290,9 @@ class MainActivity : Activity() {
 
         file.setOnClickListener { showFileMenu() }
 
+        score.api.renderFinished.on { runOnUiThread { editor.refreshVisualCursor() } }
+        score.api.postRenderFinished.on { runOnUiThread { editor.refreshVisualCursor() } }
+
         play.setOnClickListener {
             if (score.api.isReadyForPlayback) score.api.playPause()
             else status.text = "Playback is not ready for this Score."
@@ -363,7 +374,7 @@ class MainActivity : Activity() {
         root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(editScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(numberScroll, LinearLayout.LayoutParams(-1, dp(44f)))
-        root.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
         play.isEnabled = false
@@ -623,6 +634,38 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private class TabEditOverlayView(context: Context) : View(context) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 4f * resources.displayMetrics.density
+            color = 0xFFFF6D00.toInt()
+        }
+        private val rect = RectF()
+        private var cursorWidth = 44f
+        private var cursorHeight = 44f
+
+        fun showCursor(left: Float, top: Float, width: Float, height: Float) {
+            cursorWidth = width
+            cursorHeight = height
+            layoutParams = (layoutParams ?: FrameLayout.LayoutParams(1, 1)).apply {
+                this.width = width.toInt().coerceAtLeast(1)
+                this.height = height.toInt().coerceAtLeast(1)
+            }
+            translationX = left
+            translationY = top
+            rect.set(3f, 3f, maxOf(4f, width - 3f), maxOf(4f, height - 3f))
+            visibility = VISIBLE
+            invalidate()
+        }
+
+        fun hideCursor() { visibility = INVISIBLE }
+
+        override fun onDraw(canvas: Canvas) {
+            if (visibility == VISIBLE) canvas.drawRoundRect(rect, 5f, 5f, paint)
+        }
+    }
+
+
     private object AlphaTabRhythmEngine {
         const val QUARTER_TICKS = 960L
         fun durationTicks(duration: Duration): Long = when (duration) {
@@ -695,7 +738,8 @@ class MainActivity : Activity() {
     private class AlphaTabNoteEditor(
         private val activity: MainActivity,
         private val score: AlphaTabView,
-        private val status: TextView
+        private val status: TextView,
+        private val overlay: TabEditOverlayView
     ) {
         var currentBarIndex: Int = 0
             private set
@@ -1118,11 +1162,48 @@ class MainActivity : Activity() {
          * Uses AlphaTab's own playback-range highlight as the visual editor cursor.
          * The cursor is therefore anchored to the real rendered Beat, not a fake grid.
          */
+        fun refreshVisualCursor() {
+            val beat = currentBeat() ?: run { overlay.hideCursor(); return }
+            try {
+                val bounds = score.api.renderer.boundsLookup?.findBeat(beat)
+                if (bounds == null) { overlay.hideCursor(); return }
+
+                val visual = bounds.visualBounds
+                val x = if (bounds.onNotesX > 0.0) bounds.onNotesX else visual.x + visual.width / 2.0
+
+                val barReal = bounds.barBounds.realBounds
+                val tabLineSpacing = score.settings.engraving.tabLineSpacing
+                val standardHeight = score.settings.engraving.oneStaffSpace * 4.0
+                val tabTop = barReal.y + standardHeight + tabLineSpacing
+                val y = tabTop + (currentStringIndex - 1) * tabLineSpacing
+
+                val alphaString = alphaTabString(currentStringIndex)
+                val noteBounds = bounds.notes?.toList()
+                    ?.firstOrNull { it.note.string.toInt() == alphaString }
+                val target = noteBounds?.noteHeadBounds
+                val left = (target?.x ?: x - 8.0) - 5.0
+                val top = (target?.y ?: y - tabLineSpacing * 0.55) - 5.0
+                val width = (target?.width ?: 16.0) + 10.0
+                val height = (target?.height ?: tabLineSpacing) + 10.0
+
+                overlay.showCursor(
+                    (left - score.scrollX).toFloat(),
+                    (top - score.scrollY).toFloat(),
+                    width.toFloat(),
+                    height.toFloat()
+                )
+            } catch (_: Throwable) {
+                overlay.hideCursor()
+            }
+        }
+
         private fun updateCursor() {
             val beat = currentBeat() ?: return
             try {
+                // Playback cursor remains AlphaTab's native cursor. Editing uses the orange box.
                 score.api.highlightPlaybackRange(beat, beat)
             } catch (_: Throwable) { }
+            refreshVisualCursor()
         }
 
         private fun currentStringLabel(): String {
