@@ -67,6 +67,7 @@ class MainActivity : Activity() {
         // Do not start on an empty AlphaTabView. Create and render the real AlphaTab Score after layout.
         window.decorView.post {
             newScore()
+            alphaTabView?.let { loadSoundFontForCurrentScore(it) }
         }
     }
 
@@ -332,60 +333,48 @@ class MainActivity : Activity() {
         score.api.playerReady.on {
             playerEngineReady = true
             runOnUiThread {
-                play.isEnabled = soundFontLoaded
-                if (!soundFontLoaded && !soundFontLoading) {
-                    status.text = "Player ready • loading SoundFont…"
+                play.isEnabled = soundFontLoaded && score.api.isReadyForPlayback
+                status.text = if (score.api.isReadyForPlayback) {
+                    "Player ready • " + bpm + " BPM"
+                } else {
+                    "Player initialized"
                 }
-                loadSoundFontForCurrentScore(score)
             }
         }
 
-        // AlphaTabApi exposes global error as the equivalent failure signal on Android.
-        // Capture the real Throwable while a SoundFont request is in flight.
-        score.api.error.on { error ->
-            if (soundFontLoading) {
-                soundFontLoading = false
-                soundFontLoaded = false
-                val detail = "AlphaTab error during SoundFont load: " +
-                    (error.message ?: error.javaClass.name) + "\n\n" +
-                    android.util.Log.getStackTraceString(error)
-                android.util.Log.e("EARAM_SOUNDFONT", detail, error)
-                runOnUiThread {
-                    play.isEnabled = false
-                    status.text = "SoundFont load failed • see log"
-                    showDetailedImportError("SoundFont load", error, detail)
-                }
-            } else {
-                android.util.Log.e(
-                    "EARAM_ALPHATAB",
-                    "AlphaTab error: " + (error.message ?: error.javaClass.name),
-                    error
-                )
-            }
-        }
 
         score.api.soundFontLoaded.on {
             soundFontLoaded = true
             soundFontLoading = false
+            android.util.Log.i("EARAM_SOUNDFONT", "soundFontLoaded=true; actualPlayerMode=" + score.api.actualPlayerMode)
             runOnUiThread {
                 try {
                     score.api.loadMidiForScore()
-                    play.isEnabled = true
-                    status.text = "Sound ready • " + bpm + " BPM"
+                    play.isEnabled = false
+                    status.text = "SoundFont loaded • preparing MIDI…"
                 } catch (t: Throwable) {
                     soundFontLoaded = false
                     play.isEnabled = false
-                    showImportError("MIDI", t)
+                    val detail = "loadMidiForScore failed: " +
+                        (t.message ?: t.javaClass.name) + "\n\n" +
+                        android.util.Log.getStackTraceString(t)
+                    android.util.Log.e("EARAM_SOUNDFONT", detail, t)
+                    showDetailedImportError("MIDI", t, detail)
                 }
             }
         }
 
         score.api.playerStateChanged.on {
             runOnUiThread {
+                val ready = score.api.isReadyForPlayback
+                play.isEnabled = ready && soundFontLoaded
                 play.text =
                     if (score.api.playerState.toString().contains("Playing", true)) "PAUSE"
                     else "PLAY"
-                if (score.api.isReadyForPlayback) score.api.scrollToCursor()
+                if (ready) {
+                    status.text = "Sound ready • " + bpm + " BPM"
+                    score.api.scrollToCursor()
+                }
             }
         }
 
@@ -541,37 +530,27 @@ class MainActivity : Activity() {
             }
         }
 
+        // playerReady is a completion event; enablePlayer is the prerequisite for SF loading.
         loadSoundFontForCurrentScore(view)
     }
 
     private fun loadSoundFontForCurrentScore(view: AlphaTabView) {
-        if (!playerEngineReady) {
-            android.util.Log.d("EARAM_SOUNDFONT", "deferred: playerEngineReady=false")
+        if (soundFontLoaded || soundFontLoading) return
+        if (!view.settings.player.enablePlayer) {
+            val t = IllegalStateException("AlphaTab player is not enabled")
+            android.util.Log.e("EARAM_SOUNDFONT", "enablePlayer=false", t)
+            showDetailedImportError("SoundFont", t, t.message ?: "enablePlayer=false")
             return
         }
-        if (soundFontLoaded) {
-            runOnUiThread {
-                try {
-                    view.api.loadMidiForScore()
-                } catch (t: Throwable) {
-                    android.util.Log.e("EARAM_SOUNDFONT", "loadMidiForScore failed", t)
-                    showImportError("MIDI", t)
-                }
-            }
-            return
-        }
-        if (soundFontLoading) return
 
         soundFontLoading = true
-        runOnUiThread { statusView?.text = "Loading sound • AlphaTab 1.8.4 SoundFont…" }
+        runOnUiThread { statusView?.text = "Loading SoundFont • AlphaTab 1.8.4…" }
 
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                // Official SONiVOX SoundFont shipped with alphaTab 1.8.4.
                 val sfUrl =
                     "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
-
                 connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
                     readTimeout = 30000
@@ -583,80 +562,64 @@ class MainActivity : Activity() {
 
                 val code = connection.responseCode
                 if (code !in 200..299) {
-                    throw IllegalStateException(
-                        "HTTP $code while loading official alphaTab 1.8.4 SONiVOX"
-                    )
+                    throw IllegalStateException("HTTP " + code + " loading official alphaTab 1.8.4 SONiVOX")
                 }
 
                 val expectedLength = connection.contentLengthLong
                 val sf = connection.inputStream.use { it.readBytes() }
                 val actualLength = sf.size.toLong()
-
-                if (actualLength < 12L) {
-                    throw IllegalStateException("SoundFont is truncated: $actualLength bytes")
-                }
+                if (actualLength < 12L) throw IllegalStateException("SoundFont truncated: " + actualLength + " bytes")
 
                 val riff = sf.copyOfRange(0, 4).toString(Charsets.US_ASCII)
                 val form = sf.copyOfRange(8, 12).toString(Charsets.US_ASCII)
                 if (riff != "RIFF" || form != "sfbk") {
                     throw IllegalStateException(
-                        "Invalid SF2 header: first12=" +
-                            sf.copyOfRange(0, 12).joinToString("") { "%02X".format(it) } +
-                            " (expected RIFF........sfbk)"
+                        "Invalid SF2 header: " +
+                            sf.copyOfRange(0, 12).joinToString("") { "%02X".format(it) }
                     )
                 }
                 if (expectedLength >= 0L && expectedLength != actualLength) {
                     throw IllegalStateException(
-                        "SoundFont truncated: HTTP Content-Length=$expectedLength, received=$actualLength"
+                        "SoundFont length mismatch: HTTP=" + expectedLength + " actual=" + actualLength
                     )
                 }
 
-                val headerInfo = "SF2 • $actualLength bytes • RIFF/sfbk"
-                val alphaTabBytes = Uint8Array(sf.asUByteArray())
-
-                android.util.Log.d(
+                android.util.Log.i(
                     "EARAM_SOUNDFONT",
-                    "validated $headerInfo | container=" + alphaTabBytes.javaClass.name +
-                        " | payloadBytes=" + sf.size +
-                        " | thread=" + Thread.currentThread().name
+                    "Validated official SF2: " + actualLength + " bytes, RIFF/sfbk"
                 )
 
-                // Main-thread AlphaTab call; this is a real alphaTab Uint8Array, not
-                // String/base64/ArrayBuffer. append=false replaces prior presets.
+                // Android alphaTab expects the native JVM ByteArray.
+                val alphaTabAndroidBytes: ByteArray = sf
+
                 runOnUiThread {
                     try {
-                        if (!playerEngineReady) {
-                            soundFontLoading = false
-                            throw IllegalStateException("Player became unready before loadSoundFont")
-                        }
-
-                        android.util.Log.d(
+                        android.util.Log.i(
                             "EARAM_SOUNDFONT",
-                            "calling api.loadSoundFont(Uint8Array(" + sf.size +
-                                " bytes), false) | thread=" + Thread.currentThread().name
+                            "Calling api.loadSoundFont(ByteArray(" +
+                                alphaTabAndroidBytes.size + "), false) thread=" +
+                                Thread.currentThread().name +
+                                " enablePlayer=" + view.settings.player.enablePlayer
                         )
 
-                        val accepted = view.api.loadSoundFont(alphaTabBytes, false)
+                        val accepted = view.api.loadSoundFont(alphaTabAndroidBytes, false)
 
-                        android.util.Log.d(
+                        android.util.Log.i(
                             "EARAM_SOUNDFONT",
-                            "api.loadSoundFont returned accepted=" + accepted
+                            "loadSoundFont returned=" + accepted
                         )
 
                         if (!accepted) {
                             soundFontLoading = false
                             val detail =
-                                "AlphaTab returned false from loadSoundFont. " +
-                                    "Validated $headerInfo; passed " +
-                                    alphaTabBytes.javaClass.name +
-                                    " (Uint8Array); playerEngineReady=" +
-                                    playerEngineReady
-                            android.util.Log.e("EARAM_SOUNDFONT", detail)
-                            showDetailedImportError(
-                                "SoundFont rejected",
-                                IllegalStateException(detail),
-                                detail
-                            )
+                                "AlphaTab rejected validated SF2. bytes=" +
+                                    alphaTabAndroidBytes.size +
+                                    "; type=" + alphaTabAndroidBytes.javaClass.name +
+                                    "; append=false; enablePlayer=" +
+                                    view.settings.player.enablePlayer
+                            val t = IllegalStateException(detail)
+                            android.util.Log.e("EARAM_SOUNDFONT", detail, t)
+                            showDetailedImportError("SoundFont rejected", t, detail)
                         }
                     } catch (t: Throwable) {
                         soundFontLoading = false
@@ -675,9 +638,7 @@ class MainActivity : Activity() {
                         (t.message ?: t.javaClass.name) + "\n\n" +
                         android.util.Log.getStackTraceString(t)
                 android.util.Log.e("EARAM_SOUNDFONT", detail, t)
-                runOnUiThread {
-                    showDetailedImportError("SoundFont", t, detail)
-                }
+                runOnUiThread { showDetailedImportError("SoundFont", t, detail) }
             } finally {
                 connection?.disconnect()
             }
@@ -1218,33 +1179,39 @@ class MainActivity : Activity() {
                     return
                 }
 
-                val alphaString = alphaTabString(currentStringIndex)
-                val x = if (bounds.onNotesX.isFinite() && bounds.onNotesX > 0.0) {
-                    bounds.onNotesX
-                } else {
-                    bounds.realBounds.x + bounds.realBounds.w / 2.0
+                val x = bounds.onNotesX
+                if (!x.isFinite()) {
+                    overlay.hideCursor()
+                    return
                 }
 
-                // Anchor Y to the actual TAB staff line, not the system origin and not
-                // a note head. The bar bounds are the rendered staff region for this track.
-                val scale = score.settings.display.scale
-                val oneStaffSpace =
-                    score.settings.display.resources.engravingSettings.oneStaffSpace * scale
-                val tabLineSpacing =
-                    score.settings.display.resources.engravingSettings.tabLineSpacing * scale
-                val barReal = bounds.barBounds.realBounds
-                val tabFirstLineY = barReal.y + (oneStaffSpace * 4.0) + tabLineSpacing
-                val y = tabFirstLineY + (currentStringIndex - 1) * tabLineSpacing
+                val targetString = alphaTabString(currentStringIndex)
+                val noteBounds = bounds.notes?.toList()
+                    ?.firstOrNull { it.note.string.toInt() == targetString }
 
-                val cursorSize = (tabLineSpacing * 0.95).coerceAtLeast(18.0)
-                val left = x - cursorSize / 2.0
-                val top = y - cursorSize / 2.0
+                val y: Double
+                val size: Double
+                if (noteBounds != null) {
+                    val nb = noteBounds.noteHeadBounds
+                    y = nb.y + nb.h / 2.0
+                    size = maxOf(nb.w, nb.h, 18.0)
+                } else {
+                    // Empty beat: BeatBounds.barBounds spans the rendered staff region.
+                    // Map UI string 1..N directly onto the TAB staff lines.
+                    val r = bounds.barBounds.realBounds
+                    val strings = maxStringIndex().coerceAtLeast(1)
+                    val spacing = if (strings > 1) r.h / (strings - 1).toDouble() else r.h
+                    y = r.y + (currentStringIndex - 1) * spacing
+                    size = maxOf(spacing * 0.9, 18.0)
+                }
 
+                val left = x - size / 2.0
+                val top = y - size / 2.0
                 overlay.showCursor(
                     (left - score.scrollX).toFloat(),
                     (top - score.scrollY).toFloat(),
-                    cursorSize.toFloat(),
-                    cursorSize.toFloat()
+                    size.toFloat(),
+                    size.toFloat()
                 )
 
                 android.util.Log.d(
@@ -1252,10 +1219,9 @@ class MainActivity : Activity() {
                     "bar=" + (currentBarIndex + 1) +
                         " beat=" + (currentBeatIndex + 1) +
                         " string=" + currentStringIndex +
-                        " alphaString=" + alphaString +
                         " x=" + x + " y=" + y +
-                        " tabFirstLineY=" + tabFirstLineY +
-                        " spacing=" + tabLineSpacing
+                        " source=" + if (noteBounds != null) "noteHeadBounds" else "tabBarBounds" +
+                        " scroll=" + score.scrollX + "," + score.scrollY
                 )
             } catch (t: Throwable) {
                 android.util.Log.e("EARAM_CURSOR", "cursor calculation failed", t)
