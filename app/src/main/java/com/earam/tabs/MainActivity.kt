@@ -330,11 +330,31 @@ class MainActivity : Activity() {
         }
 
         score.api.playerReady.on {
+            playerEngineReady = true
             runOnUiThread {
                 play.isEnabled = soundFontLoaded
                 if (!soundFontLoaded && !soundFontLoading) {
-                    status.text = "Player ready • waiting for SoundFont"
+                    status.text = "Player ready • loading SoundFont…"
                 }
+                loadSoundFontForCurrentScore(score)
+            }
+        }
+
+        score.api.soundFontLoad.on { progress ->
+            android.util.Log.d("EARAM_SOUNDFONT", "soundFontLoad event: " + progress.toString())
+        }
+
+        score.api.soundFontLoadFailed.on { error ->
+            soundFontLoading = false
+            soundFontLoaded = false
+            val detail = "soundFontLoadFailed: " +
+                (error.message ?: error.javaClass.name) + "\n\n" +
+                android.util.Log.getStackTraceString(error)
+            android.util.Log.e("EARAM_SOUNDFONT", detail, error)
+            runOnUiThread {
+                play.isEnabled = false
+                status.text = "SoundFont load failed • see log"
+                showDetailedImportError("SoundFont load", error, detail)
             }
         }
 
@@ -519,26 +539,33 @@ class MainActivity : Activity() {
     }
 
     private fun loadSoundFontForCurrentScore(view: AlphaTabView) {
+        if (!playerEngineReady) {
+            android.util.Log.d("EARAM_SOUNDFONT", "deferred: playerEngineReady=false")
+            return
+        }
         if (soundFontLoaded) {
             runOnUiThread {
                 try {
                     view.api.loadMidiForScore()
                 } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_SOUNDFONT", "loadMidiForScore failed", t)
                     showImportError("MIDI", t)
                 }
             }
             return
         }
         if (soundFontLoading) return
+
         soundFontLoading = true
         runOnUiThread { statusView?.text = "Loading sound • AlphaTab 1.8.4 SoundFont…" }
+
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                // AlphaTab 1.8.4 ships this exact SONiVOX SoundFont as SF2.
-                // It is fetched as binary data; it is NOT an Android asset and is NOT base64/text.
+                // Official SONiVOX SoundFont shipped with alphaTab 1.8.4.
                 val sfUrl =
                     "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
+
                 connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
                     readTimeout = 30000
@@ -547,18 +574,22 @@ class MainActivity : Activity() {
                     setRequestProperty("Accept", "application/octet-stream")
                 }
                 connection.connect()
+
                 val code = connection.responseCode
                 if (code !in 200..299) {
-                    throw IllegalStateException("HTTP $code while loading AlphaTab 1.8.4 SoundFont")
+                    throw IllegalStateException(
+                        "HTTP $code while loading official alphaTab 1.8.4 SONiVOX"
+                    )
                 }
+
                 val expectedLength = connection.contentLengthLong
                 val sf = connection.inputStream.use { it.readBytes() }
                 val actualLength = sf.size.toLong()
+
                 if (actualLength < 12L) {
                     throw IllegalStateException("SoundFont is truncated: $actualLength bytes")
                 }
 
-                // SF2 is a RIFF/WAVE-style container: bytes 0..3 = RIFF, 8..11 = sfbk.
                 val riff = sf.copyOfRange(0, 4).toString(Charsets.US_ASCII)
                 val form = sf.copyOfRange(8, 12).toString(Charsets.US_ASCII)
                 if (riff != "RIFF" || form != "sfbk") {
@@ -575,26 +606,72 @@ class MainActivity : Activity() {
                 }
 
                 val headerInfo = "SF2 • $actualLength bytes • RIFF/sfbk"
-                runOnUiThread { statusView?.text = "Validated $headerInfo • loading into AlphaTab…" }
+                val alphaTabBytes = Uint8Array(sf.asUByteArray())
 
-                // Android AlphaTab accepts a native InputStream/byte container. Use an InputStream
-                // here rather than passing the network ByteArray through any text/base64 conversion.
-                // The load is asynchronous; success is confirmed only by soundFontLoaded.
+                android.util.Log.d(
+                    "EARAM_SOUNDFONT",
+                    "validated $headerInfo | container=" + alphaTabBytes.javaClass.name +
+                        " | payloadBytes=" + sf.size +
+                        " | thread=" + Thread.currentThread().name
+                )
+
+                // Main-thread AlphaTab call; this is a real alphaTab Uint8Array, not
+                // String/base64/ArrayBuffer. append=false replaces prior presets.
                 runOnUiThread {
                     try {
-                        val accepted = view.api.loadSoundFont(ByteArrayInputStream(sf), false)
+                        if (!playerEngineReady) {
+                            soundFontLoading = false
+                            throw IllegalStateException("Player became unready before loadSoundFont")
+                        }
+
+                        android.util.Log.d(
+                            "EARAM_SOUNDFONT",
+                            "calling api.loadSoundFont(Uint8Array(" + sf.size +
+                                " bytes), false) | thread=" + Thread.currentThread().name
+                        )
+
+                        val accepted = view.api.loadSoundFont(alphaTabBytes, false)
+
+                        android.util.Log.d(
+                            "EARAM_SOUNDFONT",
+                            "api.loadSoundFont returned accepted=" + accepted
+                        )
+
                         if (!accepted) {
                             soundFontLoading = false
-                            throw IllegalStateException("AlphaTab rejected validated SoundFont ($headerInfo)")
+                            val detail =
+                                "AlphaTab returned false from loadSoundFont. " +
+                                    "Validated $headerInfo; passed " +
+                                    alphaTabBytes.javaClass.name +
+                                    " (Uint8Array); playerEngineReady=" +
+                                    playerEngineReady
+                            android.util.Log.e("EARAM_SOUNDFONT", detail)
+                            showDetailedImportError(
+                                "SoundFont rejected",
+                                IllegalStateException(detail),
+                                detail
+                            )
                         }
                     } catch (t: Throwable) {
                         soundFontLoading = false
-                        showImportError("SoundFont", t)
+                        val detail =
+                            "loadSoundFont threw: " +
+                                (t.message ?: t.javaClass.name) + "\n\n" +
+                                android.util.Log.getStackTraceString(t)
+                        android.util.Log.e("EARAM_SOUNDFONT", detail, t)
+                        showDetailedImportError("SoundFont exception", t, detail)
                     }
                 }
             } catch (t: Throwable) {
                 soundFontLoading = false
-                runOnUiThread { showImportError("SoundFont", t) }
+                val detail =
+                    "SoundFont download/validation failed: " +
+                        (t.message ?: t.javaClass.name) + "\n\n" +
+                        android.util.Log.getStackTraceString(t)
+                android.util.Log.e("EARAM_SOUNDFONT", detail, t)
+                runOnUiThread {
+                    showDetailedImportError("SoundFont", t, detail)
+                }
             } finally {
                 connection?.disconnect()
             }
@@ -602,9 +679,13 @@ class MainActivity : Activity() {
     }
 
     private fun showImportError(stage: String, error: Throwable) {
+        showDetailedImportError(stage, error, error.message ?: error.javaClass.name)
+    }
+
+    private fun showDetailedImportError(stage: String, error: Throwable, detail: String) {
         AlertDialog.Builder(this)
             .setTitle("$stage failed")
-            .setMessage(error.message ?: error.javaClass.name)
+            .setMessage(detail)
             .setPositiveButton("OK", null)
             .show()
     }
