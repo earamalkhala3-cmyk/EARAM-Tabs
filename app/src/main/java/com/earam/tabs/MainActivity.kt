@@ -340,21 +340,27 @@ class MainActivity : Activity() {
             }
         }
 
-        score.api.soundFontLoad.on { progress ->
-            android.util.Log.d("EARAM_SOUNDFONT", "soundFontLoad event: " + progress.toString())
-        }
-
-        score.api.soundFontLoadFailed.on { error ->
-            soundFontLoading = false
-            soundFontLoaded = false
-            val detail = "soundFontLoadFailed: " +
-                (error.message ?: error.javaClass.name) + "\n\n" +
-                android.util.Log.getStackTraceString(error)
-            android.util.Log.e("EARAM_SOUNDFONT", detail, error)
-            runOnUiThread {
-                play.isEnabled = false
-                status.text = "SoundFont load failed • see log"
-                showDetailedImportError("SoundFont load", error, detail)
+        // AlphaTabApi exposes global error as the equivalent failure signal on Android.
+        // Capture the real Throwable while a SoundFont request is in flight.
+        score.api.error.on { error ->
+            if (soundFontLoading) {
+                soundFontLoading = false
+                soundFontLoaded = false
+                val detail = "AlphaTab error during SoundFont load: " +
+                    (error.message ?: error.javaClass.name) + "\n\n" +
+                    android.util.Log.getStackTraceString(error)
+                android.util.Log.e("EARAM_SOUNDFONT", detail, error)
+                runOnUiThread {
+                    play.isEnabled = false
+                    status.text = "SoundFont load failed • see log"
+                    showDetailedImportError("SoundFont load", error, detail)
+                }
+            } else {
+                android.util.Log.e(
+                    "EARAM_ALPHATAB",
+                    "AlphaTab error: " + (error.message ?: error.javaClass.name),
+                    error
+                )
             }
         }
 
@@ -962,7 +968,15 @@ class MainActivity : Activity() {
                     repeat(voiceCount) {
                         val voice = alphaTab.model.Voice()
                         newBar.addVoice(voice)
-                        addQuarterRestBeats(voice)
+                        repeat(4) {
+                            voice.addBeat(Beat().apply {
+                                duration = Duration.Quarter
+                                dots = 0.0
+                                tupletNumerator = -1.0
+                                tupletDenominator = -1.0
+                                isEmpty = true
+                            })
+                        }
                     }
                 }
             }
