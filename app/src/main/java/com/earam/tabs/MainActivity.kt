@@ -622,6 +622,7 @@ class MainActivity : Activity() {
         private var armed = false
         private var pendingFret: String = ""
         private var pendingAtMs: Long = 0L
+        private var inputGeneration: Long = 0L
 
         fun attach() {
             score.isFocusable = true
@@ -831,6 +832,7 @@ class MainActivity : Activity() {
             val now = android.os.SystemClock.uptimeMillis()
             if (now - pendingAtMs > 900L) pendingFret = ""
             pendingAtMs = now
+            val generation = ++inputGeneration
             val candidate = (pendingFret + digit).take(2)
             val value = candidate.toIntOrNull() ?: return
             if (value > 24) {
@@ -847,7 +849,7 @@ class MainActivity : Activity() {
                 updateStatus("Fret $candidate…")
                 activity.window.decorView.postDelayed({
                     val t = android.os.SystemClock.uptimeMillis()
-                    if (t - pendingAtMs >= 850L && pendingFret == candidate) {
+                    if (generation == inputGeneration && t - pendingAtMs >= 850L && pendingFret == candidate) {
                         writeFret(value)
                         pendingFret = ""
                     }
@@ -861,25 +863,35 @@ class MainActivity : Activity() {
 
         private fun writeFret(fret: Int) {
             if (fret !in 0..24) return
-            val beat = currentBeat() ?: return
-            val alphaTabString = alphaTabString(currentStringIndex)
-            val existing = beat.getNoteOnString(alphaTabString.toDouble())
-            if (existing != null) {
-                existing.fret = fret.toDouble()
-                existing.finish(score.settings, null)
-            } else {
-                val note = Note().apply {
-                    string = alphaTabString.toDouble()
-                    this.fret = fret.toDouble()
+            try {
+                val song = score.api.score ?: return
+                val beat = currentBeat() ?: return
+                val alphaTabString = alphaTabString(currentStringIndex)
+                val existing = beat.getNoteOnString(alphaTabString.toDouble())
+                if (existing != null) {
+                    existing.fret = fret.toDouble()
+                    existing.finish(score.settings, null)
+                } else {
+                    val note = Note().apply {
+                        string = alphaTabString.toDouble()
+                        this.fret = fret.toDouble()
+                    }
+                    beat.addNote(note)
+                    note.finish(score.settings, null)
                 }
-                beat.addNote(note)
+                beat.finish(score.settings, null)
+                song.finish(score.settings)
+                score.api.render()
+                updateCursor()
+                updateStatus("Fret $fret • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
+                advanceAfterEntry()
+            } catch (t: Throwable) {
+                pendingFret = ""
+                inputGeneration++
+                activity.runOnUiThread {
+                    status.text = "Note entry error • " + (t.message ?: t.javaClass.simpleName)
+                }
             }
-            score.api.score?.finish(score.settings)
-            val column = currentBarIndex * 16 + currentBeatIndex
-            score.api.render()
-            updateCursor()
-            updateStatus("Fret $fret • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
-            advanceAfterEntry()
         }
 
         private fun deleteCurrentNote() {
