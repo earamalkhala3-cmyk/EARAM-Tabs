@@ -31,6 +31,7 @@ import alphaTab.model.Duration
 import alphaTab.model.MasterBar
 import alphaTab.model.Note
 import alphaTab.model.Score
+import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -315,8 +316,35 @@ class MainActivity : Activity() {
 
         score.api.playerReady.on {
             runOnUiThread {
-                status.text = "Sound ready • " + bpm + " BPM"
-                play.isEnabled = true
+                play.isEnabled = soundFontLoaded
+                if (!soundFontLoaded && !soundFontLoading) {
+                    status.text = "Player ready • waiting for SoundFont"
+                }
+            }
+        }
+
+        score.api.soundFontLoaded.on {
+            soundFontLoaded = true
+            soundFontLoading = false
+            runOnUiThread {
+                try {
+                    score.api.loadMidiForScore()
+                    play.isEnabled = true
+                    status.text = "Sound ready • " + bpm + " BPM"
+                } catch (t: Throwable) {
+                    soundFontLoaded = false
+                    play.isEnabled = false
+                    showImportError("MIDI", t)
+                }
+            }
+        }
+
+        score.api.soundFontLoadFailed.on { error ->
+            soundFontLoaded = false
+            soundFontLoading = false
+            runOnUiThread {
+                play.isEnabled = false
+                status.text = "SoundFont failed • " + (error.message ?: "AlphaTab rejected the SoundFont")
             }
         }
 
@@ -477,10 +505,13 @@ class MainActivity : Activity() {
         soundFontLoading = true
         runOnUiThread { statusView?.text = "Loading sound • AlphaTab 1.8.4 SoundFont…" }
         Thread {
+            var connection: HttpURLConnection? = null
             try {
+                // AlphaTab 1.8.4 ships this exact SONiVOX SoundFont as SF2.
+                // It is fetched as binary data; it is NOT an Android asset and is NOT base64/text.
                 val sfUrl =
                     "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
-                val connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
+                connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
                     readTimeout = 30000
                     instanceFollowRedirects = true
@@ -492,16 +523,42 @@ class MainActivity : Activity() {
                 if (code !in 200..299) {
                     throw IllegalStateException("HTTP $code while loading AlphaTab 1.8.4 SoundFont")
                 }
+                val expectedLength = connection.contentLengthLong
                 val sf = connection.inputStream.use { it.readBytes() }
-                connection.disconnect()
+                val actualLength = sf.size.toLong()
+                if (actualLength < 12L) {
+                    throw IllegalStateException("SoundFont is truncated: $actualLength bytes")
+                }
 
+                // SF2 is a RIFF/WAVE-style container: bytes 0..3 = RIFF, 8..11 = sfbk.
+                val riff = sf.copyOfRange(0, 4).toString(Charsets.US_ASCII)
+                val form = sf.copyOfRange(8, 12).toString(Charsets.US_ASCII)
+                if (riff != "RIFF" || form != "sfbk") {
+                    throw IllegalStateException(
+                        "Invalid SF2 header: first12=" +
+                            sf.copyOfRange(0, 12).joinToString("") { "%02X".format(it) } +
+                            " (expected RIFF........sfbk)"
+                    )
+                }
+                if (expectedLength >= 0L && expectedLength != actualLength) {
+                    throw IllegalStateException(
+                        "SoundFont truncated: HTTP Content-Length=$expectedLength, received=$actualLength"
+                    )
+                }
+
+                val headerInfo = "SF2 • $actualLength bytes • RIFF/sfbk"
+                runOnUiThread { statusView?.text = "Validated $headerInfo • loading into AlphaTab…" }
+
+                // Android AlphaTab accepts a native InputStream/byte container. Use an InputStream
+                // here rather than passing the network ByteArray through any text/base64 conversion.
+                // The load is asynchronous; success is confirmed only by soundFontLoaded.
                 runOnUiThread {
                     try {
-                        val accepted = view.api.loadSoundFont(sf, false)
-                        if (!accepted) throw IllegalStateException("AlphaTab rejected the SoundFont")
-                        soundFontLoaded = true
-                        soundFontLoading = false
-                        view.api.loadMidiForScore()
+                        val accepted = view.api.loadSoundFont(ByteArrayInputStream(sf), false)
+                        if (!accepted) {
+                            soundFontLoading = false
+                            throw IllegalStateException("AlphaTab rejected validated SoundFont ($headerInfo)")
+                        }
                     } catch (t: Throwable) {
                         soundFontLoading = false
                         showImportError("SoundFont", t)
@@ -510,6 +567,8 @@ class MainActivity : Activity() {
             } catch (t: Throwable) {
                 soundFontLoading = false
                 runOnUiThread { showImportError("SoundFont", t) }
+            } finally {
+                connection?.disconnect()
             }
         }.start()
     }
