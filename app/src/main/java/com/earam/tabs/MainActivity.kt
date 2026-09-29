@@ -874,7 +874,7 @@ class MainActivity : Activity() {
             while (remaining > 0L) {
                 val spec = AlphaTabRhythmEngine.largestRestSpec(remaining) ?: break
                 val rest = Beat().apply {
-                    duration = spec.first
+                    this.duration = spec.first
                     this.dots = spec.second.toDouble()
                     this.tupletNumerator = spec.third.toDouble()
                     this.tupletDenominator = spec.fourth.toDouble()
@@ -1163,9 +1163,12 @@ class MainActivity : Activity() {
                 val x = if (bounds.onNotesX > 0.0) bounds.onNotesX else visual.x + visual.w / 2.0
 
                 val barReal = bounds.barBounds.realBounds
-                val engraving = score.api.settings.engraving
-                val tabLineSpacing = engraving.tabLineSpacing * score.api.settings.display.scale
-                val standardHeight = engraving.oneStaffSpace * 4.0 * score.api.settings.display.scale
+                // Keep the overlay in the same renderer coordinate space. The current
+                // AlphaTab display scale is fixed at 0.72 in showAlphaTabEditor().
+                // Use a stable TAB line spacing here; note bounds override the Y position
+                // whenever a note exists, while this fallback also works for empty beats.
+                val tabLineSpacing = 10.0 * 0.72
+                val standardHeight = 4.0 * 10.0 * 0.72
                 val tabTop = barReal.y + standardHeight + tabLineSpacing
                 val y = tabTop + (currentStringIndex - 1) * tabLineSpacing
 
