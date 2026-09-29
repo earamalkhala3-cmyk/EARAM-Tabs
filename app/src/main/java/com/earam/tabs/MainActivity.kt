@@ -865,31 +865,6 @@ class MainActivity : Activity() {
         private fun createNextMeasures(count: Int = 4): Boolean {
             val song = score.api.score ?: return false
             val sourceBar = bars()?.lastOrNull() ?: return false
-            val selectedDuration = currentSelectedDuration()
-            val selectedDots = currentSelectedDots()
-            val selectedTupletN = currentSelectedTupletNumerator()
-            val selectedTupletD = currentSelectedTupletDenominator()
-
-            fun appendEmptyBeats(voice: alphaTab.model.Voice, master: MasterBar) {
-                var remaining = AlphaTabRhythmEngine.barCapacityTicksForMaster(master)
-                val selectedTicks = AlphaTabRhythmEngine.candidateTicks(selectedDuration, selectedDots, selectedTupletN, selectedTupletD)
-                while (remaining > 0L) {
-                    val spec = if (selectedTicks <= remaining) {
-                        AlphaTabRhythmEngine.Quintuple(selectedDuration, selectedDots, selectedTupletN, selectedTupletD, selectedTicks)
-                    } else {
-                        AlphaTabRhythmEngine.largestEmptyBeatSpec(remaining) ?: break
-                    }
-                    voice.addBeat(Beat().apply {
-                        duration = spec.first
-                        dots = spec.second.toDouble()
-                        tupletNumerator = spec.third.toDouble()
-                        tupletDenominator = spec.fourth.toDouble()
-                        isEmpty = true
-                    })
-                    remaining -= spec.fifth
-                }
-            }
-
             repeat(count.coerceAtLeast(1)) {
                 val master = MasterBar().apply {
                     timeSignatureNumerator = sourceBar.masterBar.timeSignatureNumerator
@@ -906,7 +881,7 @@ class MainActivity : Activity() {
                     repeat(voiceCount) {
                         val voice = alphaTab.model.Voice()
                         newBar.addVoice(voice)
-                        appendEmptyBeats(voice, master)
+                        addQuarterRestBeats(voice)
                     }
                 }
             }
