@@ -590,7 +590,7 @@ class MainActivity : Activity() {
                     "Validated official SF2: " + actualLength + " bytes, RIFF/sfbk"
                 )
 
-                // Android alphaTab expects the native JVM ByteArray.
+                // Android alphaTab accepts an InputStream for native SoundFont loading.
                 val alphaTabAndroidBytes: ByteArray = sf
                 val alphaTabSoundFontStream = ByteArrayInputStream(alphaTabAndroidBytes)
 
@@ -616,8 +616,7 @@ class MainActivity : Activity() {
                             val detail =
                                 "AlphaTab rejected validated SF2. bytes=" +
                                     alphaTabAndroidBytes.size +
-                                    "; type=java.io.ByteArrayInputStream;
-                                    "; append=false; enablePlayer=" +
+                                    "; type=java.io.ByteArrayInputStream; append=false; enablePlayer=" +
                                     view.settings.player.enablePlayer
                             val t = IllegalStateException(detail)
                             android.util.Log.e("EARAM_SOUNDFONT", detail, t)
