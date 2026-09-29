@@ -68,7 +68,8 @@ class MainActivity : Activity() {
         // Do not start on an empty AlphaTabView. Create and render the real AlphaTab Score after layout.
         window.decorView.post {
             newScore()
-            alphaTabView?.let { loadSoundFontForCurrentScore(it) }
+            // alphaTab Android 1.8.4 ships with SONiVOX and loads its default SoundFont
+            // automatically when the synthesizer player is enabled.
         }
     }
 
@@ -333,9 +334,14 @@ class MainActivity : Activity() {
 
         score.api.playerReady.on {
             playerEngineReady = true
+            // Android alphaTab 1.8.4 loads its bundled SONiVOX SoundFont automatically.
+            // playerReady is emitted only after the SoundFont and MIDI are ready.
+            soundFontLoaded = true
+            soundFontLoading = false
             runOnUiThread {
-                play.isEnabled = soundFontLoaded && score.api.isReadyForPlayback
-                status.text = if (score.api.isReadyForPlayback) {
+                val ready = score.api.isReadyForPlayback
+                play.isEnabled = ready
+                status.text = if (ready) {
                     "Player ready • " + bpm + " BPM"
                 } else {
                     "Player initialized"
@@ -531,119 +537,7 @@ class MainActivity : Activity() {
             }
         }
 
-        // playerReady is a completion event; enablePlayer is the prerequisite for SF loading.
-        loadSoundFontForCurrentScore(view)
-    }
-
-    private fun loadSoundFontForCurrentScore(view: AlphaTabView) {
-        if (soundFontLoaded || soundFontLoading) return
-        if (!view.settings.player.enablePlayer) {
-            val t = IllegalStateException("AlphaTab player is not enabled")
-            android.util.Log.e("EARAM_SOUNDFONT", "enablePlayer=false", t)
-            showDetailedImportError("SoundFont", t, t.message ?: "enablePlayer=false")
-            return
-        }
-
-        soundFontLoading = true
-        runOnUiThread { statusView?.text = "Loading SoundFont • AlphaTab 1.8.4…" }
-
-        Thread {
-            var connection: HttpURLConnection? = null
-            try {
-                val sfUrl =
-                    "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/soundfont/sonivox.sf2"
-                connection = (URL(sfUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    instanceFollowRedirects = true
-                    requestMethod = "GET"
-                    setRequestProperty("Accept", "application/octet-stream")
-                }
-                connection.connect()
-
-                val code = connection.responseCode
-                if (code !in 200..299) {
-                    throw IllegalStateException("HTTP " + code + " loading official alphaTab 1.8.4 SONiVOX")
-                }
-
-                val expectedLength = connection.contentLengthLong
-                val sf = connection.inputStream.use { it.readBytes() }
-                val actualLength = sf.size.toLong()
-                if (actualLength < 12L) throw IllegalStateException("SoundFont truncated: " + actualLength + " bytes")
-
-                val riff = sf.copyOfRange(0, 4).toString(Charsets.US_ASCII)
-                val form = sf.copyOfRange(8, 12).toString(Charsets.US_ASCII)
-                if (riff != "RIFF" || form != "sfbk") {
-                    throw IllegalStateException(
-                        "Invalid SF2 header: " +
-                            sf.copyOfRange(0, 12).joinToString("") { "%02X".format(it) }
-                    )
-                }
-                if (expectedLength >= 0L && expectedLength != actualLength) {
-                    throw IllegalStateException(
-                        "SoundFont length mismatch: HTTP=" + expectedLength + " actual=" + actualLength
-                    )
-                }
-
-                android.util.Log.i(
-                    "EARAM_SOUNDFONT",
-                    "Validated official SF2: " + actualLength + " bytes, RIFF/sfbk"
-                )
-
-                // Android alphaTab accepts an InputStream for native SoundFont loading.
-                val alphaTabAndroidBytes: ByteArray = sf
-                val alphaTabSoundFontStream = ByteArrayInputStream(alphaTabAndroidBytes)
-
-                runOnUiThread {
-                    try {
-                        android.util.Log.i(
-                            "EARAM_SOUNDFONT",
-                            "Calling api.loadSoundFont(InputStream(ByteArray(" +
-                                alphaTabAndroidBytes.size + ")), false) thread=" +
-                                Thread.currentThread().name +
-                                " enablePlayer=" + view.settings.player.enablePlayer
-                        )
-
-                        val accepted = view.api.loadSoundFont(alphaTabSoundFontStream, false)
-
-                        android.util.Log.i(
-                            "EARAM_SOUNDFONT",
-                            "loadSoundFont returned=" + accepted
-                        )
-
-                        if (!accepted) {
-                            soundFontLoading = false
-                            val detail =
-                                "AlphaTab rejected validated SF2. bytes=" +
-                                    alphaTabAndroidBytes.size +
-                                    "; type=java.io.ByteArrayInputStream; append=false; enablePlayer=" +
-                                    view.settings.player.enablePlayer
-                            val t = IllegalStateException(detail)
-                            android.util.Log.e("EARAM_SOUNDFONT", detail, t)
-                            showDetailedImportError("SoundFont rejected", t, detail)
-                        }
-                    } catch (t: Throwable) {
-                        soundFontLoading = false
-                        val detail =
-                            "loadSoundFont threw: " +
-                                (t.message ?: t.javaClass.name) + "\n\n" +
-                                android.util.Log.getStackTraceString(t)
-                        android.util.Log.e("EARAM_SOUNDFONT", detail, t)
-                        showDetailedImportError("SoundFont exception", t, detail)
-                    }
-                }
-            } catch (t: Throwable) {
-                soundFontLoading = false
-                val detail =
-                    "SoundFont download/validation failed: " +
-                        (t.message ?: t.javaClass.name) + "\n\n" +
-                        android.util.Log.getStackTraceString(t)
-                android.util.Log.e("EARAM_SOUNDFONT", detail, t)
-                runOnUiThread { showDetailedImportError("SoundFont", t, detail) }
-            } finally {
-                connection?.disconnect()
-            }
-        }.start()
+        // Android alphaTab 1.8.4 loads its bundled SONiVOX SoundFont automatically.
     }
 
     private fun showImportError(stage: String, error: Throwable) {
