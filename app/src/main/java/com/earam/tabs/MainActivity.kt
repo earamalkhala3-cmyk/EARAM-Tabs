@@ -350,15 +350,6 @@ class MainActivity : Activity() {
             }
         }
 
-        score.api.soundFontLoadFailed.on { error ->
-            soundFontLoaded = false
-            soundFontLoading = false
-            runOnUiThread {
-                play.isEnabled = false
-                status.text = "SoundFont failed • " + (error.message ?: "AlphaTab rejected the SoundFont")
-            }
-        }
-
         score.api.playerStateChanged.on {
             runOnUiThread {
                 play.text =
@@ -885,8 +876,8 @@ class MainActivity : Activity() {
                 val rest = Beat().apply {
                     duration = spec.first
                     this.dots = spec.second.toDouble()
-                    tupletNumerator = spec.third.toDouble()
-                    tupletDenominator = spec.fourth.toDouble()
+                    this.tupletNumerator = spec.third.toDouble()
+                    this.tupletDenominator = spec.fourth.toDouble()
                     isEmpty = true
                 }
                 beat.voice.insertBeat(insertAfter, rest)
@@ -1169,11 +1160,12 @@ class MainActivity : Activity() {
                 if (bounds == null) { overlay.hideCursor(); return }
 
                 val visual = bounds.visualBounds
-                val x = if (bounds.onNotesX > 0.0) bounds.onNotesX else visual.x + visual.width / 2.0
+                val x = if (bounds.onNotesX > 0.0) bounds.onNotesX else visual.x + visual.w / 2.0
 
                 val barReal = bounds.barBounds.realBounds
-                val tabLineSpacing = score.settings.engraving.tabLineSpacing
-                val standardHeight = score.settings.engraving.oneStaffSpace * 4.0
+                val engraving = score.api.settings.engraving
+                val tabLineSpacing = engraving.tabLineSpacing * score.api.settings.display.scale
+                val standardHeight = engraving.oneStaffSpace * 4.0 * score.api.settings.display.scale
                 val tabTop = barReal.y + standardHeight + tabLineSpacing
                 val y = tabTop + (currentStringIndex - 1) * tabLineSpacing
 
@@ -1183,8 +1175,8 @@ class MainActivity : Activity() {
                 val target = noteBounds?.noteHeadBounds
                 val left = (target?.x ?: x - 8.0) - 5.0
                 val top = (target?.y ?: y - tabLineSpacing * 0.55) - 5.0
-                val width = (target?.width ?: 16.0) + 10.0
-                val height = (target?.height ?: tabLineSpacing) + 10.0
+                val width = (target?.w ?: 16.0) + 10.0
+                val height = (target?.h ?: tabLineSpacing) + 10.0
 
                 overlay.showCursor(
                     (left - score.scrollX).toFloat(),
@@ -1199,10 +1191,8 @@ class MainActivity : Activity() {
 
         private fun updateCursor() {
             val beat = currentBeat() ?: return
-            try {
-                // Playback cursor remains AlphaTab's native cursor. Editing uses the orange box.
-                score.api.highlightPlaybackRange(beat, beat)
-            } catch (_: Throwable) { }
+            // Playback cursor remains AlphaTab's native cursor and is driven only by playback.
+            // Editor navigation uses the orange overlay and never changes the playback range.
             refreshVisualCursor()
         }
 
