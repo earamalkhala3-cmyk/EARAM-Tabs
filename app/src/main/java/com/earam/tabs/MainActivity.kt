@@ -35,7 +35,6 @@ import alphaTab.model.Duration
 import alphaTab.model.MasterBar
 import alphaTab.model.Note
 import alphaTab.model.Score
-import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -60,6 +59,7 @@ class MainActivity : Activity() {
     private var statusView: TextView? = null
     private var soundFontLoaded = false
     private var soundFontLoading = false
+    private var playerEngineReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +67,6 @@ class MainActivity : Activity() {
         // Do not start on an empty AlphaTabView. Create and render the real AlphaTab Score after layout.
         window.decorView.post {
             newScore()
-            alphaTabView?.let { loadSoundFontForCurrentScore(it) }
         }
     }
 
@@ -406,6 +405,18 @@ class MainActivity : Activity() {
      * Creates a blank Score directly. This is still the same AlphaTab model used by
      * rendering and editing; there is no textual intermediate representation.
      */
+    private fun addQuarterRestBeats(voice: alphaTab.model.Voice) {
+        repeat(4) {
+            voice.addBeat(Beat().apply {
+                duration = Duration.Quarter
+                dots = 0.0
+                tupletNumerator = -1.0
+                tupletDenominator = -1.0
+                isEmpty = true
+            })
+        }
+    }
+
     private fun newScore() {
         try {
             val score = Score()
@@ -425,7 +436,7 @@ class MainActivity : Activity() {
             track.addStaff(staff)
             score.addTrack(track)
 
-            // A new project starts with four complete 4/4 measures of real AlphaTab Empty Beats (no Rests).
+            // Every new 4/4 measure starts with exactly four real quarter Empty Beats.
             repeat(4) { barNumber ->
                 if (barNumber > 0) {
                     val master = MasterBar().apply {
@@ -438,17 +449,14 @@ class MainActivity : Activity() {
                 staff.addBar(bar)
                 val voice = alphaTab.model.Voice()
                 bar.addVoice(voice)
-                repeat(4) {
-                    voice.addBeat(Beat().apply {
-                        duration = Duration.Quarter
-                        isEmpty = true
-                    })
-                }
+                addQuarterRestBeats(voice)
             }
 
-            score.finish(alphaTabView?.settings ?: return)
+            val settings = alphaTabView?.settings ?: return
+            score.finish(settings)
             currentScore = score
             alphaTabView?.api?.renderScore(score)
+            alphaTabView?.api?.render()
             projectName = "Music Home"
             noteEditor?.resetSelection()
         } catch (t: Throwable) {
