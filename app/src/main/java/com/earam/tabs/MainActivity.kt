@@ -37,6 +37,7 @@ import alphaTab.model.Note
 import alphaTab.model.Score
 import java.net.HttpURLConnection
 import java.net.URL
+import java.io.ByteArrayInputStream
 
 class MainActivity : Activity() {
     private var projectName = "Music Home"
@@ -591,18 +592,19 @@ class MainActivity : Activity() {
 
                 // Android alphaTab expects the native JVM ByteArray.
                 val alphaTabAndroidBytes: ByteArray = sf
+                val alphaTabSoundFontStream = ByteArrayInputStream(alphaTabAndroidBytes)
 
                 runOnUiThread {
                     try {
                         android.util.Log.i(
                             "EARAM_SOUNDFONT",
-                            "Calling api.loadSoundFont(ByteArray(" +
-                                alphaTabAndroidBytes.size + "), false) thread=" +
+                            "Calling api.loadSoundFont(InputStream(ByteArray(" +
+                                alphaTabAndroidBytes.size + ")), false) thread=" +
                                 Thread.currentThread().name +
                                 " enablePlayer=" + view.settings.player.enablePlayer
                         )
 
-                        val accepted = view.api.loadSoundFont(alphaTabAndroidBytes, false)
+                        val accepted = view.api.loadSoundFont(alphaTabSoundFontStream, false)
 
                         android.util.Log.i(
                             "EARAM_SOUNDFONT",
@@ -614,7 +616,7 @@ class MainActivity : Activity() {
                             val detail =
                                 "AlphaTab rejected validated SF2. bytes=" +
                                     alphaTabAndroidBytes.size +
-                                    "; type=" + alphaTabAndroidBytes.javaClass.name +
+                                    "; type=java.io.ByteArrayInputStream;
                                     "; append=false; enablePlayer=" +
                                     view.settings.player.enablePlayer
                             val t = IllegalStateException(detail)
