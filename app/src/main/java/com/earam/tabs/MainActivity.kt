@@ -662,25 +662,28 @@ class MainActivity : Activity() {
         }
         fun largestRestSpec(ticks: Long): Quintuple? {
             val candidates = listOf(
-                arrayOf(Duration.Whole, 0, -1, -1, QUARTER_TICKS * 4),
-                arrayOf(Duration.Half, 1, -1, -1, QUARTER_TICKS * 3),
-                arrayOf(Duration.Half, 0, -1, -1, QUARTER_TICKS * 2),
-                arrayOf(Duration.Quarter, 1, -1, -1, QUARTER_TICKS * 3 / 2),
-                arrayOf(Duration.Quarter, 0, -1, -1, QUARTER_TICKS),
-                arrayOf(Duration.Eighth, 1, -1, -1, QUARTER_TICKS * 3 / 4),
-                arrayOf(Duration.Eighth, 0, -1, -1, QUARTER_TICKS / 2),
-                arrayOf(Duration.Sixteenth, 0, -1, -1, QUARTER_TICKS / 4),
-                arrayOf(Duration.ThirtySecond, 0, -1, -1, QUARTER_TICKS / 8)
-            )
-            val fit = candidates.firstOrNull { (it[4] as Long) <= ticks } ?: return null
-            return Quintuple(
-                fit[0] as Duration, fit[1] as Int, fit[2] as Int, fit[3] as Int, fit[4] as Long
-            )
+                Quintuple(Duration.Whole, 0, -1, -1, QUARTER_TICKS * 4),
+                Quintuple(Duration.Half, 1, -1, -1, QUARTER_TICKS * 3),
+                Quintuple(Duration.DoubleWhole, 0, -1, -1, QUARTER_TICKS * 8),
+                Quintuple(Duration.Half, 0, -1, -1, QUARTER_TICKS * 2),
+                Quintuple(Duration.Quarter, 1, -1, -1, QUARTER_TICKS * 3 / 2),
+                Quintuple(Duration.Quarter, 0, -1, -1, QUARTER_TICKS),
+                Quintuple(Duration.Eighth, 1, -1, -1, QUARTER_TICKS * 3 / 4),
+                Quintuple(Duration.Eighth, 0, -1, -1, QUARTER_TICKS / 2),
+                Quintuple(Duration.Sixteenth, 1, -1, -1, QUARTER_TICKS * 3 / 8),
+                Quintuple(Duration.Sixteenth, 0, -1, -1, QUARTER_TICKS / 4),
+                Quintuple(Duration.ThirtySecond, 0, -1, -1, QUARTER_TICKS / 8),
+                Quintuple(Duration.SixtyFourth, 0, -1, -1, QUARTER_TICKS / 16),
+                Quintuple(Duration.Eighth, 0, 3, 2, QUARTER_TICKS / 3),
+                Quintuple(Duration.Sixteenth, 0, 3, 2, QUARTER_TICKS / 6),
+                Quintuple(Duration.ThirtySecond, 0, 3, 2, QUARTER_TICKS / 12)
+            ).sortedByDescending { it.fifth }
+            return candidates.firstOrNull { it.fifth <= ticks }
         }
+
         data class Quintuple(
             val first: Duration, val second: Int, val third: Int, val fourth: Int, val fifth: Long
         )
-
         fun nextBeat(bar: Bar, beat: Beat): Beat? {
             val beats = bar.voices.firstOrNull()?.beats?.toList() ?: return null
             val i = beats.indexOf(beat)
@@ -800,13 +803,52 @@ class MainActivity : Activity() {
                 updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
                 return false
             }
-            AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
-            beat.finish(score.settings, null)
+
+            if (beat.isRest) {
+                val originalTicks = AlphaTabRhythmEngine.beatTicks(beat)
+                val selectedTicks = AlphaTabRhythmEngine.candidateTicks(duration, dots, tupletNumerator, tupletDenominator)
+                if (selectedTicks < originalTicks) {
+                    splitRestBeat(beat, duration, dots, tupletNumerator, tupletDenominator, originalTicks)
+                } else {
+                    AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
+                }
+            } else {
+                AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
+            }
+
             score.api.score?.finish(score.settings)
             score.api.render()
             updateCursor()
             updateStatus("Duration " + duration.name)
             return true
+        }
+
+        private fun splitRestBeat(
+            beat: Beat,
+            duration: Duration,
+            dots: Int,
+            tupletNumerator: Int,
+            tupletDenominator: Int,
+            originalTicks: Long
+        ) {
+            val selectedTicks = AlphaTabRhythmEngine.candidateTicks(duration, dots, tupletNumerator, tupletDenominator)
+            AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
+
+            var remaining = originalTicks - selectedTicks
+            var insertAfter = beat
+            while (remaining > 0L) {
+                val spec = AlphaTabRhythmEngine.largestRestSpec(remaining) ?: break
+                val rest = Beat().apply {
+                    duration = spec.first
+                    this.dots = spec.second.toDouble()
+                    tupletNumerator = spec.third.toDouble()
+                    tupletDenominator = spec.fourth.toDouble()
+                    isEmpty = true
+                }
+                beat.voice.insertBeat(insertAfter, rest)
+                insertAfter = rest
+                remaining -= spec.fifth
+            }
         }
 
         private fun createNextMeasures(count: Int = 4): Boolean {
