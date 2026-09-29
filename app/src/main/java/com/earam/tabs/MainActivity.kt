@@ -1053,6 +1053,7 @@ class MainActivity : Activity() {
 
         private fun renderAndLog(reason: String) {
             lastRenderReason = reason
+            score.api.score?.finish(score.settings)
             score.api.render()
         }
 
@@ -1060,12 +1061,20 @@ class MainActivity : Activity() {
             val song = score.api.score
             val staff = song?.tracks?.firstOrNull()?.staves?.firstOrNull()
             val barCounts = staff?.bars?.toList()?.mapIndexed { index, bar ->
-                "bar=" + (index + 1) + ":beats=" + (bar.voices.firstOrNull()?.beats?.toList()?.size ?: 0)
+                "bar=" + (index + 1) + ":beats=" +
+                    (bar.voices.firstOrNull()?.beats?.toList()?.size ?: 0)
             }?.joinToString(", ") ?: "no-score"
             val beat = currentBeat()
             val lookup = score.api.renderer.boundsLookup
-            val found = beat != null && lookup?.findBeat(beat) != null
+            val currentBounds = beat?.let { lookup?.findBeat(it) }
             val fret = beat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble())?.fret?.toInt()
+            val boundsSummary = currentBounds?.let {
+                "real=" + it.realBounds.x + "," + it.realBounds.y + "," +
+                    it.realBounds.w + "," + it.realBounds.h +
+                    " visual=" + it.visualBounds.x + "," + it.visualBounds.y + "," +
+                    it.visualBounds.w + "," + it.visualBounds.h +
+                    " onNotesX=" + it.onNotesX
+            } ?: "NONE"
             android.util.Log.d(
                 "EARAM_RENDER",
                 "reason=" + lastRenderReason +
@@ -1074,7 +1083,7 @@ class MainActivity : Activity() {
                     " beat/" + (currentBeatIndex + 1) +
                     " string/" + currentStringIndex +
                     " fret/" + (fret ?: "-") +
-                    " | boundsLookupFound=" + found
+                    " | boundsLookup=" + boundsSummary
             )
         }
 
@@ -1105,51 +1114,56 @@ class MainActivity : Activity() {
         fun refreshVisualCursor() {
             val beat = currentBeat() ?: run { overlay.hideCursor(); return }
             try {
-                val lookup = score.api.renderer.boundsLookup
-                val bounds = lookup?.findBeat(beat)
-                if (bounds == null) {
+                val lookup = score.api.renderer.boundsLookup ?: run {
+                    overlay.hideCursor()
+                    return
+                }
+                val bounds = lookup.findBeat(beat) ?: run {
                     overlay.hideCursor()
                     return
                 }
 
-                val visual = bounds.visualBounds
-                val x = if (bounds.onNotesX > 0.0) bounds.onNotesX else visual.x + visual.w / 2.0
                 val alphaString = alphaTabString(currentStringIndex)
-
-                val sameStringNoteY = bounds.notes?.toList()
-                    ?.firstOrNull { it.note.string.toInt() == alphaString }
-                    ?.noteHeadBounds
-                    ?.let { it.y + it.h / 2.0 }
-                    ?: bounds.barBounds.beats.toList()
-                        .asSequence()
-                        .flatMap { it.notes?.toList().orEmpty().asSequence() }
-                        .firstOrNull { it.note.string.toInt() == alphaString }
-                        ?.noteHeadBounds
-                        ?.let { it.y + it.h / 2.0 }
-
-                val y = sameStringNoteY ?: run {
-                    val scale = score.settings.display.scale
-                    val oneStaffSpace = score.settings.display.resources.engravingSettings.oneStaffSpace * scale
-                    val tabLineSpacing = score.settings.display.resources.engravingSettings.tabLineSpacing * scale
-                    val barReal = bounds.barBounds.realBounds
-                    val tabTop = barReal.y + (oneStaffSpace * 4.0) + tabLineSpacing
-                    tabTop + (currentStringIndex - 1) * tabLineSpacing
+                val x = if (bounds.onNotesX.isFinite() && bounds.onNotesX > 0.0) {
+                    bounds.onNotesX
+                } else {
+                    bounds.realBounds.x + bounds.realBounds.w / 2.0
                 }
 
-                val noteBounds = bounds.notes?.toList()?.firstOrNull { it.note.string.toInt() == alphaString }
-                val target = noteBounds?.noteHeadBounds
-                val left = (target?.x ?: x - 8.0) - 5.0
-                val top = (target?.y ?: y - 8.0) - 5.0
-                val width = (target?.w ?: 16.0) + 10.0
-                val height = (target?.h ?: 16.0) + 10.0
+                // Anchor Y to the actual TAB staff line, not the system origin and not
+                // a note head. The bar bounds are the rendered staff region for this track.
+                val scale = score.settings.display.scale
+                val oneStaffSpace =
+                    score.settings.display.resources.engravingSettings.oneStaffSpace * scale
+                val tabLineSpacing =
+                    score.settings.display.resources.engravingSettings.tabLineSpacing * scale
+                val barReal = bounds.barBounds.realBounds
+                val tabFirstLineY = barReal.y + (oneStaffSpace * 4.0) + tabLineSpacing
+                val y = tabFirstLineY + (currentStringIndex - 1) * tabLineSpacing
+
+                val cursorSize = (tabLineSpacing * 0.95).coerceAtLeast(18.0)
+                val left = x - cursorSize / 2.0
+                val top = y - cursorSize / 2.0
 
                 overlay.showCursor(
                     (left - score.scrollX).toFloat(),
                     (top - score.scrollY).toFloat(),
-                    width.toFloat(),
-                    height.toFloat()
+                    cursorSize.toFloat(),
+                    cursorSize.toFloat()
                 )
-            } catch (_: Throwable) {
+
+                android.util.Log.d(
+                    "EARAM_CURSOR",
+                    "bar=" + (currentBarIndex + 1) +
+                        " beat=" + (currentBeatIndex + 1) +
+                        " string=" + currentStringIndex +
+                        " alphaString=" + alphaString +
+                        " x=" + x + " y=" + y +
+                        " tabFirstLineY=" + tabFirstLineY +
+                        " spacing=" + tabLineSpacing
+                )
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_CURSOR", "cursor calculation failed", t)
                 overlay.hideCursor()
             }
         }
