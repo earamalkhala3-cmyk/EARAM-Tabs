@@ -53,12 +53,17 @@ class MainActivity : Activity() {
     private var alphaTabView: AlphaTabView? = null
     private var noteEditor: AlphaTabNoteEditor? = null
     private var statusView: TextView? = null
+    private var soundFontLoaded = false
+    private var soundFontLoading = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         openEditor()
         // Do not start on an empty AlphaTabView. Create and render the real AlphaTab Score after layout.
-        window.decorView.post { newScore() }
+        window.decorView.post {
+            newScore()
+            alphaTabView?.let { loadSoundFontForCurrentScore(it) }
+        }
     }
 
     override fun onDestroy() {
@@ -458,6 +463,19 @@ class MainActivity : Activity() {
     }
 
     private fun loadSoundFontForCurrentScore(view: AlphaTabView) {
+        if (soundFontLoaded) {
+            runOnUiThread {
+                try {
+                    view.api.loadMidiForScore()
+                } catch (t: Throwable) {
+                    showImportError("MIDI", t)
+                }
+            }
+            return
+        }
+        if (soundFontLoading) return
+        soundFontLoading = true
+        runOnUiThread { statusView?.text = "Loading sound • AlphaTab 1.8.4 SoundFont…" }
         Thread {
             try {
                 val sfUrl =
@@ -481,12 +499,16 @@ class MainActivity : Activity() {
                     try {
                         val accepted = view.api.loadSoundFont(sf, false)
                         if (!accepted) throw IllegalStateException("AlphaTab rejected the SoundFont")
+                        soundFontLoaded = true
+                        soundFontLoading = false
                         view.api.loadMidiForScore()
                     } catch (t: Throwable) {
+                        soundFontLoading = false
                         showImportError("SoundFont", t)
                     }
                 }
             } catch (t: Throwable) {
+                soundFontLoading = false
                 runOnUiThread { showImportError("SoundFont", t) }
             }
         }.start()
@@ -886,8 +908,31 @@ class MainActivity : Activity() {
             } catch (_: Throwable) { }
         }
 
+        private fun currentStringLabel(): String {
+            return when (currentStringIndex) {
+                1 -> "HIGH E"
+                2 -> "B"
+                3 -> "G"
+                4 -> "D"
+                5 -> "A"
+                6 -> "LOW E"
+                else -> "STRING $currentStringIndex"
+            }
+        }
+
+        private fun currentFretLabel(): String {
+            val beat = currentBeat() ?: return "—"
+            val alphaString = alphaTabString(currentStringIndex)
+            val note = beat.getNoteOnString(alphaString.toDouble()) ?: return "—"
+            return note.fret.toInt().toString()
+        }
+
         private fun updateStatus(message: String? = null) {
-            val text = message ?: ("EDIT • Bar ${currentBarIndex + 1} • Beat ${currentBeatIndex + 1} • String $currentStringIndex")
+            val text = message ?: (
+                "EDIT • BAR ${currentBarIndex + 1} • BEAT ${currentBeatIndex + 1}" +
+                "  |  STRING $currentStringIndex (${currentStringLabel()})" +
+                "  |  FRET ${currentFretLabel()}"
+            )
             activity.runOnUiThread { status.text = text }
         }
     }
