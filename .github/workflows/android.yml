@@ -206,23 +206,18 @@ jobs:
           grep -q 'application/x-earam-tab' "$MANIFEST"
           grep -q 'application/octet-stream' "$MANIFEST"
 
-          # Verify the MIME filters through the installed PackageManager itself.
-          # Use MIME-only VIEW intents: unlike synthetic file/content URIs, these
-          # do not require a backing ContentProvider and are stable on Android 15.
-          QUERY_X_EARAM="$(adb -s emulator-5554 shell cmd package query-activities --brief \
-            -a android.intent.action.VIEW \
-            -c android.intent.category.DEFAULT \
-            -t application/x-earam-tab 2>&1 || true)"
-          QUERY_OCTET="$(adb -s emulator-5554 shell cmd package query-activities --brief \
-            -a android.intent.action.VIEW \
-            -c android.intent.category.DEFAULT \
-            -t application/octet-stream 2>&1 || true)"
+          # Verify the installed PackageManager registration without invoking
+          # cmd package query-activities. On this headless Android 15 emulator,
+          # that shell resolver command can tear down the adb transport even when
+          # the APK and PackageManager registration are valid.
+          RESOLVER="$(adb -s emulator-5554 shell dumpsys package com.earam.tabs 2>&1)"
+          printf '%s\n' "$RESOLVER" | grep -A120 -B5 'com.earam.tabs/.MainActivity' | head -n 160
 
-          printf '%s\n' "$QUERY_X_EARAM"
-          printf '%s\n' "$QUERY_OCTET"
-
-          grep -q 'com.earam.tabs/.MainActivity' <<< "$QUERY_X_EARAM"
-          grep -q 'com.earam.tabs/.MainActivity' <<< "$QUERY_OCTET"
+          grep -q 'com.earam.tabs/.MainActivity' <<< "$RESOLVER"
+          grep -q 'android.intent.action.VIEW' <<< "$RESOLVER"
+          grep -q 'android.intent.category.DEFAULT' <<< "$RESOLVER"
+          grep -q 'application/x-earam-tab' <<< "$RESOLVER"
+          grep -q 'application/octet-stream' <<< "$RESOLVER"
 
           # The APK manifest remains authoritative for the explicit .tab
           # pathSuffix registrations; those checks already passed above.
