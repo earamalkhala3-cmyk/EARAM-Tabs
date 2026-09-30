@@ -208,7 +208,7 @@ jobs:
 
           # Confirm the installed PackageManager resolves the exported activity
           # for the custom Earam TAB MIME. No fake URI/provider is involved.
-          RESOLVED="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0             -a android.intent.action.VIEW             -t application/x-earam-tab 2>&1)"
+          RESOLVED="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0 'intent:#Intent;action=android.intent.action.VIEW;type=application/x-earam-tab;end' 2>&1)"
           printf '%s\n' "$RESOLVED"
           grep -q 'com.earam.tabs/.MainActivity' <<< "$RESOLVED"
 
