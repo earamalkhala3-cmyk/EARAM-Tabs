@@ -383,14 +383,12 @@ class MainActivity : Activity() {
         stop.setOnClickListener { score.api.stop() }
 
         editMenu.setOnClickListener {
-            showMenu("EDIT", arrayOf("UNDO", "REDO", "COPY NOTE", "PASTE NOTE", "DELETE NOTE", "ARROW NAVIGATION")) { which ->
+            showMenu("EDIT", arrayOf("COPY NOTE", "PASTE NOTE", "DELETE NOTE", "ARROW NAVIGATION")) { which ->
                 when (which) {
-                    0 -> editor.undoFromUi()
-                    1 -> editor.redoFromUi()
-                    2 -> editor.copyCurrentNoteFromUi()
-                    3 -> editor.pasteCurrentNoteFromUi()
-                    4 -> editor.deleteCurrentNoteFromUi()
-                    5 -> status.text = "← → Beat • ↑ ↓ String • selected bar remains active"
+                    0 -> editor.copyCurrentNoteFromUi()
+                    1 -> editor.pasteCurrentNoteFromUi()
+                    2 -> editor.deleteCurrentNoteFromUi()
+                    3 -> status.text = "← → Beat • ↑ ↓ String • Selected Bar stays independent"
                 }
             }
         }
@@ -570,10 +568,10 @@ class MainActivity : Activity() {
                 when (which) {
                     0 -> showNewFileWizard()
                     1, 4 -> importTab()
-                    2, 3 -> Toast.makeText(this, "Score persistence will be added on the same AlphaTab Score model.", Toast.LENGTH_SHORT).show()
-                    5 -> Toast.makeText(this, "Export will use the AlphaTab Score model.", Toast.LENGTH_SHORT).show()
+                    2, 3 -> Toast.makeText(this, "Save is not enabled in this build.", Toast.LENGTH_SHORT).show()
+                    5 -> Toast.makeText(this, "Export is not enabled in this build.", Toast.LENGTH_SHORT).show()
                     6 -> finish()
-                    7 -> Toast.makeText(this, "Update check is not part of Phase 1.", Toast.LENGTH_SHORT).show()
+                    7 -> Toast.makeText(this, "Update service is not enabled in this build.", Toast.LENGTH_SHORT).show()
                 }
             }
             .show()
@@ -1144,42 +1142,6 @@ class MainActivity : Activity() {
             private set
         private var copiedFret: Int? = null
         private var copiedBar: Bar? = null
-        private val undoStack = ArrayDeque<String>()
-        private val redoStack = ArrayDeque<String>()
-        private var restoringHistory = false
-        var onSelectionChanged: (() -> Unit)? = null
-
-        private fun captureScore(): String? = null
-
-        private fun pushUndoSnapshot() {
-            // Full-score serialization is not available in AlphaTab Android 1.8.4.
-            // Keep this hook inert until a supported clone/serialization API is added.
-        }
-
-        private fun restoreSnapshot(snapshot: String, label: String) {
-            updateStatus("Undo/Redo history is temporarily unavailable on Android")
-        }
-
-        fun undoFromUi() {
-            val current = captureScore() ?: return
-            val previous = undoStack.removeLastOrNull() ?: run {
-                updateStatus("Nothing to undo")
-                return
-            }
-            redoStack.addLast(current)
-            restoreSnapshot(previous, "UNDO")
-        }
-
-        fun redoFromUi() {
-            val current = captureScore() ?: return
-            val next = redoStack.removeLastOrNull() ?: run {
-                updateStatus("Nothing to redo")
-                return
-            }
-            undoStack.addLast(current)
-            restoreSnapshot(next, "REDO")
-        }
-
         fun resetSelection() {
             currentBarIndex = 0
             selectedBarIndex = 0
@@ -1696,6 +1658,39 @@ class MainActivity : Activity() {
                 updateStatus("Clear bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
         }
+        fun deleteCurrentBarFromUi() {
+            val song = score.api.score ?: return
+            val count = song.masterBars.toList().size
+            if (count <= 1) {
+                updateStatus("At least one measure must remain")
+                return
+            }
+            val index = selectedBarIndex.coerceIn(0, count - 1)
+            try {
+                pushUndoSnapshot()
+                song.masterBars.splice(index.toDouble(), 1.0)
+                for (track in song.tracks.toList()) {
+                    for (staff in track.staves.toList()) {
+                        if (index < staff.bars.toList().size) {
+                            staff.bars.splice(index.toDouble(), 1.0)
+                        }
+                    }
+                }
+                val last = song.masterBars.toList().lastIndex
+                selectedBarIndex = index.coerceAtMost(last)
+                currentBarIndex = selectedBarIndex
+                currentBeatIndex = 0
+                song.finish(score.settings)
+                renderAndLog("delete-bar")
+                syncSelectedBarHighlight()
+                updateCursor()
+                onSelectionChanged?.invoke()
+                updateStatus("Deleted selected bar • " + (selectedBarIndex + 1) + " is now selected")
+            } catch (t: Throwable) {
+                updateStatus("Delete bar failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
+
         fun showBarToolsDialog() {
             val song = score.api.score ?: return
             val bar = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
@@ -2518,7 +2513,7 @@ class MainActivity : Activity() {
             val bs = bars() ?: return
             if (index !in bs.indices) return
             selectedBarIndex = index
-            selectedBarIndex = index
+            currentBarIndex = index
             val beats = bs[index].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             currentBeatIndex = if (beats.isEmpty()) 0 else currentBeatIndex.coerceIn(0, beats.lastIndex)
             armed = true
@@ -2547,6 +2542,20 @@ class MainActivity : Activity() {
         }
 
 
+
+        fun playCurrentBeatFromUi() {
+            val beat = currentBeat() ?: return
+            if (!score.api.isReadyForPlayback) {
+                updateStatus("Player is preparing…")
+                return
+            }
+            try {
+                score.api.playBeat(beat)
+                updateStatus("Playing cursor beat • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+            } catch (t: Throwable) {
+                updateStatus("Beat playback failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
 
         fun showDurationDialog() {
             val labels = arrayOf("WHOLE", "HALF", "QUARTER", "EIGHTH", "16TH", "32ND", "DOT")
