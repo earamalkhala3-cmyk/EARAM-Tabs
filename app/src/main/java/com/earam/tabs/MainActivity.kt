@@ -244,7 +244,7 @@ class MainActivity : Activity() {
             contentDescription = "Playback speed"
             setPadding(0, 0, 0, 0)
         }
-        val selectedBarButton = control("▣ 1").apply {
+        val selectedBarButton = control("B1").apply {
             textSize = 11f
             contentDescription = "Selected bar"
         }
@@ -263,19 +263,25 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
         }
-        val trackContext = control("TRACK 1").apply { textSize = 10f }
-        val voiceContext = control("VOICE 1").apply { textSize = 10f }
+        val trackContext = control("♫1").apply {
+            textSize = 13f
+            contentDescription = "Select track"
+        }
+        val voiceContext = control("V1").apply {
+            textSize = 12f
+            contentDescription = "Select voice"
+        }
         val selectionContext = TextView(this).apply {
-            text = "SELECTED BAR 1 • CURSOR BEAT 1 • STRING 1"
+            text = "B1 · S1 · F—"
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 11f
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(10f), 0, dp(10f), 0)
             setBackgroundColor(0xFF30353A.toInt())
         }
-        contextTools.addView(trackContext, LinearLayout.LayoutParams(dp(92f), dp(36f)))
-        contextTools.addView(voiceContext, LinearLayout.LayoutParams(dp(86f), dp(36f)))
-        contextTools.addView(selectionContext, LinearLayout.LayoutParams(dp(235f), dp(36f)))
+        contextTools.addView(trackContext, LinearLayout.LayoutParams(dp(48f), dp(36f)))
+        contextTools.addView(voiceContext, LinearLayout.LayoutParams(dp(46f), dp(36f)))
+        contextTools.addView(selectionContext, LinearLayout.LayoutParams(dp(132f), dp(36f)))
         contextScroll.addView(contextTools, LinearLayout.LayoutParams(-2, dp(40f)))
 
         val navigationScroll = android.widget.HorizontalScrollView(this).apply {
@@ -297,18 +303,10 @@ class MainActivity : Activity() {
                 setPadding(0, 0, 0, 0)
                 setOnClickListener { action() }
             }
-        navigation.addView(navButton("←") { editor.moveBeatFromUi(-1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
-        navigation.addView(navButton("↑") { editor.moveStringFromUi(-1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
-        navigation.addView(navButton("↓") { editor.moveStringFromUi(1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
-        navigation.addView(navButton("→") { editor.moveBeatFromUi(1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
-        val navHint = TextView(this).apply {
-            text = "BEAT ← →  •  STRING ↑ ↓"
-            textSize = 10f
-            gravity = Gravity.CENTER_VERTICAL
-            setTextColor(0xFFFFFFFF.toInt())
-            setPadding(dp(10f), 0, dp(10f), 0)
-        }
-        navigation.addView(navHint, LinearLayout.LayoutParams(dp(190f), dp(36f)))
+        navigation.addView(navButton("←") { editor.moveBeatFromUi(-1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
+        navigation.addView(navButton("↑") { editor.moveStringFromUi(-1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
+        navigation.addView(navButton("↓") { editor.moveStringFromUi(1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
+        navigation.addView(navButton("→") { editor.moveBeatFromUi(1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
         navigationScroll.addView(navigation, LinearLayout.LayoutParams(-2, dp(40f)))
 
         val numberScroll = android.widget.HorizontalScrollView(this).apply {
@@ -342,13 +340,13 @@ class MainActivity : Activity() {
         }
 
         fun refreshTrackButtons() {
-            trackContext.text = "TRACK " + (editor.currentTrackIndex + 1)
+            trackContext.text = "♫" + (editor.currentTrackIndex + 1)
         }
         fun refreshSelectionInfo() {
             selectionContext.text = editor.selectionInfoText()
-            selectedBarButton.text = "BAR " + (editor.selectedBarIndex + 1)
-            voiceContext.text = "VOICE " + (editor.currentVoiceIndex + 1)
-            trackContext.text = "TRACK " + (editor.currentTrackIndex + 1)
+            selectedBarButton.text = "B" + (editor.selectedBarIndex + 1)
+            voiceContext.text = "V" + (editor.currentVoiceIndex + 1)
+            trackContext.text = "♫" + (editor.currentTrackIndex + 1)
         }
         editor.onSelectionChanged = {
             refreshSelectionInfo()
@@ -383,7 +381,7 @@ class MainActivity : Activity() {
                     else -> 1.50
                 }
                 score.api.playbackSpeed = value
-                speedButton.text = "SPEED " + when (which) {
+                speedButton.text = when (which) {
                     0 -> "0.5×"
                     1 -> "0.75×"
                     2 -> "1×"
@@ -903,6 +901,13 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun renderAllTracks(score: Score) {
+        val api = alphaTabView?.api ?: return
+        val rendered = alphaTab.collections.List<alphaTab.model.Track>()
+        score.tracks.toList().forEach { rendered.push(it) }
+        api.renderTracks(rendered)
+    }
+
     private fun importTab() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -946,12 +951,12 @@ class MainActivity : Activity() {
 
                 // GP bytes -> one AlphaTab Score -> AlphaTab renderer.
                 // Do not bind only the first track through view.tracks.
+                // Replace the previous score cleanly, then render every imported track.
+                view.api.stop()
                 noteEditor?.resetSelection()
-                val selected = noteEditor?.currentTrackIndex ?: 0
-                view.api.renderScore(parsed, alphaTab.collections.DoubleList(selected.toDouble()))
+                renderAllTracks(parsed)
                 statusView?.text =
-                    "Parsed OK • tracks=$trackCount • masterBars=$masterBarCount • view=" +
-                    width + "x" + height + " • renderScore() called"
+                    "Imported • " + trackCount + " tracks • " + masterBarCount + " measures"
             } catch (t: Throwable) {
                 showImportError("AlphaTab render", t)
             }
@@ -1212,8 +1217,9 @@ class MainActivity : Activity() {
             score.api.beatMouseDown.on { beat ->
                 try {
                     val song = score.api.score ?: return@on
-                    val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return@on
-                    val staff = track.staves.firstOrNull() ?: return@on
+                    val clickedTrack = beat.voice.bar.staff.track
+                    currentTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
+                    val staff = clickedTrack.staves.firstOrNull() ?: return@on
                     val bar = beat.voice.bar
                     val barIndex = staff.bars.toList().indexOf(bar)
                     val beatIndex = beat.voice.beats.toList().indexOf(beat)
@@ -1238,8 +1244,9 @@ class MainActivity : Activity() {
             score.api.noteMouseDown.on { note ->
                 try {
                     val song = score.api.score ?: return@on
-                    val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return@on
-                    val staff = track.staves.firstOrNull() ?: return@on
+                    val clickedTrack = note.beat.voice.bar.staff.track
+                    currentTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
+                    val staff = clickedTrack.staves.firstOrNull() ?: return@on
                     val bar = note.beat.voice.bar
                     val barIndex = staff.bars.toList().indexOf(bar)
                     val beatIndex = note.beat.voice.beats.toList().indexOf(note.beat)
@@ -2165,7 +2172,9 @@ class MainActivity : Activity() {
                 currentStringIndex = 1
                 armed = true
                 pendingFret = ""
-                score.api.renderScore(score.api.score!!, alphaTab.collections.DoubleList(index.toDouble()))
+                val rendered = alphaTab.collections.List<alphaTab.model.Track>()
+                rendered.push(tracks[index])
+                score.api.renderTracks(rendered)
                 syncSelectedBarHighlight()
                 updateCursor()
                 updateStatus("TRACK " + (index + 1) + " • " + trackLabel())
@@ -2187,9 +2196,9 @@ class MainActivity : Activity() {
             val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)
             val label = track?.name?.ifBlank { track.shortName }?.ifBlank { "Track " + (currentTrackIndex + 1) }
                 ?: "Track " + (currentTrackIndex + 1)
-            return "TRACK " + (currentTrackIndex + 1) + " • " + label +
-                "   |   SELECTED BAR " + (selectedBarIndex + 1) +
-                "   |   VOICE " + (currentVoiceIndex + 1) +
+            return "♫" + (currentTrackIndex + 1) + " " + label +
+                "  ·  B" + (selectedBarIndex + 1) +
+                "  ·  V" + (currentVoiceIndex + 1) +
                 "   |   CURSOR BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
                 "   |   STRING " + currentStringIndex + " • " + currentStringLabel() +
                 "   |   FRET " + currentFretLabel()
@@ -2470,20 +2479,36 @@ class MainActivity : Activity() {
                 updateStatus("No tracks available")
                 return
             }
-            val labels = Array(tracks.size) { i ->
-                val name = tracks[i].name.ifBlank { tracks[i].shortName.ifBlank { "Track " + (i + 1) } }
-                if (i == currentTrackIndex) "✓ " + name else name
+            val labels = Array(tracks.size + 1) { i ->
+                if (i == 0) {
+                    "ALL TRACKS"
+                } else {
+                    val trackIndex = i - 1
+                    val name = tracks[trackIndex].name.ifBlank {
+                        tracks[trackIndex].shortName.ifBlank { "Track " + (trackIndex + 1) }
+                    }
+                    if (trackIndex == currentTrackIndex) "✓ " + name else name
+                }
             }
             AlertDialog.Builder(activity)
-                .setTitle("SELECT TRACK")
+                .setTitle("TRACK")
                 .setItems(labels) { _, which ->
-                    selectTrackFromUi(which)
+                    if (which == 0) {
+                        val all = alphaTab.collections.List<alphaTab.model.Track>()
+                        tracks.forEach { all.push(it) }
+                        score.api.renderTracks(all)
+                        updateCursor()
+                        updateStatus("All tracks")
+                        onSelectionChanged?.invoke()
+                    } else {
+                        selectTrackFromUi(which - 1)
+                    }
                 }
                 .show()
         }
 
         fun showVoiceSelectorDialog() {
-            val max = bars()?.firstOrNull()?.voices?.toList()?.size?.coerceAtLeast(1) ?: 1
+            val max = bars()?.getOrNull(selectedBarIndex)?.voices?.toList()?.size?.coerceAtLeast(1) ?: 1
             val count = max.coerceAtMost(4)
             val labels = Array(count) { i ->
                 if (i == currentVoiceIndex) "✓ VOICE " + (i + 1) else "VOICE " + (i + 1)
@@ -2634,10 +2659,9 @@ class MainActivity : Activity() {
 
         private fun updateStatus(message: String? = null) {
             val text = message ?: (
-                "EDIT • TRACK " + (currentTrackIndex + 1) + " • VOICE " + (currentVoiceIndex + 1) +
-                " • BAR " + (selectedBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
-                "  |  STRING " + currentStringIndex + " (" + currentStringLabel() + ")" +
-                "  |  FRET ${currentFretLabel()}"
+                "♫" + (currentTrackIndex + 1) + " · V" + (currentVoiceIndex + 1) +
+                " · B" + (selectedBarIndex + 1) + " · beat " + (currentBeatIndex + 1) +
+                " · S" + currentStringIndex + " · F" + currentFretLabel()
             )
             activity.runOnUiThread { status.text = text }
         }
