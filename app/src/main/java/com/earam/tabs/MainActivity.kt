@@ -144,6 +144,37 @@ class MainActivity : Activity() {
         }
 
 
+        val score = AlphaTabView(this, null).apply {
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            settings.display.layoutMode = LayoutMode.Page
+            settings.display.staveProfile = StaveProfile.ScoreTab
+            settings.display.barsPerRow = 2.0
+            settings.display.barCount = -1.0
+            settings.display.startBar = 1.0
+            settings.display.scale = 0.72
+            settings.display.stretchForce = 0.0
+            settings.core.includeNoteBounds = true
+            settings.player.playerMode = PlayerMode.EnabledSynthesizer
+            settings.player.enablePlayer = true
+            settings.player.enableUserInteraction = true
+            settings.player.enableCursor = true
+            settings.player.enableElementHighlighting = true
+            api.masterVolume = 1.0
+            api.updateSettings()
+        }
+
+        alphaTabView = score
+        statusView = status
+
+        val scoreLayer = FrameLayout(this).apply { setBackgroundColor(0xFFFFFFFF.toInt()) }
+        val editorOverlay = TabEditOverlayView(this)
+        scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
+        // Full-page transparent painter for selected-bar and note cursor overlays.
+        scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
+        val editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
+        noteEditor = editor
+        editor.attach()
+
         // PROFESSIONAL UI LAYOUT
         // Keep playback visible; move editing features into category windows like FILE.
         val topMenuScroll = android.widget.HorizontalScrollView(this).apply {
