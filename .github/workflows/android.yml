@@ -179,24 +179,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Validate the installed PackageManager registration directly.
-          # We intentionally do not launch a synthetic content:// URI here:
-          # the CI emulator can close adb when asked to open a non-provider-backed
-          # URI, which is unrelated to manifest intent registration.
-          DUMP="$(adb -s emulator-5554 shell dumpsys package com.earam.tabs)"
-          printf '%s\n' "$DUMP"
+          # Do not launch a synthetic URI. That test is invalid without a real
+          # provider and can make adb close even when the manifest is correct.
+          # Validate the built APK manifest and verify PackageManager resolution
+          # using the MIME-based association that file providers can actually supply.
+          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          BADGING="$("$AAPT2" dump badging "$APK_PATH")"
+          grep -q "package: name='com.earam.tabs'" <<< "$BADGING"
 
-          # MainActivity must expose VIEW + DEFAULT for Earam TAB files.
-          grep -q 'android.intent.action.VIEW' <<< "$DUMP"
-          grep -q 'android.intent.category.DEFAULT' <<< "$DUMP"
+          MANIFEST="$(mktemp)"
+          trap 'rm -f "$MANIFEST"' EXIT
+          "$AAPT2" dump xmltree "$APK_PATH" --file AndroidManifest.xml > "$MANIFEST"
+          cat "$MANIFEST"
 
-          # The manifest must retain the three supported .tab association forms.
-          grep -q 'application/x-earam-tab' <<< "$DUMP"
-          grep -q 'application/octet-stream' <<< "$DUMP"
-          grep -q 'pathSuffix=.tab' <<< "$DUMP"
+          # MainActivity must be exported and expose VIEW + DEFAULT.
+          grep -q 'E: activity' "$MANIFEST"
+          grep -q 'com.earam.tabs.MainActivity' "$MANIFEST"
+          grep -q 'android:exported' "$MANIFEST"
+          grep -q 'android.intent.action.VIEW' "$MANIFEST"
+          grep -q 'android.intent.category.DEFAULT' "$MANIFEST"
 
-          # Confirm the installed package is the expected exported activity.
-          grep -q 'com.earam.tabs/.MainActivity' <<< "$DUMP"
+          # The built APK must contain both explicit .tab path registrations
+          # and the two MIME registrations.
+          grep -q 'android:pathSuffix' "$MANIFEST"
+          grep -q '".tab"' "$MANIFEST"
+          grep -q 'application/x-earam-tab' "$MANIFEST"
+          grep -q 'application/octet-stream' "$MANIFEST"
+
+          # Confirm the installed PackageManager resolves the exported activity
+          # for the custom Earam TAB MIME. No fake URI/provider is involved.
+          RESOLVED="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0             -a android.intent.action.VIEW             -t application/x-earam-tab 2>&1)"
+          printf '%s
+' "$RESOLVED"
+          grep -q 'com.earam.tabs/.MainActivity' <<< "$RESOLVED"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
