@@ -35,6 +35,9 @@ import alphaTab.model.Duration
 import alphaTab.model.MasterBar
 import alphaTab.model.Note
 import alphaTab.model.Score
+import alphaTab.model.Automation
+import alphaTab.model.KeySignature
+import alphaTab.model.KeySignatureType
 
 class MainActivity : Activity() {
     private var projectName = "Music Home"
@@ -372,6 +375,7 @@ class MainActivity : Activity() {
         val scoreInfo = technique("SCORE INFO") { editor.showScoreInfoDialog() }
         val lyrics = technique("LYRICS") { editor.showLyricsDialog() }
         val barTools = technique("BAR TOOLS") { editor.showBarToolsDialog() }
+        val timeline = technique("TIME / KEY") { editor.showTimelineDialog() }
         val tuning = technique("TUNING") { editor.showTuningDialog() }
         val mixer = technique("TRACK MIX") { editor.showTrackMixerDialog() }
         val bend = technique("BEND") { editor.showBendDialog() }
@@ -384,7 +388,7 @@ class MainActivity : Activity() {
         val tie = technique("TIE") { editor.toggleTieFromUi() }
         val repeatStart = technique("REPEAT START") { editor.toggleRepeatStartFromUi() }
         val doubleBar = technique("DOUBLE BAR") { editor.toggleDoubleBarFromUi() }
-        listOf(scoreInfo, lyrics, barTools, tuning, mixer, bend, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
+        listOf(scoreInfo, lyrics, barTools, timeline, tuning, mixer, bend, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
             techniqueTools.addView(it, LinearLayout.LayoutParams(dp(94f), dp(38f)))
         }
         techniqueScroll.addView(techniqueTools, LinearLayout.LayoutParams(-2, dp(42f)))
@@ -1296,6 +1300,64 @@ class MainActivity : Activity() {
                     score.api.score?.finish(score.settings)
                     score.api.render()
                     updateStatus("Lyrics updated")
+                }.show()
+        }
+
+        fun showTimelineDialog() {
+            val song = score.api.score ?: return
+            val master = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            val panel = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
+            }
+            fun field(hint: String, value: String) = EditText(activity).apply {
+                this.hint = hint
+                setText(value)
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setSingleLine(true)
+            }
+            val num = field("Numerator", master.timeSignatureNumerator.toInt().toString())
+            val den = field("Denominator (2,4,8,16)", master.timeSignatureDenominator.toInt().toString())
+            val tempo = field("Tempo BPM (0 = keep)", "")
+            val keys = arrayOf("Cb","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E","B","F#","C#")
+            val keySpinner = android.widget.Spinner(activity)
+            keySpinner.adapter = android.widget.ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, keys)
+            val currentKey = master.keySignature.toInt().coerceIn(-7,7) + 7
+            keySpinner.setSelection(currentKey)
+            val modes = arrayOf("Major","Minor")
+            val modeSpinner = android.widget.Spinner(activity)
+            modeSpinner.adapter = android.widget.ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, modes)
+            modeSpinner.setSelection(if (master.keySignatureType == KeySignatureType.Minor) 1 else 0)
+            panel.addView(num, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            panel.addView(den, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            panel.addView(keySpinner, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            panel.addView(modeSpinner, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            panel.addView(tempo, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            AlertDialog.Builder(activity)
+                .setTitle("TIME / KEY / TEMPO • BAR " + (currentBarIndex + 1))
+                .setView(panel)
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("APPLY") { _, _ ->
+                    try {
+                        val n = num.text.toString().toInt().coerceIn(1, 32)
+                        val d = den.text.toString().toInt()
+                        if (d !in listOf(1,2,4,8,16,32)) throw IllegalArgumentException("Denominator must be 1, 2, 4, 8, 16 or 32")
+                        master.timeSignatureNumerator = n.toDouble()
+                        master.timeSignatureDenominator = d.toDouble()
+                        master.timeSignatureCommon = n == 4 && d == 4
+                        master.keySignature = KeySignature.values()[keySpinner.selectedItemPosition].also { }
+                        master.keySignatureType = if (modeSpinner.selectedItemPosition == 1) KeySignatureType.Minor else KeySignatureType.Major
+                        val tempoValue = tempo.text.toString().toDoubleOrNull()
+                        if (tempoValue != null && tempoValue > 0) {
+                            master.tempoAutomations.clear()
+                            master.tempoAutomations.add(Automation.buildTempoAutomation(false, 0.0, tempoValue, tempoValue, true))
+                        }
+                        song.finish(score.settings)
+                        renderAndLog("timeline-bar")
+                        updateStatus("Bar " + (currentBarIndex + 1) + " • " + n + "/" + d + " • " + keys[keySpinner.selectedItemPosition])
+                    } catch (t: Throwable) {
+                        updateStatus("Timeline edit failed • " + (t.message ?: t.javaClass.simpleName))
+                    }
                 }.show()
         }
 
