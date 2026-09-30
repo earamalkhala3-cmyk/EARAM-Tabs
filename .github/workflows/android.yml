@@ -206,20 +206,19 @@ jobs:
           grep -q 'application/x-earam-tab' "$MANIFEST"
           grep -q 'application/octet-stream' "$MANIFEST"
 
-          # Resolve through the real Android Activity Manager using MIME-only
-          # VIEW intents. This tests the actual external-file association without
-          # inventing a content provider or synthetic URI.
-          CUSTOM="$(adb -s emulator-5554 shell am start -W -a android.intent.action.VIEW -t application/x-earam-tab -c android.intent.category.DEFAULT 2>&1)"
+          # Query PackageManager directly with complete Android Intent URIs.
+          # query-activities reports every activity that can handle the Intent;
+          # unlike am start, it does not require a real file/provider to launch.
+          CUSTOM_INTENT='intent:#Intent;action=android.intent.action.VIEW;type=application/x-earam-tab;end'
+          CUSTOM="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0 "$CUSTOM_INTENT" 2>&1 || true)"
           printf '%s\n' "$CUSTOM"
-          grep -q 'Status: ok' <<< "$CUSTOM"
-          grep -q 'Activity: com.earam.tabs/.MainActivity' <<< "$CUSTOM"
+          grep -q 'com.earam.tabs/.MainActivity' <<< "$CUSTOM"
 
-          # Also verify the generic binary fallback used by file managers that
-          # do not know the custom Earam MIME.
-          OCTET="$(adb -s emulator-5554 shell am start -W -a android.intent.action.VIEW -t application/octet-stream -c android.intent.category.DEFAULT 2>&1)"
+          # Verify the generic binary MIME fallback as well.
+          OCTET_INTENT='intent:#Intent;action=android.intent.action.VIEW;type=application/octet-stream;end'
+          OCTET="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0 "$OCTET_INTENT" 2>&1 || true)"
           printf '%s\n' "$OCTET"
-          grep -q 'Status: ok' <<< "$OCTET"
-          grep -q 'Activity: com.earam.tabs/.MainActivity' <<< "$OCTET"
+          grep -q 'com.earam.tabs/.MainActivity' <<< "$OCTET"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
