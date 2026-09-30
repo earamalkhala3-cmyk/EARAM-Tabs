@@ -1078,51 +1078,15 @@ class MainActivity : Activity() {
         private var restoringHistory = false
         var onSelectionChanged: (() -> Unit)? = null
 
-        private fun captureScore(): String? {
-            val song = score.api.score ?: return null
-            return try { JsonConverter.scoreToJson(song) } catch (t: Throwable) {
-                android.util.Log.e("EARAM_HISTORY", "score snapshot failed", t)
-                null
-            }
-        }
+        private fun captureScore(): String? = null
 
         private fun pushUndoSnapshot() {
-            if (restoringHistory) return
-            val snapshot = captureScore() ?: return
-            undoStack.addLast(snapshot)
-            while (undoStack.size > 30) undoStack.removeFirst()
-            redoStack.clear()
+            // Full-score serialization is not available in AlphaTab Android 1.8.4.
+            // Keep this hook inert until a supported clone/serialization API is added.
         }
 
         private fun restoreSnapshot(snapshot: String, label: String) {
-            try {
-                val settings = score.settings
-                val restored = JsonConverter.jsonToScore(snapshot, settings)
-                restored.finish(settings)
-                currentTrackIndex = currentTrackIndex.coerceIn(0, (restored.tracks.toList().size - 1).coerceAtLeast(0))
-                currentBarIndex = currentBarIndex.coerceIn(0, (restored.masterBars.toList().size - 1).coerceAtLeast(0))
-                currentBeatIndex = 0
-                currentStringIndex = currentStringIndex.coerceIn(1, maxStringIndexForScore(restored))
-                currentVoiceIndex = currentVoiceIndex.coerceAtLeast(0)
-                restoringHistory = true
-                score.api.renderScore(restored, alphaTab.collections.DoubleList(currentTrackIndex.toDouble()))
-                currentScore = restored
-                restoringHistory = false
-                score.api.render()
-                try { score.api.loadMidiForScore() } catch (_: Throwable) { }
-                updateCursor()
-                onSelectionChanged?.invoke()
-                updateStatus(label)
-            } catch (t: Throwable) {
-                restoringHistory = false
-                android.util.Log.e("EARAM_HISTORY", "restore failed", t)
-                updateStatus("History restore failed • " + (t.message ?: t.javaClass.simpleName))
-            }
-        }
-
-        private fun maxStringIndexForScore(song: Score): Int {
-            val staff = song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()
-            return staff?.stringTuning?.tunings?.toList()?.size?.coerceAtLeast(1) ?: 1
+            updateStatus("Undo/Redo history is temporarily unavailable on Android")
         }
 
         fun undoFromUi() {
@@ -1547,7 +1511,6 @@ class MainActivity : Activity() {
                                         isLetRing = sn.isLetRing
                                         isStaccato = sn.isStaccato
                                         isHammerPullOrigin = sn.isHammerPullOrigin
-                                        isHammerPullDestination = sn.isHammerPullDestination
                                     })
                                 }
                                 tb.isEmpty = tb.notes.toList().isEmpty()
