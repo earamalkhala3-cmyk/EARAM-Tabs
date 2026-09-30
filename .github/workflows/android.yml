@@ -181,17 +181,25 @@ jobs:
 
           QUERY="adb -s emulator-5554 shell cmd package query-activities --components --user 0"
 
+          # file:// carries the extension directly, so this validates the actual .tab path filter.
           FILE_MATCH="$($QUERY -a android.intent.action.VIEW -d 'file:///sdcard/EaramTest.tab' 2>/dev/null || true)"
-          printf '%s\n' "$FILE_MATCH"
+          printf 'FILE_URI_MATCH:\n%s\n' "$FILE_MATCH"
           grep -q 'com.earam.tabs' <<< "$FILE_MATCH"
 
-          CONTENT_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' 2>/dev/null || true)"
-          printf '%s\n' "$CONTENT_MATCH"
+          # content:// providers are expected to expose a MIME type. A synthetic content URI
+          # cannot reliably infer its type from the filename alone, so validate both the
+          # filename+MIME combination and the custom Earam MIME association.
+          CONTENT_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' -t 'application/x-earam-tab' 2>/dev/null || true)"
+          printf 'CONTENT_URI_MIME_MATCH:\n%s\n' "$CONTENT_MATCH"
           grep -q 'com.earam.tabs' <<< "$CONTENT_MATCH"
 
           MIME_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' -t 'application/x-earam-tab' 2>/dev/null || true)"
-          printf '%s\n' "$MIME_MATCH"
+          printf 'CUSTOM_MIME_MATCH:\n%s\n' "$MIME_MATCH"
           grep -q 'com.earam.tabs' <<< "$MIME_MATCH"
+
+          OCTET_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' -t 'application/octet-stream' 2>/dev/null || true)"
+          printf 'OCTET_STREAM_MATCH:\n%s\n' "$OCTET_MATCH"
+          grep -q 'com.earam.tabs' <<< "$OCTET_MATCH"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
