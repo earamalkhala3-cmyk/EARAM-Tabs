@@ -325,6 +325,40 @@ class MainActivity : Activity() {
             numbers.addView(button, LinearLayout.LayoutParams(dp(40f), dp(38f)))
         }
         numberScroll.addView(numbers, LinearLayout.LayoutParams(-2, dp(42f)))
+        
+        // Musical technique/editing tools. These operate directly on the selected
+        // AlphaTab Beat/Note; there is no parallel notation model.
+        val techniqueScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF30353A.toInt())
+        }
+        val techniqueTools = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
+        }
+        fun technique(label: String, action: () -> Unit): Button = Button(this).apply {
+            text = label
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            textSize = 10f
+            setPadding(dp(4f), 0, dp(4f), 0)
+            setOnClickListener { action() }
+        }
+        val fx = technique("EFFECTS") { editor.showNoteEffectsDialog() }
+        val beatFx = technique("BEAT FX") { editor.showBeatEffectsDialog() }
+        val pickDown = technique("↓ PICK") { editor.setPickStrokeFromUi("down") }
+        val pickUp = technique("↑ PICK") { editor.setPickStrokeFromUi("up") }
+        val pickNone = technique("PICK OFF") { editor.setPickStrokeFromUi("none") }
+        val rest = technique("REST") { editor.makeCurrentRestFromUi() }
+        val tie = technique("TIE") { editor.toggleTieFromUi() }
+        val repeatStart = technique("REPEAT START") { editor.toggleRepeatStartFromUi() }
+        val doubleBar = technique("DOUBLE BAR") { editor.toggleDoubleBarFromUi() }
+        listOf(fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
+            techniqueTools.addView(it, LinearLayout.LayoutParams(dp(94f), dp(38f)))
+        }
+        techniqueScroll.addView(techniqueTools, LinearLayout.LayoutParams(-2, dp(42f)))
 
         val prev = editTool("‹") { editor.moveBeatFromUi(-1) }
         val next = editTool("›") { editor.moveBeatFromUi(1) }
@@ -434,6 +468,7 @@ class MainActivity : Activity() {
         root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(editScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(numberScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(techniqueScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
@@ -472,30 +507,52 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20f), dp(8f), dp(20f), 0)
         }
-        fun field(hint: String, value: String, type: Int = InputType.TYPE_CLASS_TEXT) = EditText(this).apply {
-            this.hint = hint
-            setText(value)
-            inputType = type
-            setSingleLine(true)
-        }
+        fun field(hint: String, value: String, type: Int = InputType.TYPE_CLASS_TEXT) =
+            EditText(this).apply {
+                this.hint = hint
+                setText(value)
+                inputType = type
+                setSingleLine(true)
+                setPadding(0, dp(4f), 0, dp(4f))
+            }
+
         val title = field("Song title", projectName)
         val tempo = field("Tempo (BPM)", bpm.toString(), InputType.TYPE_CLASS_NUMBER)
         val meter = field("Time signature (e.g. 4/4, 6/8, 7/8)", timeSig)
         val measures = field("Starting measures", "200", InputType.TYPE_CLASS_NUMBER)
+
+        box.addView(TextView(this).apply { text = "SCORE"; textSize = 11f; setTypeface(null, android.graphics.Typeface.BOLD) })
         box.addView(title, LinearLayout.LayoutParams(-1, dp(48f)))
         box.addView(tempo, LinearLayout.LayoutParams(-1, dp(48f)))
         box.addView(meter, LinearLayout.LayoutParams(-1, dp(48f)))
         box.addView(measures, LinearLayout.LayoutParams(-1, dp(48f)))
-        val trackNames = arrayOf("Guitar", "Guitar 2", "Bass", "Keyboard / Piano", "Guitar 3")
-        val checked = booleanArrayOf(true, false, false, false, false)
-        val selected = mutableListOf("Guitar")
+        box.addView(TextView(this).apply {
+            text = "TRACKS"
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(8f), 0, dp(2f))
+        })
+
+        val trackNames = arrayOf(
+            "Guitar", "Guitar 2", "Guitar 3", "Guitar 7-string", "Guitar 8-string",
+            "Bass 4-string", "Bass 5-string", "Keyboard / Piano", "Drums"
+        )
+        val selected = trackNames.map { it == "Guitar" }.toMutableList()
+        trackNames.forEachIndexed { i, name ->
+            val cb = android.widget.CheckBox(this).apply {
+                text = name
+                isChecked = selected[i]
+                textSize = 13f
+                setPadding(0, 0, 0, 0)
+                setOnCheckedChangeListener { _, checked -> selected[i] = checked }
+            }
+            box.addView(cb, LinearLayout.LayoutParams(-1, dp(40f)))
+        }
+
+        val scroll = android.widget.ScrollView(this).apply { addView(box) }
         AlertDialog.Builder(this)
             .setTitle("NEW FILE")
-            .setView(box)
-            .setMultiChoiceItems(trackNames, checked) { _, which, isChecked ->
-                val name = trackNames[which]
-                if (isChecked) selected.add(name) else selected.remove(name)
-            }
+            .setView(scroll)
             .setNegativeButton("CANCEL", null)
             .setPositiveButton("CREATE", null)
             .create().apply {
@@ -508,12 +565,16 @@ class MainActivity : Activity() {
                             Toast.makeText(this@MainActivity, "Invalid time signature", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
-                        if (selected.isEmpty()) {
+                        val chosen = trackNames.filterIndexed { i, _ -> selected[i] }
+                        if (chosen.isEmpty()) {
                             Toast.makeText(this@MainActivity, "Select at least one track", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
                         val p = sig.split('/')
-                        newScore(title.text.toString().trim().ifBlank { "Music Home" }, t, p[0].toInt(), p[1].toInt(), m, selected.toList())
+                        newScore(
+                            title.text.toString().trim().ifBlank { "Music Home" },
+                            t, p[0].toInt(), p[1].toInt(), m, chosen
+                        )
                         dismiss()
                     }
                 }
@@ -1032,6 +1093,144 @@ class MainActivity : Activity() {
 
         private fun currentBeat(): alphaTab.model.Beat? =
             bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
+
+        fun setPickStrokeFromUi(direction: String) {
+            val beat = currentBeat() ?: return
+            beat.pickStroke = when (direction.lowercase()) {
+                "down" -> alphaTab.model.PickStroke.Down
+                "up" -> alphaTab.model.PickStroke.Up
+                else -> alphaTab.model.PickStroke.None
+            }
+            finishEditedScore("pick-stroke")
+            updateStatus("Pick stroke • " + direction.uppercase())
+        }
+
+        fun makeCurrentRestFromUi() {
+            val beat = currentBeat() ?: return
+            for (note in beat.notes.toList()) beat.removeNote(note)
+            beat.isEmpty = true
+            finishEditedScore("rest")
+            updateStatus("Rest • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+        }
+
+        fun toggleTieFromUi() {
+            val beat = currentBeat() ?: return
+            val currentNote = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) ?: run {
+                updateStatus("Enter a note first")
+                return
+            }
+            val previousBeat = when {
+                currentBeatIndex > 0 -> bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex - 1)
+                currentBarIndex > 0 -> bars()?.getOrNull(currentBarIndex - 1)?.voices?.firstOrNull()?.beats?.toList()?.lastOrNull()
+                else -> null
+            }
+            val previousNote = previousBeat?.getNoteOnString(currentNote.string)
+            if (previousNote == null) {
+                updateStatus("No previous note on this string for tie")
+                return
+            }
+            val enabled = !currentNote.isTieDestination
+            previousNote.isTieOrigin = enabled
+            currentNote.isTieDestination = enabled
+            finishEditedScore("tie")
+            updateStatus(if (enabled) "Tie ON" else "Tie OFF")
+        }
+
+        fun toggleRepeatStartFromUi() {
+            val song = score.api.score ?: return
+            val bar = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            bar.isRepeatStart = !bar.isRepeatStart
+            song.rebuildRepeatGroups()
+            finishEditedScore("repeat-start")
+            updateStatus(if (bar.isRepeatStart) "Repeat start ON" else "Repeat start OFF")
+        }
+
+        fun toggleDoubleBarFromUi() {
+            val song = score.api.score ?: return
+            val bar = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            bar.isDoubleBar = !bar.isDoubleBar
+            finishEditedScore("double-bar")
+            updateStatus(if (bar.isDoubleBar) "Double bar ON" else "Double bar OFF")
+        }
+
+        fun showNoteEffectsDialog() {
+            val beat = currentBeat() ?: return
+            val note = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) ?: run {
+                updateStatus("Enter/select a note first")
+                return
+            }
+            val labels = arrayOf(
+                "Hammer-on / Pull-off", "Palm mute", "Let ring", "Ghost note",
+                "Dead note", "Staccato", "Vibrato (slight)", "Left-hand tap"
+            )
+            val checked = booleanArrayOf(
+                note.isHammerPullOrigin, note.isPalmMute, note.isLetRing, note.isGhost,
+                note.isDead, note.isStaccato,
+                note.vibrato != alphaTab.model.VibratoType.None,
+                note.isLeftHandTapped
+            )
+            AlertDialog.Builder(activity)
+                .setTitle("NOTE EFFECTS")
+                .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                    when (which) {
+                        0 -> note.isHammerPullOrigin = isChecked
+                        1 -> note.isPalmMute = isChecked
+                        2 -> note.isLetRing = isChecked
+                        3 -> note.isGhost = isChecked
+                        4 -> note.isDead = isChecked
+                        5 -> note.isStaccato = isChecked
+                        6 -> note.vibrato = if (isChecked) alphaTab.model.VibratoType.Slight else alphaTab.model.VibratoType.None
+                        7 -> note.isLeftHandTapped = isChecked
+                    }
+                    note.finish(score.settings, null)
+                    beat.finish(score.settings, null)
+                    score.api.score?.finish(score.settings)
+                    score.api.render()
+                }
+                .setPositiveButton("DONE") { _, _ ->
+                    finishEditedScore("note-effects")
+                }
+                .show()
+        }
+
+        fun showBeatEffectsDialog() {
+            val beat = currentBeat() ?: return
+            val labels = arrayOf("Slap", "Pop", "Tap", "Dead Slap", "Fade In", "Slashed", "Show Time", "Text / Annotation")
+            val checked = booleanArrayOf(beat.slap, beat.pop, beat.tap, beat.deadSlapped, beat.fadeIn, beat.slashed, beat.showTimer, !beat.text.isNullOrBlank())
+            AlertDialog.Builder(activity)
+                .setTitle("BEAT EFFECTS")
+                .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                    when (which) {
+                        0 -> beat.slap = isChecked
+                        1 -> beat.pop = isChecked
+                        2 -> beat.tap = isChecked
+                        3 -> beat.deadSlapped = isChecked
+                        4 -> beat.fadeIn = isChecked
+                        5 -> beat.slashed = isChecked
+                        6 -> beat.showTimer = isChecked
+                        7 -> {
+                            if (isChecked) {
+                                val input = EditText(activity).apply { setSingleLine(true); hint = "Beat text" }
+                                AlertDialog.Builder(activity).setTitle("ANNOTATION").setView(input)
+                                    .setPositiveButton("OK") { _, _ ->
+                                        beat.text = input.text.toString()
+                                        finishEditedScore("beat-text")
+                                    }.setNegativeButton("CANCEL", null).show()
+                            } else beat.text = null
+                        }
+                    }
+                }
+                .setPositiveButton("DONE") { _, _ -> finishEditedScore("beat-effects") }
+                .show()
+        }
+
+        private fun finishEditedScore(reason: String) {
+            score.api.score?.finish(score.settings)
+            score.api.render()
+            try { score.api.loadMidiForScore() } catch (_: Throwable) { }
+            onSelectionChanged?.invoke()
+            activity.runOnUiThread { updateStatus(reason.uppercase().replace('-', ' ')) }
+        }
 
         private fun maxStringIndex(): Int =
             score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.tuning?.toList()?.size?.coerceAtLeast(1) ?: 6
