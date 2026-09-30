@@ -219,6 +219,29 @@ class MainActivity : Activity() {
         trackButtons.addView(addTrack, LinearLayout.LayoutParams(dp(100f), dp(40f)))
         trackScroll.addView(trackButtons, LinearLayout.LayoutParams(-2, dp(44f)))
 
+        val voiceScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF25292D.toInt())
+        }
+        val voiceTools = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
+        }
+        fun voiceButton(label: String, action: () -> Unit): Button = control(label).apply {
+            textSize = 10f
+            setOnClickListener { action() }
+        }
+        val voice1 = voiceButton("VOICE 1") { editor.selectVoiceFromUi(0) }
+        val voice2 = voiceButton("VOICE 2") { editor.selectVoiceFromUi(1) }
+        val voice3 = voiceButton("VOICE 3") { editor.selectVoiceFromUi(2) }
+        val voice4 = voiceButton("VOICE 4") { editor.selectVoiceFromUi(3) }
+        val addVoice = voiceButton("+ VOICE") { editor.addVoiceFromUi() }
+        listOf(voice1, voice2, voice3, voice4, addVoice).forEach {
+            voiceTools.addView(it, LinearLayout.LayoutParams(dp(92f), dp(40f)))
+        }
+        voiceScroll.addView(voiceTools, LinearLayout.LayoutParams(-2, dp(44f)))
+
         val selectionInfo = TextView(this).apply {
             text = "TRACK • Guitar  |  STRING 1 • HIGH E"
             setTextColor(0xFFFFFFFF.toInt())
@@ -278,7 +301,7 @@ class MainActivity : Activity() {
             durationButton("16TH") { editor.setCurrentDuration(Duration.Sixteenth) },
             durationButton("32ND") { editor.setCurrentDuration(Duration.ThirtySecond) },
             durationButton("DOT") { editor.setCurrentDuration(editor.currentBeatDuration().first, (editor.currentBeatDuration().second + 1).coerceAtMost(2)) },
-            durationButton("TRIPLET") { editor.setCurrentDuration(editor.currentBeatDuration().first, 0, 3, 2) }
+            durationButton("TUPLETS") { editor.showTupletDialog() }
         )
         durationButtons.forEach { durations.addView(it, LinearLayout.LayoutParams(dp(78f), dp(40f))) }
         durationScroll.addView(durations, LinearLayout.LayoutParams(-2, dp(52f)))
@@ -371,8 +394,10 @@ class MainActivity : Activity() {
         val up = editTool("↑") { editor.moveStringFromUi(-1) }
         val down = editTool("↓") { editor.moveStringFromUi(1) }
         val del = editTool("DEL") { editor.deleteCurrentNoteFromUi() }
+        val copy = editTool("COPY") { editor.copyCurrentNoteFromUi() }
+        val paste = editTool("PASTE") { editor.pasteCurrentNoteFromUi() }
 
-        listOf(prev, next, up, down, del).forEach {
+        listOf(prev, next, up, down, del, copy, paste).forEach {
             editTools.addView(it, LinearLayout.LayoutParams(dp(54f), dp(38f)))
         }
         editScroll.addView(editTools, LinearLayout.LayoutParams(-2, dp(42f)))
@@ -470,6 +495,7 @@ class MainActivity : Activity() {
         root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
         root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(trackScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(voiceScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(selectionInfo, LinearLayout.LayoutParams(-1, dp(34f)))
         root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(editScroll, LinearLayout.LayoutParams(-1, dp(44f)))
@@ -1032,6 +1058,9 @@ class MainActivity : Activity() {
             private set
         var currentTrackIndex: Int = 0
             private set
+        var currentVoiceIndex: Int = 0
+            private set
+        private var copiedFret: Int? = null
         var onSelectionChanged: (() -> Unit)? = null
 
         fun resetSelection() {
@@ -1039,6 +1068,7 @@ class MainActivity : Activity() {
             currentBeatIndex = 0
             currentStringIndex = 1
             currentTrackIndex = 0.coerceAtMost((score.api.score?.tracks?.toList()?.size ?: 1) - 1)
+            currentVoiceIndex = 0
             armed = false
             pendingFret = ""
             updateCursor()
@@ -1114,8 +1144,87 @@ class MainActivity : Activity() {
         private fun bars(): List<alphaTab.model.Bar>? =
             score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()
 
+        fun selectVoiceFromUi(index: Int) {
+            val max = bars()?.firstOrNull()?.voices?.toList()?.lastIndex ?: 0
+            currentVoiceIndex = index.coerceIn(0, max)
+            currentBeatIndex = 0
+            armed = true
+            pendingFret = ""
+            updateCursor()
+            updateStatus("VOICE " + (currentVoiceIndex + 1))
+            onSelectionChanged?.invoke()
+        }
+
+        fun addVoiceFromUi() {
+            try {
+                val song = score.api.score ?: return
+                val staff = song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull() ?: return
+                val existing = staff.bars.firstOrNull()?.voices?.toList()?.size ?: 0
+                if (existing >= 4) { updateStatus("Maximum 4 voices per bar"); return }
+                for (bar in staff.bars.toList()) {
+                    val voice = alphaTab.model.Voice()
+                    val source = bar.voices.firstOrNull()?.beats?.toList().orEmpty()
+                    for (b in source) voice.addBeat(Beat().apply {
+                        duration = b.duration
+                        dots = b.dots
+                        tupletNumerator = b.tupletNumerator
+                        tupletDenominator = b.tupletDenominator
+                        isEmpty = true
+                    })
+                    if (source.isEmpty()) repeat(4) {
+                        voice.addBeat(Beat().apply {
+                            duration = Duration.Quarter
+                            dots = 0.0
+                            tupletNumerator = -1.0
+                            tupletDenominator = -1.0
+                            isEmpty = true
+                        })
+                    }
+                    bar.addVoice(voice)
+                }
+                currentVoiceIndex = existing
+                song.finish(score.settings)
+                renderAndLog("add-voice")
+                updateStatus("VOICE " + (currentVoiceIndex + 1) + " added")
+                onSelectionChanged?.invoke()
+            } catch (t: Throwable) {
+                updateStatus("Add voice failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
+
+        fun showTupletDialog() {
+            val labels = arrayOf("Off", "3:2 Triplet", "5:4 Quintuplet", "6:4 Sextuplet", "7:4 Septuplet")
+            AlertDialog.Builder(activity).setTitle("TUPLET").setItems(labels) { _, which ->
+                val beat = currentBeat() ?: return@setItems
+                val pair = when (which) {
+                    0 -> Pair(-1, -1)
+                    1 -> Pair(3, 2)
+                    2 -> Pair(5, 4)
+                    3 -> Pair(6, 4)
+                    else -> Pair(7, 4)
+                }
+                setCurrentDuration(beat.duration, beat.dots.toInt(), pair.first, pair.second)
+            }.show()
+        }
+
+        fun copyCurrentNoteFromUi() {
+            val note = currentBeat()?.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
+            if (note == null) { updateStatus("Nothing to copy on current string"); return }
+            copiedFret = note.fret.toInt()
+            updateStatus("Copied fret " + copiedFret)
+        }
+
+        fun pasteCurrentNoteFromUi() {
+            val fret = copiedFret ?: run { updateStatus("Clipboard is empty"); return }
+            writeFret(fret)
+            updateStatus("Pasted fret " + fret)
+        }
+
+        private fun currentVoice(): alphaTab.model.Voice? =
+            bars()?.getOrNull(currentBarIndex)?.voices?.toList()?.getOrNull(currentVoiceIndex)
+
         private fun currentBeat(): alphaTab.model.Beat? =
-            bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
+            currentVoice()?.beats?.toList()?.getOrNull(currentBeatIndex)
 
         fun showScoreInfoDialog() {
             val song = score.api.score ?: return
@@ -1637,6 +1746,8 @@ class MainActivity : Activity() {
             val label = track?.name?.ifBlank { track.shortName }?.ifBlank { "Track " + (currentTrackIndex + 1) }
                 ?: "Track " + (currentTrackIndex + 1)
             return "TRACK " + (currentTrackIndex + 1) + " • " + label +
+                "   |   VOICE " + (currentVoiceIndex + 1) +
+                "   |   BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
                 "   |   STRING " + currentStringIndex + " • " + currentStringLabel() +
                 "   |   FRET " + currentFretLabel()
         }
@@ -1649,14 +1760,14 @@ class MainActivity : Activity() {
             val step = if (delta < 0) -1 else 1
 
             repeat(kotlin.math.abs(delta)) {
-                val count = bs[b].voices.firstOrNull()?.beats?.toList()?.size ?: 0
+                val count = bs[b].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.size ?: 0
                 if (count <= 0) return@repeat
                 var candidate = beat + step
 
                 if (candidate < 0) {
                     if (b == 0) return@repeat
                     b--
-                    candidate = (bs[b].voices.firstOrNull()?.beats?.toList()?.size ?: 1) - 1
+                    candidate = (bs[b].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.size ?: 1) - 1
                 } else if (candidate >= count) {
                     if (b == bs.lastIndex) {
                         // Reaching the trailing measure expands the score by four
@@ -1682,7 +1793,7 @@ class MainActivity : Activity() {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
             currentBarIndex = if (end) bs.lastIndex else 0
-            val beats = bs[currentBarIndex].voices.firstOrNull()?.beats?.toList().orEmpty()
+            val beats = bs[currentBarIndex].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             currentBeatIndex = if (end) (beats.size - 1).coerceAtLeast(0) else 0
             armed = true
             pendingFret = ""
@@ -1937,7 +2048,8 @@ class MainActivity : Activity() {
 
         private fun updateStatus(message: String? = null) {
             val text = message ?: (
-                "EDIT • TRACK " + (currentTrackIndex + 1) + " • BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
+                "EDIT • TRACK " + (currentTrackIndex + 1) + " • VOICE " + (currentVoiceIndex + 1) +
+                " • BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
                 "  |  STRING " + currentStringIndex + " (" + currentStringLabel() + ")" +
                 "  |  FRET ${currentFretLabel()}"
             )
