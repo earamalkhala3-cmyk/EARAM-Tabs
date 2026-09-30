@@ -144,6 +144,10 @@ class MainActivity : ComponentActivity() {
                 setPadding(0, 0, 0, 0)
             }
 
+        fun setActive(view: TextView, active: Boolean) {
+            view.setTextColor(if (active) 0xFFFF8A00.toInt() else 0xFFF3F0E8.toInt())
+        }
+
         fun labelView(textValue: String, size: Float = 11f): TextView =
             TextView(this).apply {
                 text = textValue
@@ -349,6 +353,7 @@ class MainActivity : ComponentActivity() {
             setOnClickListener {
                 score.api.stop()
                 editor.hidePlaybackCursor()
+                setActive(play, false)
             }
         }
         val rewind = iconButton("↶", "Previous / rewind").apply {
@@ -369,11 +374,11 @@ class MainActivity : ComponentActivity() {
             isClickable = true
             setOnClickListener {
                 showPanel("PLAYBACK SPEED", listOf(
-                    "0.5×" to { score.api.playbackSpeed = 0.50; session.playbackSpeed = 0.50; text = "0.5×" },
-                    "0.75×" to { score.api.playbackSpeed = 0.75; session.playbackSpeed = 0.75; text = "0.75×" },
-                    "1×" to { score.api.playbackSpeed = 1.00; session.playbackSpeed = 1.00; text = "1×" },
-                    "1.25×" to { score.api.playbackSpeed = 1.25; session.playbackSpeed = 1.25; text = "1.25×" },
-                    "1.5×" to { score.api.playbackSpeed = 1.50; session.playbackSpeed = 1.50; text = "1.5×" }
+                    "0.5×" to { score.api.playbackSpeed = 0.50; session.playbackSpeed = 0.50; text = "0.5×"; setActive(speed, true) },
+                    "0.75×" to { score.api.playbackSpeed = 0.75; session.playbackSpeed = 0.75; text = "0.75×"; setActive(speed, true) },
+                    "1×" to { score.api.playbackSpeed = 1.00; session.playbackSpeed = 1.00; text = "1×"; setActive(speed, true) },
+                    "1.25×" to { score.api.playbackSpeed = 1.25; session.playbackSpeed = 1.25; text = "1.25×"; setActive(speed, true) },
+                    "1.5×" to { score.api.playbackSpeed = 1.50; session.playbackSpeed = 1.50; text = "1.5×"; setActive(speed, true) }
                 ))
             }
         }
@@ -543,8 +548,11 @@ class MainActivity : ComponentActivity() {
         fun refreshSelectionInfo() {
             selection.text = editor.selectionInfoText()
             durationSelector.text = "Duration  " + editor.currentDurationSymbol()
+            setActive(durationSelector, true)
             track.text = "♫ " + (editor.currentTrackIndex + 1)
             voice.text = "V" + (editor.currentVoiceIndex + 1)
+            setActive(track, true)
+            setActive(voice, true)
             session.selectedTrack = editor.currentTrackIndex
             session.selectedVoice = editor.currentVoiceIndex
             session.selectedBar = editor.selectedBarIndex
@@ -621,6 +629,7 @@ class MainActivity : ComponentActivity() {
             session.tickPosition = score.api.tickPosition
             runOnUiThread {
                 play.text = if (session.wasPlaying) "❚❚" else "▶"
+                setActive(play, session.wasPlaying)
                 if (score.api.isReadyForPlayback) {
                     // Earam owns the playback cursor and anchors it to playedBeatChanged.
                     // Never let AlphaTab's system cursor move the page by multiple measures.
