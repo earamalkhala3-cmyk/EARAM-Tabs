@@ -1865,7 +1865,7 @@ class MainActivity : Activity() {
             }
             val previousBeat = when {
                 currentBeatIndex > 0 -> bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex - 1)
-                currentBarIndex > 0 -> bars()?.getOrNull(selectedBarIndex - 1)?.voices?.firstOrNull()?.beats?.toList()?.lastOrNull()
+                currentBarIndex > 0 -> bars()?.getOrNull(currentBarIndex - 1)?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.lastOrNull()
                 else -> null
             }
             val previousNote = previousBeat?.getNoteOnString(currentNote.string)
@@ -2172,7 +2172,7 @@ class MainActivity : Activity() {
             return "TRACK " + (currentTrackIndex + 1) + " • " + label +
                 "   |   SELECTED BAR " + (selectedBarIndex + 1) +
                 "   |   VOICE " + (currentVoiceIndex + 1) +
-                "   |   CURSOR BAR " + (selectedBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
+                "   |   CURSOR BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
                 "   |   STRING " + currentStringIndex + " • " + currentStringLabel() +
                 "   |   FRET " + currentFretLabel()
         }
