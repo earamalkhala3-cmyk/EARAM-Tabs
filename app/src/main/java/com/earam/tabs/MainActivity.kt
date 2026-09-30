@@ -58,7 +58,7 @@ data class BeatHit(
     val virtual: Boolean = false
 )
 
-data class BeatHitBeatHitBarMeta(
+data class BeatHitBarMeta(
     val measure: Int,
     val bar: Bar,
     val x: Float,
@@ -1754,7 +1754,7 @@ class MainActivity : ComponentActivity() {
                     ?: continue
                 val system = masterBounds.staffSystemBounds?.index?.toInt() ?: mi
                 barMeta.add(
-                    BarMeta(
+                    BeatHitBarMeta(
                         mi, bar,
                         barBounds.realBounds.x.toFloat(),
                         barBounds.realBounds.y.toFloat(),
