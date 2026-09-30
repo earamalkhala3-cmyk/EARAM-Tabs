@@ -430,7 +430,8 @@ class MainActivity : Activity() {
         navigation.addView(nav("↓", "Next string") { editor.moveStringFromUi(1) })
         navigation.addView(nav("→", "Next beat") { editor.moveBeatFromUi(1) })
 
-        // Contextual editing strip. Digits are hidden until fret-entry mode is requested.
+        // Contextual editing strip. Fret digits stay visible as a compact, always-available
+        // keypad so entering 0-9 never depends on finding a hidden mode.
         val editingStrip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -478,23 +479,24 @@ class MainActivity : Activity() {
 
         val fretDigits = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            visibility = View.GONE
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
-            setBackgroundColor(0xFF202327.toInt())
+            setBackgroundColor(0xFF1F2226.toInt())
         }
         for (digit in 0..9) {
             val d = TextView(this).apply {
                 text = digit.toString()
                 setTextColor(0xFFF3F0E8.toInt())
-                textSize = 15f
+                textSize = 14f
                 gravity = Gravity.CENTER
-                background = surface(0xFF2A2D31.toInt(), 8f)
+                background = surface(0xFF2B2F34.toInt(), 7f)
                 isClickable = true
+                isFocusable = false
+                contentDescription = "Fret $digit"
                 setOnClickListener { editor.enterDigitFromUi(digit) }
             }
-            fretDigits.addView(d, LinearLayout.LayoutParams(0, dp(38f), 1f).apply {
-                leftMargin = dp(1f); rightMargin = dp(1f)
+            fretDigits.addView(d, LinearLayout.LayoutParams(dp(32f), dp(34f)).apply {
+                leftMargin = dp(2f); rightMargin = dp(2f)
             })
         }
 
@@ -617,7 +619,8 @@ class MainActivity : Activity() {
         root.addView(navigation, LinearLayout.LayoutParams(-1, dp(48f)))
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
-        root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(44f)))
+        // Always visible: compact fret-entry keypad (0–9).
+        root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(40f)))
         setContentView(root)
         play.isEnabled = true
     }
