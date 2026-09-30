@@ -328,7 +328,7 @@ class MainActivity : Activity() {
         }
         fun refreshSelectionInfo() {
             selectionContext.text = editor.selectionInfoText()
-            selectedBarButton.text = "BAR " + (editor.currentBarIndex + 1)
+            selectedBarButton.text = "BAR " + (editor.selectedBarIndex + 1)
             voiceContext.text = "VOICE " + (editor.currentVoiceIndex + 1)
             trackContext.text = "TRACK " + (editor.currentTrackIndex + 1)
         }
@@ -404,28 +404,30 @@ class MainActivity : Activity() {
         }
 
         barMenu.setOnClickListener {
-            showMenu("BAR • SELECTED BAR " + (editor.currentBarIndex + 1),
-                arrayOf("SELECT / GO TO BAR", "BAR TOOLS", "+ MEASURE", "DUPLICATE BAR", "CLEAR BAR", "TIME / KEY")) { which ->
+            showMenu("BAR • SELECTED BAR " + (editor.selectedBarIndex + 1),
+                arrayOf("SELECT / GO TO BAR", "BAR TOOLS", "+ MEASURE", "DUPLICATE BAR", "CLEAR BAR", "DELETE BAR", "TIME / KEY")) { which ->
                 when (which) {
                     0 -> editor.showBarSelectionDialog()
                     1 -> editor.showBarToolsDialog()
                     2 -> editor.addMeasureFromUi()
                     3 -> editor.duplicateCurrentBarToEndFromUi()
                     4 -> editor.clearCurrentBarFromUi()
-                    5 -> editor.showTimelineDialog()
+                    5 -> editor.deleteCurrentBarFromUi()
+                    6 -> editor.showTimelineDialog()
                 }
             }
         }
 
         noteMenu.setOnClickListener {
-            showMenu("NOTE", arrayOf("DURATION", "TUPLET", "EFFECTS", "BEND", "PICK STROKE", "REST / DELETE")) { which ->
+            showMenu("NOTE", arrayOf("PLAY CURRENT BEAT", "DURATION", "TUPLET", "EFFECTS", "BEND", "PICK STROKE", "REST / DELETE")) { which ->
                 when (which) {
-                    0 -> editor.showDurationDialog()
-                    1 -> editor.showTupletDialog()
-                    2 -> editor.showNoteEffectsDialog()
-                    3 -> editor.showBendDialog()
-                    4 -> editor.showPickStrokeDialog()
-                    5 -> editor.makeCurrentRestFromUi()
+                    0 -> editor.playCurrentBeatFromUi()
+                    1 -> editor.showDurationDialog()
+                    2 -> editor.showTupletDialog()
+                    3 -> editor.showNoteEffectsDialog()
+                    4 -> editor.showBendDialog()
+                    5 -> editor.showPickStrokeDialog()
+                    6 -> editor.makeCurrentRestFromUi()
                 }
             }
         }
@@ -461,6 +463,7 @@ class MainActivity : Activity() {
 
         score.api.postRenderFinished.on {
             runOnUiThread {
+                editor.syncSelectedBarHighlight()
                 editor.refreshVisualCursor()
                 editor.logRenderState()
             }
@@ -477,6 +480,7 @@ class MainActivity : Activity() {
                 refreshTrackButtons()
                 refreshSelectionInfo()
             }
+            noteEditor?.syncSelectedBarHighlight()
             try {
                 score.api.loadMidiForScore()
             } catch (t: Throwable) {
@@ -976,11 +980,6 @@ class MainActivity : Activity() {
     }
 
     private class TabEditOverlayView(context: Context) : View(context) {
-        private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2f * resources.displayMetrics.density
-            color = 0xFFFF8A00.toInt()
-        }
         private val beatFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
             color = 0x12000000
@@ -995,30 +994,10 @@ class MainActivity : Activity() {
             strokeWidth = 2f * resources.displayMetrics.density
             color = 0xFFFF5A00.toInt()
         }
-        private val barRect = RectF()
         private val beatRect = RectF()
         private val noteRect = RectF()
-        private var hasBar = false
         private var hasBeat = false
         private var hasNote = false
-
-        fun showBarSelection(left: Float, top: Float, width: Float, height: Float) {
-            if (!left.isFinite() || !top.isFinite() || !width.isFinite() || !height.isFinite()) {
-                hasBar = false
-                invalidate()
-                return
-            }
-            // Reject suspicious tiny/origin rectangles: those were the source of the
-            // unexplained orange square in the previous build.
-            if (width < 60f || height < 24f || width > this.width * 1.5f || height > this.height * 1.5f) {
-                hasBar = false
-                invalidate()
-                return
-            }
-            barRect.set(left, top, left + width, top + height)
-            hasBar = true
-            invalidate()
-        }
 
         fun showBeatCursor(centerX: Float, top: Float, bottom: Float) {
             if (!centerX.isFinite() || !top.isFinite() || !bottom.isFinite() || bottom <= top) {
@@ -1026,7 +1005,7 @@ class MainActivity : Activity() {
                 invalidate()
                 return
             }
-            val half = maxOf(6f, 8f * resources.displayMetrics.density)
+            val half = maxOf(5f, 6f * resources.displayMetrics.density)
             beatRect.set(centerX - half, top, centerX + half, bottom)
             hasBeat = true
             invalidate()
@@ -1038,8 +1017,8 @@ class MainActivity : Activity() {
                 invalidate()
                 return
             }
-            val w = width.coerceIn(16f, 64f)
-            val h = height.coerceIn(16f, 64f)
+            val w = width.coerceIn(14f, 60f)
+            val h = height.coerceIn(14f, 60f)
             noteRect.set(left - 4f, top - 4f, left + w + 4f, top + h + 4f)
             hasNote = true
             invalidate()
@@ -1048,15 +1027,13 @@ class MainActivity : Activity() {
         fun hideCursor() {
             hasBeat = false
             hasNote = false
-            hasBar = false
             invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            if (hasBar) canvas.drawRoundRect(barRect, 5f, 5f, barPaint)
             if (hasBeat) {
-                canvas.drawRoundRect(beatRect, 4f, 4f, beatFillPaint)
+                canvas.drawRoundRect(beatRect, 3f, 3f, beatFillPaint)
                 canvas.drawLine(beatRect.centerX(), beatRect.top, beatRect.centerX(), beatRect.bottom, beatLinePaint)
             }
             if (hasNote) canvas.drawRoundRect(noteRect, 4f, 4f, notePaint)
@@ -1091,15 +1068,19 @@ class MainActivity : Activity() {
         fun barCapacityTicksForMaster(m: MasterBar): Long {
             return (m.timeSignatureNumerator.toLong().coerceAtLeast(1L) * QUARTER_TICKS * 4L) / m.timeSignatureDenominator.toLong().coerceAtLeast(1L)
         }
-        fun barUsedTicks(bar: Bar, excluding: Beat? = null): Long = bar.voices.firstOrNull()?.beats?.toList()?.filter { it !== excluding }?.sumOf { beatTicks(it) } ?: 0L
-        fun remainingTicks(bar: Bar, excluding: Beat? = null): Long = (barCapacityTicks(bar) - barUsedTicks(bar, excluding)).coerceAtLeast(0L)
+        fun barUsedTicks(bar: Bar, voiceIndex: Int = 0, excluding: Beat? = null): Long =
+            bar.voices.toList().getOrNull(voiceIndex)?.beats?.toList()
+                ?.filter { it !== excluding }?.sumOf { beatTicks(it) } ?: 0L
+        fun remainingTicks(bar: Bar, voiceIndex: Int = 0, excluding: Beat? = null): Long =
+            (barCapacityTicks(bar) - barUsedTicks(bar, voiceIndex, excluding)).coerceAtLeast(0L)
         fun candidateTicks(duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Long {
             var ticks = durationTicks(duration)
             when (dots.coerceIn(0, 2)) { 1 -> ticks += ticks / 2; 2 -> ticks += (ticks / 4) * 3 }
             if (tupletNumerator >= 0 && tupletDenominator > 0) ticks = (ticks * tupletDenominator.toLong()) / tupletNumerator.toLong()
             return ticks.coerceAtLeast(1L)
         }
-        fun fits(bar: Bar, beat: Beat, duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Boolean = candidateTicks(duration, dots, tupletNumerator, tupletDenominator) <= remainingTicks(bar, beat)
+        fun fits(bar: Bar, voiceIndex: Int, beat: Beat, duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Boolean =
+            candidateTicks(duration, dots, tupletNumerator, tupletDenominator) <= remainingTicks(bar, voiceIndex, beat)
         fun apply(beat: Beat, duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1) {
             beat.duration = duration; beat.dots = dots.coerceIn(0, 2).toDouble(); beat.tupletNumerator = tupletNumerator.toDouble(); beat.tupletDenominator = tupletDenominator.toDouble()
         }
@@ -1142,6 +1123,8 @@ class MainActivity : Activity() {
         private val overlay: TabEditOverlayView
     ) {
         var currentBarIndex: Int = 0
+            private set
+        var selectedBarIndex: Int = 0
             private set
         var currentBeatIndex: Int = 0
             private set
@@ -1191,6 +1174,7 @@ class MainActivity : Activity() {
 
         fun resetSelection() {
             currentBarIndex = 0
+            selectedBarIndex = 0
             currentBeatIndex = 0
             currentStringIndex = 1
             currentTrackIndex = 0.coerceAtMost((score.api.score?.tracks?.toList()?.size ?: 1) - 1)
@@ -1242,6 +1226,7 @@ class MainActivity : Activity() {
                     val beatIndex = beat.voice.beats.toList().indexOf(beat)
                     if (barIndex < 0 || beatIndex < 0) return@on
                     currentBarIndex = barIndex
+                    selectedBarIndex = barIndex
                     currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
                     currentBeatIndex = beatIndex
                     armed = true
@@ -1267,6 +1252,7 @@ class MainActivity : Activity() {
                     val beatIndex = note.beat.voice.beats.toList().indexOf(note.beat)
                     if (barIndex < 0 || beatIndex < 0) return@on
                     currentBarIndex = barIndex
+                    selectedBarIndex = barIndex
                     currentVoiceIndex = note.beat.voice.index.toInt().coerceIn(0, 3)
                     currentBeatIndex = beatIndex
                     currentStringIndex = (maxStringIndex() + 1 - note.string.toInt())
@@ -1443,7 +1429,7 @@ class MainActivity : Activity() {
 
         fun showTimelineDialog() {
             val song = score.api.score ?: return
-            val master = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            val master = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
             val panel = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
@@ -1472,7 +1458,7 @@ class MainActivity : Activity() {
             panel.addView(modeSpinner, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             panel.addView(tempo, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             AlertDialog.Builder(activity)
-                .setTitle("TIME / KEY / TEMPO • BAR " + (currentBarIndex + 1))
+                .setTitle("TIME / KEY / TEMPO • BAR " + (selectedBarIndex + 1))
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -1492,7 +1478,7 @@ class MainActivity : Activity() {
                         }
                         song.finish(score.settings)
                         renderAndLog("timeline-bar")
-                        updateStatus("Bar " + (currentBarIndex + 1) + " • " + n + "/" + d + " • " + keys[keySpinner.selectedItemPosition])
+                        updateStatus("Bar " + (selectedBarIndex + 1) + " • " + n + "/" + d + " • " + keys[keySpinner.selectedItemPosition])
                     } catch (t: Throwable) {
                         updateStatus("Timeline edit failed • " + (t.message ?: t.javaClass.simpleName))
                     }
@@ -1554,11 +1540,11 @@ class MainActivity : Activity() {
             try {
                 val song = score.api.score ?: return
                 val source = song.tracks.toList().getOrNull(currentTrackIndex)
-                    ?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(currentBarIndex)
+                    ?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(selectedBarIndex)
                     ?: throw IllegalStateException("No current bar")
-                copiedBar = cloneBarForScore(source, song.masterBars.toList().getOrNull(currentBarIndex)
+                copiedBar = cloneBarForScore(source, song.masterBars.toList().getOrNull(selectedBarIndex)
                     ?: throw IllegalStateException("No current master bar"))
-                updateStatus("Copied bar " + (currentBarIndex + 1))
+                updateStatus("Copied bar " + (selectedBarIndex + 1))
             } catch (t: Throwable) {
                 updateStatus("Copy bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
@@ -1571,10 +1557,11 @@ class MainActivity : Activity() {
                     return
                 }
                 val song = score.api.score ?: return
-                val targetIndex = currentBarIndex
+                val targetIndex = selectedBarIndex
                 pushUndoSnapshot()
-                for (track in song.tracks.toList()) {
-                    for (staff in track.staves.toList()) {
+                val track = song.tracks.toList().getOrNull(currentTrackIndex)
+                    ?: throw IllegalStateException("No current track")
+                for (staff in track.staves.toList()) {
                         val target = staff.bars.toList().getOrNull(targetIndex) ?: continue
                         val sourceVoices = source.voices.toList()
                         val targetVoices = target.voices.toList()
@@ -1611,7 +1598,6 @@ class MainActivity : Activity() {
                                 tb.finish(score.settings, null)
                             }
                         }
-                    }
                 }
                 song.finish(score.settings)
                 renderAndLog("paste-bar")
@@ -1635,9 +1621,9 @@ class MainActivity : Activity() {
             pushUndoSnapshot()
             try {
                 val song = score.api.score ?: return
-                val sourceMaster = song.masterBars.toList().getOrNull(currentBarIndex)
+                val sourceMaster = song.masterBars.toList().getOrNull(selectedBarIndex)
                     ?: throw IllegalStateException("No current measure")
-                val sourceIndex = currentBarIndex
+                val sourceIndex = selectedBarIndex
                 val newMaster = MasterBar().apply {
                     timeSignatureNumerator = sourceMaster.timeSignatureNumerator
                     timeSignatureDenominator = sourceMaster.timeSignatureDenominator
@@ -1659,7 +1645,7 @@ class MainActivity : Activity() {
                 }
 
                 song.finish(score.settings)
-                currentBarIndex = song.masterBars.toList().lastIndex
+                selectedBarIndex = song.masterBars.toList().lastIndex
                 currentBeatIndex = 0
                 currentStringIndex = 1
                 armed = true
@@ -1667,7 +1653,7 @@ class MainActivity : Activity() {
                 renderAndLog("duplicate-bar")
                 updateCursor()
                 onSelectionChanged?.invoke()
-                updateStatus("Duplicated bar " + (sourceIndex + 1) + " → bar " + (currentBarIndex + 1))
+                updateStatus("Duplicated bar " + (sourceIndex + 1) + " → bar " + (selectedBarIndex + 1))
             } catch (t: Throwable) {
                 updateStatus("Duplicate bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
@@ -1677,35 +1663,67 @@ class MainActivity : Activity() {
             pushUndoSnapshot()
             try {
                 val song = score.api.score ?: return
-                val index = currentBarIndex
+                val index = selectedBarIndex
+                val track = song.tracks.toList().getOrNull(currentTrackIndex)
+                    ?: throw IllegalStateException("No current track")
                 var cleared = 0
-                for (track in song.tracks.toList()) {
-                    for (staff in track.staves.toList()) {
-                        val bar = staff.bars.toList().getOrNull(index) ?: continue
-                        for (voice in bar.voices.toList()) {
-                            for (beat in voice.beats.toList()) {
-                                val notes = beat.notes.toList()
-                                for (note in notes) beat.removeNote(note)
-                                beat.isEmpty = true
-                                beat.finish(score.settings, null)
-                            }
+                for (staff in track.staves.toList()) {
+                    val bar = staff.bars.toList().getOrNull(index) ?: continue
+                    for (voice in bar.voices.toList()) {
+                        for (beat in voice.beats.toList()) {
+                            for (note in beat.notes.toList()) beat.removeNote(note)
+                            beat.isEmpty = true
+                            beat.finish(score.settings, null)
                         }
-                        cleared++
                     }
+                    cleared++
                 }
                 song.finish(score.settings)
                 renderAndLog("clear-bar")
                 updateCursor()
                 onSelectionChanged?.invoke()
-                updateStatus("Bar " + (index + 1) + " cleared • " + cleared + " staves")
+                updateStatus("Selected bar " + (index + 1) + " cleared • " + cleared + " staff(s)")
             } catch (t: Throwable) {
                 updateStatus("Clear bar failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
+        fun deleteCurrentBarFromUi() {
+            val song = score.api.score ?: return
+            val count = song.masterBars.toList().size
+            if (count <= 1) {
+                updateStatus("At least one measure must remain")
+                return
+            }
+            val index = selectedBarIndex
+            if (index !in 0 until count) return
+            try {
+                pushUndoSnapshot()
+                song.masterBars.splice(index.toDouble(), 1.0)
+                for (track in song.tracks.toList()) {
+                    for (staff in track.staves.toList()) {
+                        if (index < staff.bars.toList().size) {
+                            staff.bars.splice(index.toDouble(), 1.0)
+                        }
+                    }
+                }
+                val newLast = song.masterBars.toList().lastIndex
+                selectedBarIndex = index.coerceAtMost(newLast)
+                currentBarIndex = currentBarIndex.coerceAtMost(newLast)
+                currentBeatIndex = 0
+                song.finish(score.settings)
+                renderAndLog("delete-bar")
+                syncSelectedBarHighlight()
+                updateCursor()
+                onSelectionChanged?.invoke()
+                updateStatus("Deleted selected bar " + (index + 1) + " • " + song.masterBars.toList().size + " measures remain")
+            } catch (t: Throwable) {
+                updateStatus("Delete bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
         }
 
         fun showBarToolsDialog() {
             val song = score.api.score ?: return
-            val bar = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            val bar = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
             val panel = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
@@ -1728,7 +1746,7 @@ class MainActivity : Activity() {
             panel.addView(lineBreak, LinearLayout.LayoutParams(-1, activity.dp(42f)))
             panel.addView(section, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             AlertDialog.Builder(activity)
-                .setTitle("BAR TOOLS • " + (currentBarIndex + 1))
+                .setTitle("BAR TOOLS • " + (selectedBarIndex + 1))
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -1862,7 +1880,7 @@ class MainActivity : Activity() {
             for (note in beat.notes.toList()) beat.removeNote(note)
             beat.isEmpty = true
             finishEditedScore("rest")
-            updateStatus("Rest • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+            updateStatus("Rest • Bar " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
         }
 
         fun toggleTieFromUi() {
@@ -1872,8 +1890,8 @@ class MainActivity : Activity() {
                 return
             }
             val previousBeat = when {
-                currentBeatIndex > 0 -> bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex - 1)
-                currentBarIndex > 0 -> bars()?.getOrNull(currentBarIndex - 1)?.voices?.firstOrNull()?.beats?.toList()?.lastOrNull()
+                currentBeatIndex > 0 -> bars()?.getOrNull(selectedBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex - 1)
+                selectedBarIndex > 0 -> bars()?.getOrNull(selectedBarIndex - 1)?.voices?.firstOrNull()?.beats?.toList()?.lastOrNull()
                 else -> null
             }
             val previousNote = previousBeat?.getNoteOnString(currentNote.string)
@@ -1897,7 +1915,7 @@ class MainActivity : Activity() {
 
         fun toggleRepeatStartFromUi() {
             val song = score.api.score ?: return
-            val bar = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            val bar = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
             bar.isRepeatStart = !bar.isRepeatStart
             song.rebuildRepeatGroups()
             finishEditedScore("repeat-start")
@@ -1906,7 +1924,7 @@ class MainActivity : Activity() {
 
         fun toggleDoubleBarFromUi() {
             val song = score.api.score ?: return
-            val bar = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            val bar = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
             bar.isDoubleBar = !bar.isDoubleBar
             finishEditedScore("double-bar")
             updateStatus(if (bar.isDoubleBar) "Double bar ON" else "Double bar OFF")
@@ -2026,8 +2044,8 @@ class MainActivity : Activity() {
 
         fun currentBeatDurationTicks(): Long = currentBeat()?.let { AlphaTabRhythmEngine.beatTicks(it) } ?: 0L
         fun currentBeatDuration(): Pair<Duration, Int> = currentBeat()?.let { Pair(it.duration, it.dots.toInt().coerceIn(0, 2)) } ?: Pair(Duration.Quarter, 0)
-        fun currentBarCapacityTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barCapacityTicks(it) } ?: 0L
-        fun currentBarUsedTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barUsedTicks(it) } ?: 0L
+        fun currentBarCapacityTicks(): Long = bars()?.getOrNull(selectedBarIndex)?.let { AlphaTabRhythmEngine.barCapacityTicks(it) } ?: 0L
+        fun currentBarUsedTicks(): Long = bars()?.getOrNull(selectedBarIndex)?.let { AlphaTabRhythmEngine.barUsedTicks(it) } ?: 0L
 
         private fun currentSelectedDuration(): Duration = currentBeatDuration().first
         private fun currentSelectedDots(): Int = currentBeatDuration().second
@@ -2039,8 +2057,8 @@ class MainActivity : Activity() {
         fun setCurrentDuration(duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1): Boolean {
             pushUndoSnapshot()
             val beat = currentBeat() ?: return false
-            val bar = bars()?.getOrNull(currentBarIndex) ?: return false
-            if (!AlphaTabRhythmEngine.fits(bar, beat, duration, dots, tupletNumerator, tupletDenominator)) {
+            val bar = bars()?.getOrNull(selectedBarIndex) ?: return false
+            if (!AlphaTabRhythmEngine.fits(bar, currentVoiceIndex, beat, duration, dots, tupletNumerator, tupletDenominator)) {
                 updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
                 return false
             }
@@ -2056,8 +2074,7 @@ class MainActivity : Activity() {
         private fun createNextMeasures(count: Int = 4): Boolean {
             val song = score.api.score ?: return false
             val sourceBar = bars()?.lastOrNull() ?: return false
-            // Add a complete page at a time (the current page layout is 4 measures).
-            repeat(count.coerceAtLeast(4)) {
+            repeat(count.coerceAtLeast(1)) {
                 val master = MasterBar().apply {
                     timeSignatureNumerator = sourceBar.masterBar.timeSignatureNumerator
                     timeSignatureDenominator = sourceBar.masterBar.timeSignatureDenominator
@@ -2073,21 +2090,41 @@ class MainActivity : Activity() {
                     repeat(voiceCount) {
                         val voice = alphaTab.model.Voice()
                         newBar.addVoice(voice)
-                        repeat(4) {
-                            voice.addBeat(Beat().apply {
-                                duration = Duration.Quarter
-                                dots = 0.0
-                                tupletNumerator = -1.0
-                                tupletDenominator = -1.0
-                                isEmpty = true
-                            })
-                        }
+                        addEmptyBeatsForTimeSignature(
+                            voice,
+                            master.timeSignatureNumerator.toInt().coerceIn(1, 32),
+                            master.timeSignatureDenominator.toInt().coerceIn(1, 32)
+                        )
                     }
                 }
             }
             song.finish(score.settings)
             renderAndLog("create-next-measures")
             return true
+        }
+
+        private fun addEmptyBeatsForTimeSignature(
+            voice: alphaTab.model.Voice,
+            numerator: Int,
+            denominator: Int
+        ) {
+            val duration = when (denominator) {
+                1 -> Duration.Whole
+                2 -> Duration.Half
+                4 -> Duration.Quarter
+                8 -> Duration.Eighth
+                16 -> Duration.Sixteenth
+                else -> Duration.ThirtySecond
+            }
+            repeat(numerator.coerceAtLeast(1)) {
+                voice.addBeat(Beat().apply {
+                    this.duration = duration
+                    dots = 0.0
+                    tupletNumerator = -1.0
+                    tupletDenominator = -1.0
+                    isEmpty = true
+                })
+            }
         }
 
         private fun ensureTrailingMeasures(currentIndex: Int): Boolean {
@@ -2098,7 +2135,7 @@ class MainActivity : Activity() {
 
         private fun advanceAfterEntry() {
             val bs = bars() ?: return
-            val bar = bs.getOrNull(currentBarIndex) ?: return
+            val bar = bs.getOrNull(selectedBarIndex) ?: return
             val beat = currentBeat() ?: return
             if (AlphaTabRhythmEngine.nextBeat(bar, beat) != null) {
                 currentBeatIndex++
@@ -2110,13 +2147,13 @@ class MainActivity : Activity() {
             // The current measure is complete. Crossing its last beat always moves
             // to beat 1 of the next measure. If this was the trailing measure,
             // append four more Empty-Beat measures first.
-            if (currentBarIndex == bs.lastIndex) {
+            if (selectedBarIndex == bs.lastIndex) {
                 if (!createNextMeasures(4)) return
             }
-            currentBarIndex++
+            selectedBarIndex++
             currentBeatIndex = 0
             updateCursor()
-            updateStatus("Measure " + (currentBarIndex + 1) + " • Beat 1")
+            updateStatus("Measure " + (selectedBarIndex + 1) + " • Beat 1")
         }
 
         /** Arrow navigation never creates a measure. It only moves inside existing Score beats. */
@@ -2131,12 +2168,13 @@ class MainActivity : Activity() {
             if (index !in tracks.indices) return
             try {
                 currentTrackIndex = index
-                currentBarIndex = 0
+                selectedBarIndex = 0
                 currentBeatIndex = 0
                 currentStringIndex = 1
                 armed = true
                 pendingFret = ""
                 score.api.renderScore(score.api.score!!, alphaTab.collections.DoubleList(index.toDouble()))
+                syncSelectedBarHighlight()
                 updateCursor()
                 updateStatus("TRACK " + (index + 1) + " • " + trackLabel())
                 onSelectionChanged?.invoke()
@@ -2158,8 +2196,9 @@ class MainActivity : Activity() {
             val label = track?.name?.ifBlank { track.shortName }?.ifBlank { "Track " + (currentTrackIndex + 1) }
                 ?: "Track " + (currentTrackIndex + 1)
             return "TRACK " + (currentTrackIndex + 1) + " • " + label +
+                "   |   SELECTED BAR " + (selectedBarIndex + 1) +
                 "   |   VOICE " + (currentVoiceIndex + 1) +
-                "   |   SELECTED BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
+                "   |   CURSOR BAR " + (selectedBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
                 "   |   STRING " + currentStringIndex + " • " + currentStringLabel() +
                 "   |   FRET " + currentFretLabel()
         }
@@ -2167,7 +2206,7 @@ class MainActivity : Activity() {
         private fun moveBeat(delta: Int) {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
-            var b = currentBarIndex.coerceIn(0, bs.lastIndex)
+            var b = selectedBarIndex.coerceIn(0, bs.lastIndex)
             var beat = currentBeatIndex
             val step = if (delta < 0) -1 else 1
 
@@ -2192,7 +2231,7 @@ class MainActivity : Activity() {
                 beat = candidate.coerceAtLeast(0)
             }
 
-            currentBarIndex = b
+            selectedBarIndex = b
             currentBeatIndex = beat
             armed = true
             pendingFret = ""
@@ -2204,8 +2243,8 @@ class MainActivity : Activity() {
         private fun moveToEdge(end: Boolean) {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
-            currentBarIndex = if (end) bs.lastIndex else 0
-            val beats = bs[currentBarIndex].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+            selectedBarIndex = if (end) bs.lastIndex else 0
+            val beats = bs[selectedBarIndex].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             currentBeatIndex = if (end) (beats.size - 1).coerceAtLeast(0) else 0
             armed = true
             pendingFret = ""
@@ -2285,7 +2324,7 @@ class MainActivity : Activity() {
                 // Stay on the same Beat after entering a fret. This is required for chords:
                 // move up/down through strings and enter additional frets at the same rhythmic
                 // position. Beat navigation is explicit via the left/right controls.
-                updateStatus("Fret " + fret + " • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
+                updateStatus("Fret " + fret + " • Bar " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
             } catch (t: Throwable) {
                 pendingFret = ""
                 inputGeneration++
@@ -2341,7 +2380,7 @@ class MainActivity : Activity() {
                 "EARAM_RENDER",
                 "reason=" + lastRenderReason +
                     " | " + barCounts +
-                    " | current=bar/" + (currentBarIndex + 1) +
+                    " | current=bar/" + (selectedBarIndex + 1) +
                     " beat/" + (currentBeatIndex + 1) +
                     " string/" + currentStringIndex +
                     " fret/" + (fret ?: "-") +
@@ -2389,18 +2428,9 @@ class MainActivity : Activity() {
                     overlay.hideCursor()
                     return
                 }
-
-                // Derive the selected bar from the exact BeatBounds that owns the current beat.
-                // This avoids the previous page-origin rectangle problem.
                 val barBounds = bounds.barBounds.realBounds
-                overlay.showBarSelection(
-                    (barBounds.x - score.scrollX).toFloat(),
-                    (barBounds.y - score.scrollY).toFloat(),
-                    barBounds.w.toFloat(),
-                    barBounds.h.toFloat()
-                )
 
-                // AlphaTab places the native beat cursor at BeatBounds.onNotesX.
+                // BeatBounds.onNotesX is AlphaTab's authoritative horizontal timing coordinate.
                 val cursorX = (bounds.onNotesX - score.scrollX).toFloat()
                 overlay.showBeatCursor(
                     cursorX,
@@ -2423,7 +2453,7 @@ class MainActivity : Activity() {
 
                 android.util.Log.d(
                     "EARAM_CURSOR",
-                    "bar=" + (currentBarIndex + 1) +
+                    "bar=" + (selectedBarIndex + 1) +
                         " beat=" + (currentBeatIndex + 1) +
                         " string=" + currentStringIndex +
                         " onNotesX=" + bounds.onNotesX
@@ -2485,11 +2515,11 @@ class MainActivity : Activity() {
             val field = EditText(activity).apply {
                 hint = "Measure number (1-" + bs.size + ")"
                 inputType = InputType.TYPE_CLASS_NUMBER
-                setText((currentBarIndex + 1).toString())
+                setText((selectedBarIndex + 1).toString())
                 setSingleLine(true)
             }
             val info = TextView(activity).apply {
-                text = "Selected measure: " + (currentBarIndex + 1)
+                text = "Selected measure: " + (selectedBarIndex + 1)
                 setPadding(0, activity.dp(4f), 0, activity.dp(8f))
             }
             panel.addView(field, LinearLayout.LayoutParams(-1, activity.dp(48f)))
@@ -2512,7 +2542,8 @@ class MainActivity : Activity() {
         fun selectBarFromUi(index: Int) {
             val bs = bars() ?: return
             if (index !in bs.indices) return
-            currentBarIndex = index
+            selectedBarIndex = index
+            selectedBarIndex = index
             val beats = bs[index].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             if (beats.isEmpty()) {
                 currentVoiceIndex = 0
@@ -2522,9 +2553,45 @@ class MainActivity : Activity() {
             }
             armed = true
             pendingFret = ""
+            syncSelectedBarHighlight()
             updateCursor()
-            updateStatus("SELECTED BAR " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+            updateStatus("SELECTED BAR " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
             onSelectionChanged?.invoke()
+        }
+
+        fun syncSelectedBarHighlight() {
+            try {
+                val song = score.api.score ?: return
+                val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return
+                val staff = track.staves.firstOrNull() ?: return
+                val bar = staff.bars.toList().getOrNull(selectedBarIndex) ?: return
+                val beats = bar.voices.firstOrNull()?.beats?.toList().orEmpty()
+                if (beats.isEmpty()) {
+                    score.api.clearPlaybackRangeHighlight()
+                    return
+                }
+                // AlphaTab renders this highlight itself, so there is no coordinate overlay
+                // capable of creating a stray square at the viewport origin.
+                score.api.highlightPlaybackRange(beats.first(), beats.last())
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_SELECTION", "selected bar highlight failed", t)
+            }
+        }
+
+
+
+        fun playCurrentBeatFromUi() {
+            val beat = currentBeat() ?: return
+            if (!score.api.isReadyForPlayback) {
+                updateStatus("Player is preparing…")
+                return
+            }
+            try {
+                score.api.playBeat(beat)
+                updateStatus("Playing selected beat • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+            } catch (t: Throwable) {
+                updateStatus("Beat playback failed • " + (t.message ?: t.javaClass.simpleName))
+            }
         }
 
         fun showDurationDialog() {
@@ -2582,7 +2649,7 @@ class MainActivity : Activity() {
         private fun updateStatus(message: String? = null) {
             val text = message ?: (
                 "EDIT • TRACK " + (currentTrackIndex + 1) + " • VOICE " + (currentVoiceIndex + 1) +
-                " • BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
+                " • BAR " + (selectedBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
                 "  |  STRING " + currentStringIndex + " (" + currentStringLabel() + ")" +
                 "  |  FRET ${currentFretLabel()}"
             )
