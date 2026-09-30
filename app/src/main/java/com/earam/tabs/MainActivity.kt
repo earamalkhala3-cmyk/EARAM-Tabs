@@ -230,6 +230,8 @@ class MainActivity : Activity() {
 
         fun refreshTrackButtons() {
             trackButtons.removeAllViews()
+            // Keep + TRACK after every refresh; removeAllViews() previously deleted it.
+            trackButtons.addView(addTrack, LinearLayout.LayoutParams(dp(100f), dp(40f)))
             val tracks = score.api.score?.tracks?.toList().orEmpty()
             tracks.forEachIndexed { index, track ->
                 val label = track.name.ifBlank { track.shortName.ifBlank { "Track " + (index + 1) } }
@@ -453,7 +455,7 @@ class MainActivity : Activity() {
             .setTitle("FILE")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> newScore()
+                    0 -> showNewFileWizard()
                     1, 4 -> importTab()
                     2, 3 -> Toast.makeText(this, "Score persistence will be added on the same AlphaTab Score model.", Toast.LENGTH_SHORT).show()
                     5 -> Toast.makeText(this, "Export will use the AlphaTab Score model.", Toast.LENGTH_SHORT).show()
@@ -462,6 +464,60 @@ class MainActivity : Activity() {
                 }
             }
             .show()
+    }
+
+    /** Guitar-Pro-style New File setup using the same AlphaTab Score model. */
+    private fun showNewFileWizard() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(8f), dp(20f), 0)
+        }
+        fun field(hint: String, value: String, type: Int = InputType.TYPE_CLASS_TEXT) = EditText(this).apply {
+            this.hint = hint
+            setText(value)
+            inputType = type
+            setSingleLine(true)
+        }
+        val title = field("Song title", projectName)
+        val tempo = field("Tempo (BPM)", bpm.toString(), InputType.TYPE_CLASS_NUMBER)
+        val meter = field("Time signature (e.g. 4/4, 6/8, 7/8)", timeSig)
+        val measures = field("Starting measures", "200", InputType.TYPE_CLASS_NUMBER)
+        box.addView(title, LinearLayout.LayoutParams(-1, dp(48f)))
+        box.addView(tempo, LinearLayout.LayoutParams(-1, dp(48f)))
+        box.addView(meter, LinearLayout.LayoutParams(-1, dp(48f)))
+        box.addView(measures, LinearLayout.LayoutParams(-1, dp(48f)))
+        val trackNames = arrayOf("Guitar", "Guitar 2", "Bass", "Keyboard / Piano", "Guitar 3")
+        val checked = booleanArrayOf(true, false, false, false, false)
+        val selected = mutableListOf("Guitar")
+        AlertDialog.Builder(this)
+            .setTitle("NEW FILE")
+            .setView(box)
+            .setMultiChoiceItems(trackNames, checked) { _, which, isChecked ->
+                val name = trackNames[which]
+                if (isChecked) selected.add(name) else selected.remove(name)
+            }
+            .setNegativeButton("CANCEL", null)
+            .setPositiveButton("CREATE", null)
+            .create().apply {
+                setOnShowListener {
+                    getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val t = tempo.text.toString().toIntOrNull()?.coerceIn(20, 300) ?: 120
+                        val m = measures.text.toString().toIntOrNull()?.coerceIn(1, 2000) ?: 200
+                        val sig = meter.text.toString().trim().ifBlank { "4/4" }
+                        if (!sig.matches(Regex("[1-9][0-9]?/(2|4|8|16|32)"))) {
+                            Toast.makeText(this@MainActivity, "Invalid time signature", Toast.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        if (selected.isEmpty()) {
+                            Toast.makeText(this@MainActivity, "Select at least one track", Toast.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        val p = sig.split('/')
+                        newScore(title.text.toString().trim().ifBlank { "Music Home" }, t, p[0].toInt(), p[1].toInt(), m, selected.toList())
+                        dismiss()
+                    }
+                }
+            }.show()
     }
 
     /**
@@ -480,51 +536,82 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun newScore() {
+    private fun newScore(
+        title: String = "Music Home",
+        tempoBpm: Int = 120,
+        numerator: Int = 4,
+        denominator: Int = 4,
+        measureCount: Int = 200,
+        trackNames: List<String> = listOf("Guitar")
+    ) {
         try {
             val score = Score()
-            val firstMaster = MasterBar().apply {
-                timeSignatureNumerator = 4.0
-                timeSignatureDenominator = 4.0
+            projectName = title
+            bpm = tempoBpm
+            timeSig = "$numerator/$denominator"
+            val count = measureCount.coerceIn(1, 2000)
+            repeat(count) {
+                score.addMasterBar(MasterBar().apply {
+                    timeSignatureNumerator = numerator.toDouble()
+                    timeSignatureDenominator = denominator.toDouble()
+                })
             }
-            score.addMasterBar(firstMaster)
-
-            val track = alphaTab.model.Track()
-            val staff = alphaTab.model.Staff()
-            staff.showStandardNotation = true
-            staff.showTablature = true
-            staff.stringTuning = alphaTab.model.Tuning.getDefaultTuningFor(6.0)
-                ?: throw IllegalStateException("AlphaTab has no default 6-string tuning")
-            staff.stringTuning.finish()
-            track.addStaff(staff)
-            score.addTrack(track)
-
-            // New File is intentionally an open-ended writing canvas:
-            // start with 200 empty 4/4 measures instead of an artificial 4-measure limit.
-            // When the user reaches the end, createNextMeasures(4) adds one full page.
-            repeat(200) { barNumber ->
-                if (barNumber > 0) {
-                    val master = MasterBar().apply {
-                        timeSignatureNumerator = 4.0
-                        timeSignatureDenominator = 4.0
+            val names = trackNames.distinct().ifEmpty { listOf("Guitar") }
+            for (name in names) {
+                val track = alphaTab.model.Track().apply {
+                    this.name = name
+                    this.shortName = name
+                    playbackInfo.program = when {
+                        name.equals("Bass", true) -> 33.0
+                        name.contains("Piano", true) || name.contains("Keyboard", true) -> 0.0
+                        else -> 30.0
                     }
-                    score.addMasterBar(master)
+                    isVisibleOnMultiTrack = true
                 }
-                val bar = Bar()
-                staff.addBar(bar)
-                val voice = alphaTab.model.Voice()
-                bar.addVoice(voice)
-                addQuarterRestBeats(voice)
+                val stringed = !name.contains("Piano", true) && !name.contains("Keyboard", true)
+                val strings = if (name.equals("Bass", true)) 4.0 else 6.0
+                val staff = alphaTab.model.Staff().apply {
+                    showStandardNotation = true
+                    showTablature = stringed
+                    if (stringed) {
+                        stringTuning = alphaTab.model.Tuning.getDefaultTuningFor(strings)
+                            ?: throw IllegalStateException("No default tuning available for $name")
+                        stringTuning.finish()
+                    }
+                }
+                track.addStaff(staff)
+                repeat(count) {
+                    val bar = Bar()
+                    staff.addBar(bar)
+                    val voice = alphaTab.model.Voice()
+                    bar.addVoice(voice)
+                    val duration = when (denominator) {
+                        2 -> Duration.Half
+                        8 -> Duration.Eighth
+                        16 -> Duration.Sixteenth
+                        32 -> Duration.ThirtySecond
+                        else -> Duration.Quarter
+                    }
+                    repeat(numerator.coerceIn(1, 32)) {
+                        voice.addBeat(Beat().apply {
+                            this.duration = duration
+                            dots = 0.0
+                            tupletNumerator = -1.0
+                            tupletDenominator = -1.0
+                            isEmpty = true
+                        })
+                    }
+                }
+                score.addTrack(track)
             }
-
             val settings = alphaTabView?.settings ?: return
             score.finish(settings)
             currentScore = score
             alphaTabView?.api?.renderScore(score)
             alphaTabView?.api?.render()
             prepareMidiForCurrentScore("new-score")
-            projectName = "Music Home"
             noteEditor?.resetSelection()
+            statusView?.text = "New score • $title • $timeSig • ${names.size} track(s)"
         } catch (t: Throwable) {
             showImportError("New Score", t)
         }
