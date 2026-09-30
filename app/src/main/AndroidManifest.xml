@@ -7,7 +7,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:testOnly="false"
-        android:pageSizeCompat="true">
+        android:pageSizeCompat="enabled">
         <activity
             android:name=".MainActivity"
             android:exported="true"
