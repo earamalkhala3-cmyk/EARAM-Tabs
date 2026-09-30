@@ -206,11 +206,20 @@ jobs:
           grep -q 'application/x-earam-tab' "$MANIFEST"
           grep -q 'application/octet-stream' "$MANIFEST"
 
-          # Confirm the installed PackageManager resolves the exported activity
-          # for the custom Earam TAB MIME. No fake URI/provider is involved.
-          RESOLVED="$(adb -s emulator-5554 shell cmd package resolve-activity --brief --components --user 0 'intent:#Intent;action=android.intent.action.VIEW;type=application/x-earam-tab;end' 2>&1)"
-          printf '%s\n' "$RESOLVED"
-          grep -q 'com.earam.tabs/.MainActivity' <<< "$RESOLVED"
+          # Resolve through the real Android Activity Manager using MIME-only
+          # VIEW intents. This tests the actual external-file association without
+          # inventing a content provider or synthetic URI.
+          CUSTOM="$(adb -s emulator-5554 shell am start -W -a android.intent.action.VIEW -t application/x-earam-tab -c android.intent.category.DEFAULT 2>&1)"
+          printf '%s\n' "$CUSTOM"
+          grep -q 'Status: ok' <<< "$CUSTOM"
+          grep -q 'Activity: com.earam.tabs/.MainActivity' <<< "$CUSTOM"
+
+          # Also verify the generic binary fallback used by file managers that
+          # do not know the custom Earam MIME.
+          OCTET="$(adb -s emulator-5554 shell am start -W -a android.intent.action.VIEW -t application/octet-stream -c android.intent.category.DEFAULT 2>&1)"
+          printf '%s\n' "$OCTET"
+          grep -q 'Status: ok' <<< "$OCTET"
+          grep -q 'Activity: com.earam.tabs/.MainActivity' <<< "$OCTET"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
