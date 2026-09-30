@@ -467,6 +467,7 @@ class MainActivity : Activity() {
             currentScore = score
             alphaTabView?.api?.renderScore(score)
             alphaTabView?.api?.render()
+            prepareMidiForCurrentScore("new-score")
             projectName = "Music Home"
             noteEditor?.resetSelection()
         } catch (t: Throwable) {
@@ -994,6 +995,24 @@ class MainActivity : Activity() {
             lastRenderReason = reason
             score.api.score?.finish(score.settings)
             score.api.render()
+            // Editing mutates the live AlphaTab Score. AlphaTab's previously generated
+            // MIDI does not automatically follow those mutations, so rebuild MIDI from
+            // that same Score after every edit. This is the critical path that makes
+            // newly entered frets audible without introducing a second music model.
+            try {
+                score.api.loadMidiForScore()
+                updateStatus("MIDI updated • " + reason)
+                android.util.Log.i(
+                    "EARAM_PLAYER",
+                    "MIDI rebuilt from edited Score; reason=" + reason +
+                        "; readyForPlayback=" + score.api.isReadyForPlayback
+                )
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_PLAYER", "MIDI rebuild failed; reason=" + reason, t)
+                activity.runOnUiThread {
+                    status.text = "MIDI update failed • " + (t.message ?: t.javaClass.simpleName)
+                }
+            }
         }
 
         fun logRenderState() {
