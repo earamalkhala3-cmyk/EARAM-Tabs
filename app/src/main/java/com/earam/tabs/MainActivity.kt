@@ -1322,7 +1322,7 @@ class MainActivity : Activity() {
             val keys = arrayOf("Cb","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E","B","F#","C#")
             val keySpinner = android.widget.Spinner(activity)
             keySpinner.adapter = android.widget.ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, keys)
-            val currentKey = master.keySignature.toInt().coerceIn(-7,7) + 7
+            val currentKey = master.keySignature.ordinal.coerceIn(0, 14)
             keySpinner.setSelection(currentKey)
             val modes = arrayOf("Major","Minor")
             val modeSpinner = android.widget.Spinner(activity)
@@ -1345,7 +1345,7 @@ class MainActivity : Activity() {
                         master.timeSignatureNumerator = n.toDouble()
                         master.timeSignatureDenominator = d.toDouble()
                         master.timeSignatureCommon = n == 4 && d == 4
-                        master.keySignature = KeySignature.values()[keySpinner.selectedItemPosition].also { }
+                        master.keySignature = KeySignature.values()[keySpinner.selectedItemPosition]
                         master.keySignatureType = if (modeSpinner.selectedItemPosition == 1) KeySignatureType.Minor else KeySignatureType.Major
                         val tempoValue = tempo.text.toString().toDoubleOrNull()
                         if (tempoValue != null && tempoValue > 0) {
