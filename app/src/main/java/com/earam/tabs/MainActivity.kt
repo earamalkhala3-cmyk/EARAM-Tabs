@@ -13,6 +13,7 @@ import android.view.View
 import android.view.WindowManager
 import android.text.InputType
 import android.view.inputmethod.InputMethodManager
+import androidx.lifecycle.ViewModelProvider
 import android.content.Context
 import android.widget.Button
 import android.widget.EditText
@@ -63,16 +64,26 @@ class MainActivity : Activity() {
     private var soundFontLoaded = false
     private var soundFontLoading = false
     private var playerEngineReady = false
+    private lateinit var session: EditorSessionViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        session = ViewModelProvider(this)[EditorSessionViewModel::class.java]
+        projectName = session.projectName
+        bpm = session.bpm
+        timeSig = session.timeSignature
         openEditor()
-        // Do not start on an empty AlphaTabView. Create and render the real AlphaTab Score after layout.
+
+        // Activity recreation must not create a new empty score. The Score and all
+        // editor/playback state live in the ViewModel and are rebound to this new view.
         window.decorView.post {
-            newScore()
-            // alphaTab Android 1.8.4 ships with SONiVOX and loads its default SoundFont
-            // automatically when the synthesizer player is enabled.
-            handleIncomingFileIntent(intent)
+            if (intent?.action == Intent.ACTION_VIEW && intent?.data != null) {
+                handleIncomingFileIntent(intent)
+            } else if (session.score != null) {
+                restoreEditorSession()
+            } else {
+                newScore()
+            }
         }
     }
 
@@ -83,7 +94,18 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        try { alphaTabView?.api?.stop() } catch (_: Throwable) { }
+        // Do not call api.stop() here: rotation destroys the Activity and stop() would
+        // reset the exact playback position we are trying to preserve.
+        try {
+            alphaTabView?.let { view ->
+                session.score = currentScore ?: view.api.score ?: session.score
+                session.tickPosition = view.api.tickPosition
+                session.playbackSpeed = view.api.playbackSpeed
+                session.zoom = view.settings.display.scale
+                session.wasPlaying = view.api.playerState.toString().contains("Playing", true)
+            }
+        } catch (_: Throwable) { }
+        try { alphaTabView?.api?.destroy() } catch (_: Throwable) { }
         alphaTabView = null
         noteEditor = null
         currentScore = null
@@ -283,9 +305,9 @@ class MainActivity : Activity() {
                         "Score + TAB" to { score.settings.display.staveProfile = StaveProfile.ScoreTab; score.api.updateSettings(); score.api.render() },
                         "TAB only" to { score.settings.display.staveProfile = StaveProfile.Tab; score.api.updateSettings(); score.api.render() },
                         "Score only" to { score.settings.display.staveProfile = StaveProfile.Score; score.api.updateSettings(); score.api.render() },
-                        "Zoom 72%" to { score.settings.display.scale = 0.72; score.api.updateSettings(); score.api.render() },
-                        "Zoom 85%" to { score.settings.display.scale = 0.85; score.api.updateSettings(); score.api.render() },
-                        "Zoom 100%" to { score.settings.display.scale = 1.0; score.api.updateSettings(); score.api.render() }
+                        "Zoom 72%" to { score.settings.display.scale = 0.72; session.zoom = 0.72; score.api.updateSettings(); score.api.render() },
+                        "Zoom 85%" to { score.settings.display.scale = 0.85; session.zoom = 0.85; score.api.updateSettings(); score.api.render() },
+                        "Zoom 100%" to { score.settings.display.scale = 1.0; session.zoom = 1.0; score.api.updateSettings(); score.api.render() }
                     )) }
                 ))
             }
@@ -342,11 +364,11 @@ class MainActivity : Activity() {
             isClickable = true
             setOnClickListener {
                 showPanel("PLAYBACK SPEED", listOf(
-                    "0.5×" to { score.api.playbackSpeed = 0.50; text = "0.5×" },
-                    "0.75×" to { score.api.playbackSpeed = 0.75; text = "0.75×" },
-                    "1×" to { score.api.playbackSpeed = 1.00; text = "1×" },
-                    "1.25×" to { score.api.playbackSpeed = 1.25; text = "1.25×" },
-                    "1.5×" to { score.api.playbackSpeed = 1.50; text = "1.5×" }
+                    "0.5×" to { score.api.playbackSpeed = 0.50; session.playbackSpeed = 0.50; text = "0.5×" },
+                    "0.75×" to { score.api.playbackSpeed = 0.75; session.playbackSpeed = 0.75; text = "0.75×" },
+                    "1×" to { score.api.playbackSpeed = 1.00; session.playbackSpeed = 1.00; text = "1×" },
+                    "1.25×" to { score.api.playbackSpeed = 1.25; session.playbackSpeed = 1.25; text = "1.25×" },
+                    "1.5×" to { score.api.playbackSpeed = 1.50; session.playbackSpeed = 1.50; text = "1.5×" }
                 ))
             }
         }
@@ -480,7 +502,10 @@ class MainActivity : Activity() {
             setBackgroundColor(0xFFFFFEFB.toInt())
             settings.display.layoutMode = LayoutMode.Page
             settings.display.staveProfile = StaveProfile.ScoreTab
-            settings.display.barsPerRow = 2.0
+            // Automatic page layout lets AlphaTab use the real rhythmic width of each
+            // measure. A hard-coded 2 bars/system was causing dense systems around
+            // short-note passages and made the page look like measures were merged.
+            settings.display.barsPerRow = -1.0
             settings.display.barCount = -1.0
             settings.display.startBar = 1.0
             settings.display.scale = 0.72
@@ -564,9 +589,15 @@ class MainActivity : Activity() {
             }
         }
 
+        score.api.playerPositionChanged.on {
+            session.tickPosition = score.api.tickPosition
+        }
+
         score.api.playerStateChanged.on {
+            session.wasPlaying = score.api.playerState.toString().contains("Playing", true)
+            session.tickPosition = score.api.tickPosition
             runOnUiThread {
-                play.text = if (score.api.playerState.toString().contains("Playing", true)) "❚❚" else "▶"
+                play.text = if (session.wasPlaying) "❚❚" else "▶"
                 if (score.api.isReadyForPlayback) {
                     status.text = "Sound ready • $bpm BPM"
                     score.api.scrollToCursor()
@@ -584,6 +615,46 @@ class MainActivity : Activity() {
         root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(44f)))
         setContentView(root)
         play.isEnabled = true
+    }
+
+    /** Rebinds the ViewModel-owned Score to the newly created AlphaTabView after rotation. */
+    private fun restoreEditorSession() {
+        val score = session.score ?: return
+        val view = alphaTabView ?: return
+        try {
+            currentScore = score
+            projectName = session.projectName.ifBlank { score.title.ifBlank { "Music Home" } }
+            bpm = session.bpm
+            timeSig = session.timeSignature
+            titleView?.text = projectName
+
+            view.settings.display.scale = session.zoom.coerceIn(0.4, 2.0)
+            view.settings.display.barsPerRow = -1.0
+            view.api.playbackSpeed = session.playbackSpeed.coerceIn(0.25, 2.0)
+            view.api.updateSettings()
+            score.finish(view.settings)
+            renderAllTracks(score)
+            view.api.render()
+            view.api.loadMidiForScore()
+
+            noteEditor?.resetSelection()
+            statusView?.text = "Restored • $projectName • $timeSig"
+
+            // Restore the exact musical position only after the new MIDI timeline is ready.
+            window.decorView.postDelayed({
+                try {
+                    view.api.tickPosition = session.tickPosition.coerceIn(0.0, view.api.endTick)
+                    view.api.scrollToCursor()
+                    noteEditor?.refreshVisualCursor()
+                    if (session.wasPlaying && view.api.isReadyForPlayback) view.api.play()
+                } catch (t: Throwable) {
+                    android.util.Log.w("EARAM_ROTATION", "Playback position restore deferred", t)
+                }
+            }, 250L)
+        } catch (t: Throwable) {
+            android.util.Log.e("EARAM_ROTATION", "Session restore failed", t)
+            statusView?.text = "Session restore failed • ${t.message ?: t.javaClass.simpleName}"
+        }
     }
 
     private fun showFileMenu() {
@@ -787,6 +858,12 @@ class MainActivity : Activity() {
             val settings = alphaTabView?.settings ?: return
             score.finish(settings)
             currentScore = score
+            session.score = score
+            session.projectName = title
+            session.bpm = tempoBpm
+            session.timeSignature = "$numerator/$denominator"
+            session.tickPosition = 0.0
+            session.wasPlaying = false
             alphaTabView?.api?.renderScore(score)
             alphaTabView?.api?.render()
             prepareMidiForCurrentScore("new-score")
@@ -991,7 +1068,11 @@ class MainActivity : Activity() {
         normalizeImportedTracks(parsed)
 
         currentScore = parsed
+        session.score = parsed
+        session.sourceUri = uri.toString()
+        session.sourceName = fileName
         projectName = parsed.title.ifBlank { fileName.substringBeforeLast('.') }
+        session.projectName = projectName
 
         runOnUiThread {
             titleView?.text = projectName
