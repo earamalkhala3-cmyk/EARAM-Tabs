@@ -203,6 +203,48 @@ class MainActivity : Activity() {
         noteEditor = editor
         editor.attach()
 
+        fun refreshTrackButtons() {
+            trackButtons.removeAllViews()
+            val tracks = score.api.score?.tracks?.toList().orEmpty()
+            tracks.forEachIndexed { index, track ->
+                val label = track.name.ifBlank { track.shortName.ifBlank { "Track " + (index + 1) } }
+                val b = control(label).apply {
+                    textSize = 10f
+                    setOnClickListener { editor.selectTrackFromUi(index) }
+                }
+                trackButtons.addView(b, LinearLayout.LayoutParams(dp(110f), dp(40f)))
+            }
+        }
+        fun refreshSelectionInfo() {
+            selectionInfo.text = editor.selectionInfoText()
+        }
+        editor.onSelectionChanged = {
+            refreshSelectionInfo()
+            refreshTrackButtons()
+        }
+        refreshTrackButtons()
+        refreshSelectionInfo()
+
+        val trackScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF25292D.toInt())
+        }
+        val trackButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
+        }
+        trackScroll.addView(trackButtons, LinearLayout.LayoutParams(-2, dp(44f)))
+
+        val selectionInfo = TextView(this).apply {
+            text = "TRACK • Guitar  |  STRING 1 • HIGH E"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 12f
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12f), 0, dp(12f), 0)
+            setBackgroundColor(0xFF30353A.toInt())
+        }
+
         val durationScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(0xFF30353A.toInt())
@@ -318,9 +360,12 @@ class MainActivity : Activity() {
         score.api.scoreLoaded.on { loaded ->
             currentScore = loaded
             projectName = loaded.title.ifBlank { projectName }
+            noteEditor?.resetSelection()
             runOnUiThread {
                 title.text = projectName
                 status.text = "Score loaded • preparing playback"
+                refreshTrackButtons()
+                refreshSelectionInfo()
             }
             try {
                 score.api.loadMidiForScore()
@@ -376,6 +421,8 @@ class MainActivity : Activity() {
         root.addView(brandBar, LinearLayout.LayoutParams(-1, dp(50f)))
         root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
         root.addView(controlsScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(trackScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(selectionInfo, LinearLayout.LayoutParams(-1, dp(34f)))
         root.addView(durationScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(editScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(numberScroll, LinearLayout.LayoutParams(-1, dp(44f)))
@@ -535,8 +582,9 @@ class MainActivity : Activity() {
 
                 // GP bytes -> one AlphaTab Score -> AlphaTab renderer.
                 // Do not bind only the first track through view.tracks.
-                view.api.renderScore(parsed)
                 noteEditor?.resetSelection()
+                val selected = noteEditor?.currentTrackIndex ?: 0
+                view.api.renderScore(parsed, alphaTab.collections.DoubleList(selected.toDouble()))
                 statusView?.text =
                     "Parsed OK • tracks=$trackCount • masterBars=$masterBarCount • view=" +
                     width + "x" + height + " • renderScore() called"
@@ -704,11 +752,15 @@ class MainActivity : Activity() {
             private set
         var currentStringIndex: Int = 1
             private set
+        var currentTrackIndex: Int = 0
+            private set
+        var onSelectionChanged: (() -> Unit)? = null
 
         fun resetSelection() {
             currentBarIndex = 0
             currentBeatIndex = 0
             currentStringIndex = 1
+            currentTrackIndex = 0.coerceAtMost((score.api.score?.tracks?.toList()?.size ?: 1) - 1)
             armed = false
             pendingFret = ""
             updateCursor()
@@ -747,23 +799,28 @@ class MainActivity : Activity() {
             score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
 
             score.api.noteMouseDown.on { note ->
-                val track = score.api.score?.tracks?.firstOrNull() ?: return@on
-                val staff = track.staves.firstOrNull() ?: return@on
-                val barList = staff.bars.toList()
-                for (bi in barList.indices) {
-                    val beats = barList[bi].voices.firstOrNull()?.beats?.toList() ?: continue
-                    val index = beats.indexOf(note.beat)
-                    if (index >= 0) {
-                        currentBarIndex = bi
-                        currentBeatIndex = index
+                val tracks = score.api.score?.tracks?.toList().orEmpty()
+                for ((ti, track) in tracks.withIndex()) {
+                    val staff = track.staves.firstOrNull() ?: continue
+                    val barList = staff.bars.toList()
+                    for (bi in barList.indices) {
+                        val beats = barList[bi].voices.firstOrNull()?.beats?.toList() ?: continue
+                        val index = beats.indexOf(note.beat)
+                        if (index >= 0) {
+                            currentTrackIndex = ti
+                            currentBarIndex = bi
+                            currentBeatIndex = index
                         // UI numbering is top-to-bottom (1 = thin/high E). AlphaTab is bottom-to-top.
                         currentStringIndex = (7 - note.string.toInt()).coerceIn(1, maxStringIndex())
                         armed = true
                         pendingFret = ""
                         updateCursor()
                         score.requestFocus()
-                        break
+                            onSelectionChanged?.invoke()
+                            break
+                        }
                     }
+                    if (currentTrackIndex == tracks.indexOf(track)) break
                 }
             }
 
@@ -777,13 +834,13 @@ class MainActivity : Activity() {
         }
 
         private fun bars(): List<alphaTab.model.Bar>? =
-            score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.bars?.toList()
+            score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()
 
         private fun currentBeat(): alphaTab.model.Beat? =
             bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
 
         private fun maxStringIndex(): Int =
-            score.api.score?.tracks?.firstOrNull()?.staves?.firstOrNull()?.tuning?.toList()?.size?.coerceAtLeast(1) ?: 6
+            score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.tuning?.toList()?.size?.coerceAtLeast(1) ?: 6
 
         fun currentBeatDurationTicks(): Long = currentBeat()?.let { AlphaTabRhythmEngine.beatTicks(it) } ?: 0L
         fun currentBeatDuration(): Pair<Duration, Int> = currentBeat()?.let { Pair(it.duration, it.dots.toInt().coerceIn(0, 2)) } ?: Pair(Duration.Quarter, 0)
@@ -885,6 +942,42 @@ class MainActivity : Activity() {
         fun writeFretFromUi(fret: Int) = writeFret(fret)
         fun deleteCurrentNoteFromUi() = deleteCurrentNote()
 
+        fun selectTrackFromUi(index: Int) {
+            val tracks = score.api.score?.tracks?.toList().orEmpty()
+            if (index !in tracks.indices) return
+            try {
+                currentTrackIndex = index
+                currentBarIndex = 0
+                currentBeatIndex = 0
+                currentStringIndex = 1
+                armed = true
+                pendingFret = ""
+                score.api.renderScore(score.api.score!!, alphaTab.collections.DoubleList(index.toDouble()))
+                updateCursor()
+                updateStatus("TRACK " + (index + 1) + " • " + trackLabel())
+                onSelectionChanged?.invoke()
+            } catch (t: Throwable) {
+                activity.runOnUiThread {
+                    status.text = "Track switch failed • " + (t.message ?: t.javaClass.simpleName)
+                }
+            }
+        }
+
+        private fun trackLabel(): String {
+            val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)
+            return track?.name?.ifBlank { track.shortName }?.ifBlank { "Track " + (currentTrackIndex + 1) }
+                ?: "Track " + (currentTrackIndex + 1)
+        }
+
+        fun selectionInfoText(): String {
+            val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)
+            val label = track?.name?.ifBlank { track.shortName }?.ifBlank { "Track " + (currentTrackIndex + 1) }
+                ?: "Track " + (currentTrackIndex + 1)
+            return "TRACK " + (currentTrackIndex + 1) + " • " + label +
+                "   |   STRING " + currentStringIndex + " • " + currentStringLabel() +
+                "   |   FRET " + currentFretLabel()
+        }
+
         private fun moveBeat(delta: Int) {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
@@ -919,6 +1012,7 @@ class MainActivity : Activity() {
             pendingFret = ""
             updateCursor()
             updateStatus()
+            onSelectionChanged?.invoke()
         }
 
         private fun moveToEdge(end: Boolean) {
@@ -940,6 +1034,7 @@ class MainActivity : Activity() {
             pendingFret = ""
             updateCursor()
             updateStatus()
+            onSelectionChanged?.invoke()
         }
 
         private fun acceptDigit(digit: Int) {
@@ -974,7 +1069,7 @@ class MainActivity : Activity() {
 
         /** UI String 1 is the thin/high E; AlphaTab string 1 is the lowest/bottom string. */
         private fun alphaTabString(uiString: Int): Int =
-            (7 - uiString).coerceIn(1, maxStringIndex())
+            (maxStringIndex() + 1 - uiString).coerceIn(1, maxStringIndex())
 
         private fun writeFret(fret: Int) {
             if (fret !in 0..24) return
@@ -999,6 +1094,7 @@ class MainActivity : Activity() {
                 song.finish(score.settings)
                 renderAndLog("fret=" + fret)
                 updateCursor()
+                onSelectionChanged?.invoke()
                 updateStatus("Fret " + fret + " • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
                 advanceAfterEntry()
             } catch (t: Throwable) {
@@ -1081,6 +1177,7 @@ class MainActivity : Activity() {
             score.api.score?.finish(score.settings)
             renderAndLog("delete")
             updateCursor()
+            onSelectionChanged?.invoke()
             updateStatus(if (beat.isEmpty) "Beat cleared" else "Note deleted")
         }
 
@@ -1100,23 +1197,20 @@ class MainActivity : Activity() {
                     return
                 }
 
-                val x = bounds.onNotesX
-                if (!x.isFinite()) {
-                    overlay.hideCursor()
-                    return
-                }
-
                 val targetString = alphaTabString(currentStringIndex)
                 val noteBounds = bounds.notes?.toList()
                     ?.firstOrNull { it.note.string.toInt() == targetString }
 
+                val x: Double
                 val y: Double
                 val size: Double
                 if (noteBounds != null) {
                     val nb = noteBounds.noteHeadBounds
+                    x = nb.x + nb.w / 2.0
                     y = nb.y + nb.h / 2.0
                     size = maxOf(nb.w, nb.h, 18.0)
                 } else {
+                    x = bounds.onNotesX
                     // Empty beat: BeatBounds.barBounds spans the rendered staff region.
                     // Map UI string 1..N directly onto the TAB staff lines.
                     val r = bounds.barBounds.realBounds
@@ -1178,8 +1272,8 @@ class MainActivity : Activity() {
 
         private fun updateStatus(message: String? = null) {
             val text = message ?: (
-                "EDIT • BAR ${currentBarIndex + 1} • BEAT ${currentBeatIndex + 1}" +
-                "  |  STRING $currentStringIndex (${currentStringLabel()})" +
+                "EDIT • TRACK " + (currentTrackIndex + 1) + " • BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
+                "  |  STRING " + currentStringIndex + " (" + currentStringLabel() + ")" +
                 "  |  FRET ${currentFretLabel()}"
             )
             activity.runOnUiThread { status.text = text }
