@@ -1721,6 +1721,16 @@ class MainActivity : ComponentActivity() {
         private val beatHits = mutableListOf<BeatHit>()
         private var stringSpacing: Float = 10f
 
+        private data class BarMeta(
+            val measure: Int,
+            val bar: Bar,
+            val x: Float,
+            val y: Float,
+            val w: Float,
+            val h: Float,
+            val system: Int
+        )
+
         private fun buildBeatHits() {
             beatHits.clear()
             val lookup = score.api.renderer.boundsLookup ?: return
@@ -1732,7 +1742,7 @@ class MainActivity : ComponentActivity() {
 
             data class NoteGeom(val system: Int, val y: Float, val uiString: Int)
             val noteGeoms = mutableListOf<NoteGeom>()
-            val barMeta = mutableListOf<Triple<Int, alphaTab.model.Bar, alphaTab.rendering.BarBounds>>()
+            val barMeta = mutableListOf<BarMeta>()
 
             for ((mi, bar) in bars.withIndex()) {
                 val master = song.masterBars.toList().getOrNull(mi) ?: continue
@@ -1740,7 +1750,17 @@ class MainActivity : ComponentActivity() {
                 val barBounds = masterBounds.bars.toList().firstOrNull { it.bar === bar }
                     ?: masterBounds.bars.toList().firstOrNull()
                     ?: continue
-                barMeta.add(Triple(mi, bar, barBounds))
+                val system = masterBounds.staffSystemBounds?.index?.toInt() ?: mi
+                barMeta.add(
+                    BarMeta(
+                        mi, bar,
+                        barBounds.realBounds.x.toFloat(),
+                        barBounds.realBounds.y.toFloat(),
+                        barBounds.realBounds.w.toFloat(),
+                        barBounds.realBounds.h.toFloat(),
+                        system
+                    )
+                )
 
                 val voice = bar.voices.toList().getOrNull(currentVoiceIndex)
                 for (beat in voice?.beats?.toList().orEmpty()) {
@@ -1750,7 +1770,7 @@ class MainActivity : ComponentActivity() {
                         val nh = nb.noteHeadBounds
                         noteGeoms.add(
                             NoteGeom(
-                                bb.barBounds.masterBarBounds.staffSystemBounds?.index?.toInt() ?: mi,
+                                system,
                                 nh.y.toFloat() + nh.h.toFloat() * 0.5f,
                                 ui
                             )
@@ -1776,29 +1796,26 @@ class MainActivity : ComponentActivity() {
                 if (tops.isNotEmpty()) systemTop[system] = tops[tops.size / 2]
             }
 
-            for ((mi, bar, bb) in barMeta) {
-                val system = bb.masterBarBounds.staffSystemBounds?.index?.toInt() ?: mi
-                if (!systemTop.containsKey(system)) {
-                    systemTop[system] = (bb.realBounds.y + bb.realBounds.h * 0.58).toFloat()
+            for (meta in barMeta) {
+                if (!systemTop.containsKey(meta.system)) {
+                    systemTop[meta.system] = (meta.y + meta.h * 0.58f)
                 }
-                if (!systemSpacing.containsKey(system)) {
-                    systemSpacing[system] = (bb.realBounds.h * 0.075).toFloat().coerceIn(6f, 24f)
+                if (!systemSpacing.containsKey(meta.system)) {
+                    systemSpacing[meta.system] = (meta.h * 0.075f).coerceIn(6f, 24f)
                 }
-                val top = systemTop[system] ?: bb.realBounds.y.toFloat()
-                val spacing = systemSpacing[system] ?: 10f
-                val voice = bar.voices.toList().getOrNull(currentVoiceIndex)
+                val top = systemTop[meta.system] ?: meta.y
+                val spacing = systemSpacing[meta.system] ?: 10f
+                val voice = meta.bar.voices.toList().getOrNull(currentVoiceIndex)
                 val beats = voice?.beats?.toList().orEmpty()
                 if (beats.isEmpty()) {
                     beatHits.add(
                         BeatHit(
-                            mi, 0,
-                            RectF(
-                                bb.realBounds.x.toFloat(),
-                                bb.realBounds.y.toFloat(),
-                                (bb.realBounds.x + bb.realBounds.w).toFloat(),
-                                (bb.realBounds.y + bb.realBounds.h).toFloat()
-                            ),
-                            top, spacing, virtual = true
+                            meta.measure,
+                            0,
+                            RectF(meta.x, meta.y, meta.x + meta.w, meta.y + meta.h),
+                            top,
+                            spacing,
+                            virtual = true
                         )
                     )
                     continue
@@ -1807,14 +1824,17 @@ class MainActivity : ComponentActivity() {
                     val bounds = lookup.findBeat(beat) ?: continue
                     beatHits.add(
                         BeatHit(
-                            mi, bi,
+                            meta.measure,
+                            bi,
                             RectF(
                                 bounds.realBounds.x.toFloat(),
                                 bounds.realBounds.y.toFloat(),
                                 (bounds.realBounds.x + bounds.realBounds.w).toFloat(),
                                 (bounds.realBounds.y + bounds.realBounds.h).toFloat()
                             ),
-                            top, spacing, virtual = false
+                            top,
+                            spacing,
+                            virtual = false
                         )
                     )
                 }
@@ -2788,7 +2808,8 @@ class MainActivity : ComponentActivity() {
             val bar = bs.getOrNull(currentBarIndex) ?: return
             val beat = currentBeat() ?: return
             if (AlphaTabRhythmEngine.nextBeat(bar, beat) != null) {
-                currentBeatIndex++
+                caret = caret.copy(beatIndex = caret.beatIndex + 1)
+                session.caret = caret
                 updateCursor()
                 updateStatus()
                 return
@@ -2800,8 +2821,8 @@ class MainActivity : ComponentActivity() {
             if (currentBarIndex == bs.lastIndex) {
                 if (!createNextMeasures(4)) return
             }
-            currentBarIndex++
-            caret = caret.copy(measureIndex = currentBarIndex + 1, beatIndex = 0)
+            val nextMeasure = currentBarIndex + 1
+            caret = caret.copy(measureIndex = nextMeasure, beatIndex = 0)
             session.caret = caret
             updateCursor()
             updateStatus("Measure " + (currentBarIndex + 1) + " • Beat 1")
@@ -3331,11 +3352,12 @@ class MainActivity : ComponentActivity() {
                 " · B" + (selectedBarIndex + 1) + " · beat " + (currentBeatIndex + 1) +
                 " · S" + currentStringIndex + " · F" + currentFretLabel()
             )
-            session.selectedTrack = currentTrackIndex
-            session.selectedVoice = currentVoiceIndex
-            session.selectedBar = selectedBarIndex
-            session.selectedBeat = currentBeatIndex
-            session.selectedString = currentStringIndex
+            session.caret = Caret(
+                currentTrackIndex,
+                currentBarIndex,
+                currentBeatIndex,
+                currentStringIndex
+            )
             activity.runOnUiThread { status.text = text }
         }
     }
