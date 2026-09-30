@@ -35,9 +35,6 @@ import alphaTab.model.Duration
 import alphaTab.model.MasterBar
 import alphaTab.model.Note
 import alphaTab.model.Score
-import java.net.HttpURLConnection
-import java.net.URL
-import java.io.ByteArrayInputStream
 
 class MainActivity : Activity() {
     private var projectName = "Music Home"
@@ -191,6 +188,7 @@ class MainActivity : Activity() {
             settings.player.enableUserInteraction = true
             settings.player.enableCursor = true
             settings.player.enableElementHighlighting = true
+            api.masterVolume = 1.0
             api.updateSettings()
         }
 
@@ -318,11 +316,19 @@ class MainActivity : Activity() {
         speed15.setOnClickListener { setSpeed(1.50) }
 
         score.api.scoreLoaded.on { loaded ->
+            currentScore = loaded
+            projectName = loaded.title.ifBlank { projectName }
             runOnUiThread {
-                currentScore = loaded
-                projectName = loaded.title.ifBlank { projectName }
                 title.text = projectName
-                status.text = "Score loaded • AlphaTab renderer"
+                status.text = "Score loaded • preparing playback"
+            }
+            try {
+                score.api.loadMidiForScore()
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_PLAYER", "loadMidiForScore after scoreLoaded failed", t)
+                runOnUiThread {
+                    status.text = "MIDI preparation failed • " + (t.message ?: t.javaClass.simpleName)
+                }
             }
         }
 
@@ -334,42 +340,24 @@ class MainActivity : Activity() {
 
         score.api.playerReady.on {
             playerEngineReady = true
-            // Android alphaTab 1.8.4 loads its bundled SONiVOX SoundFont automatically.
-            // playerReady is emitted only after the SoundFont and MIDI are ready.
+            // AlphaTab 1.8.4 Android reports playerReady only after audio output,
+            // SoundFont and MIDI are ready. Do not inject or replace the bundled SoundFont.
             soundFontLoaded = true
             soundFontLoading = false
+            android.util.Log.i(
+                "EARAM_PLAYER",
+                "playerReady=true; readyForPlayback=" + score.api.isReadyForPlayback +
+                    "; actualPlayerMode=" + score.api.actualPlayerMode +
+                    "; masterVolume=" + score.api.masterVolume
+            )
             runOnUiThread {
                 val ready = score.api.isReadyForPlayback
                 play.isEnabled = ready
-                status.text = if (ready) {
-                    "Player ready • " + bpm + " BPM"
-                } else {
-                    "Player initialized"
-                }
+                status.text = if (ready) "Player ready • " + bpm + " BPM"
+                else "Player initialized"
             }
         }
 
-
-        score.api.soundFontLoaded.on {
-            soundFontLoaded = true
-            soundFontLoading = false
-            android.util.Log.i("EARAM_SOUNDFONT", "soundFontLoaded=true; actualPlayerMode=" + score.api.actualPlayerMode)
-            runOnUiThread {
-                try {
-                    score.api.loadMidiForScore()
-                    play.isEnabled = false
-                    status.text = "SoundFont loaded • preparing MIDI…"
-                } catch (t: Throwable) {
-                    soundFontLoaded = false
-                    play.isEnabled = false
-                    val detail = "loadMidiForScore failed: " +
-                        (t.message ?: t.javaClass.name) + "\n\n" +
-                        android.util.Log.getStackTraceString(t)
-                    android.util.Log.e("EARAM_SOUNDFONT", detail, t)
-                    showDetailedImportError("MIDI", t, detail)
-                }
-            }
-        }
 
         score.api.playerStateChanged.on {
             runOnUiThread {
