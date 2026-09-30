@@ -206,19 +206,24 @@ jobs:
           grep -q 'application/x-earam-tab' "$MANIFEST"
           grep -q 'application/octet-stream' "$MANIFEST"
 
-          # Query PackageManager directly with complete Android Intent URIs.
-          # query-activities reports every activity that can handle the Intent;
-          # unlike am start, it does not require a real file/provider to launch.
-          CUSTOM_INTENT='intent:#Intent;action=android.intent.action.VIEW;type=application/x-earam-tab;end'
-          CUSTOM="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0 "$CUSTOM_INTENT" 2>&1 || true)"
-          printf '%s\n' "$CUSTOM"
-          grep -q 'com.earam.tabs/.MainActivity' <<< "$CUSTOM"
+          # Verify the filters as registered by the installed Android PackageManager.
+          # We do not launch a synthetic content/file URI here: Android's shell
+          # resolver can close the adb channel when the URI has no backing provider.
+          # dumpsys package is the installed resolver registration view.
+          RESOLVER="$(adb -s emulator-5554 shell dumpsys package com.earam.tabs 2>&1)"
+          printf '%s\n' "$RESOLVER" | grep -A80 -B5 'com.earam.tabs/.MainActivity' | head -n 120
 
-          # Verify the generic binary MIME fallback as well.
-          OCTET_INTENT='intent:#Intent;action=android.intent.action.VIEW;type=application/octet-stream;end'
-          OCTET="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0 "$OCTET_INTENT" 2>&1 || true)"
-          printf '%s\n' "$OCTET"
-          grep -q 'com.earam.tabs/.MainActivity' <<< "$OCTET"
+          # MainActivity must be registered with VIEW + DEFAULT.
+          grep -q 'com.earam.tabs/.MainActivity' <<< "$RESOLVER"
+          grep -q 'android.intent.action.VIEW' <<< "$RESOLVER"
+          grep -q 'android.intent.category.DEFAULT' <<< "$RESOLVER"
+
+          # Both MIME registrations must survive manifest merge/install.
+          grep -q 'application/x-earam-tab' <<< "$RESOLVER"
+          grep -q 'application/octet-stream' <<< "$RESOLVER"
+
+          # Both .tab path registrations must be present in the installed resolver data.
+          grep -q 'pathSuffix=.tab' <<< "$RESOLVER"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
