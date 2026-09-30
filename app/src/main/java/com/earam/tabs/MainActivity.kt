@@ -271,7 +271,7 @@ class MainActivity : ComponentActivity() {
         val overflow = iconButton("⋮", "Open Earam menu", 42f).apply {
             textSize = 24f
             setOnClickListener {
-                showPanel("EARAM", listOf(
+                showPanel("Earam", listOf(
                     "File" to { showFileMenu() },
                     "Edit" to { showPanel("EDIT", listOf(
                         "Copy note" to { editor.copyCurrentNoteFromUi() },
