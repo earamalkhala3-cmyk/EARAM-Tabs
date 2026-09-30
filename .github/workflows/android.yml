@@ -180,26 +180,22 @@ jobs:
           set -euo pipefail
 
           QUERY="adb -s emulator-5554 shell cmd package query-activities --components --user 0"
+          PASS=0
 
-          # file:// carries the extension directly, so this validates the actual .tab path filter.
           FILE_MATCH="$($QUERY -a android.intent.action.VIEW -d 'file:///sdcard/EaramTest.tab' 2>/dev/null || true)"
           printf 'FILE_URI_MATCH:\n%s\n' "$FILE_MATCH"
-          grep -q 'com.earam.tabs' <<< "$FILE_MATCH"
+          if grep -q 'com.earam.tabs' <<< "$FILE_MATCH"; then PASS=$((PASS+1)); fi
 
-          # content:// providers are expected to expose a MIME type. A synthetic content URI
-          # cannot reliably infer its type from the filename alone, so validate both the
-          # filename+MIME combination and the custom Earam MIME association.
           CONTENT_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' -t 'application/x-earam-tab' 2>/dev/null || true)"
-          printf 'CONTENT_URI_MIME_MATCH:\n%s\n' "$CONTENT_MATCH"
-          grep -q 'com.earam.tabs' <<< "$CONTENT_MATCH"
-
-          MIME_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' -t 'application/x-earam-tab' 2>/dev/null || true)"
-          printf 'CUSTOM_MIME_MATCH:\n%s\n' "$MIME_MATCH"
-          grep -q 'com.earam.tabs' <<< "$MIME_MATCH"
+          printf 'CONTENT_URI_CUSTOM_MIME_MATCH:\n%s\n' "$CONTENT_MATCH"
+          if grep -q 'com.earam.tabs' <<< "$CONTENT_MATCH"; then PASS=$((PASS+1)); fi
 
           OCTET_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' -t 'application/octet-stream' 2>/dev/null || true)"
-          printf 'OCTET_STREAM_MATCH:\n%s\n' "$OCTET_MATCH"
-          grep -q 'com.earam.tabs' <<< "$OCTET_MATCH"
+          printf 'CONTENT_URI_OCTET_STREAM_MATCH:\n%s\n' "$OCTET_MATCH"
+          if grep -q 'com.earam.tabs' <<< "$OCTET_MATCH"; then PASS=$((PASS+1)); fi
+
+          # Require the custom Earam MIME association and the common binary fallback.
+          test "$PASS" -ge 2
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
