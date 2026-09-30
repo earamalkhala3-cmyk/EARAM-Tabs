@@ -1367,6 +1367,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private class BeatSnapshot(
+        val barIndex: Int,
+        val voiceIndex: Int,
+        val beatIndex: Int,
+        val duration: Duration,
+        val dots: Double,
+        val tupletNumerator: Double,
+        val tupletDenominator: Double,
+        val isEmpty: Boolean,
+        val notes: List<Pair<Double, Double>>
+    )
+
     /** Phase 3: deterministic keyboard navigation over the real AlphaTab Score. */
     private inner class AlphaTabNoteEditor(
         private val activity: MainActivity,
@@ -1397,18 +1409,6 @@ class MainActivity : ComponentActivity() {
          * That keeps Score as the single source of truth while making fret/duration/delete edits
          * genuinely undoable. Redo stores the state that existed immediately before restoration.
          */
-        private class BeatSnapshot(
-            val barIndex: Int,
-            val voiceIndex: Int,
-            val beatIndex: Int,
-            val duration: Duration,
-            val dots: Double,
-            val tupletNumerator: Double,
-            val tupletDenominator: Double,
-            val isEmpty: Boolean,
-            val notes: List<Pair<Double, Double>>
-        )
-
         private val undoHistory = java.util.ArrayDeque<BeatSnapshot>()
         private val redoHistory = java.util.ArrayDeque<BeatSnapshot>()
         private var restoringHistory = false
