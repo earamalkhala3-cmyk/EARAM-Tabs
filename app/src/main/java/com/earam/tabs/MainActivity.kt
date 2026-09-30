@@ -58,6 +58,7 @@ class MainActivity : Activity() {
     private var alphaTabView: AlphaTabView? = null
     private var noteEditor: AlphaTabNoteEditor? = null
     private var statusView: TextView? = null
+    private var titleView: TextView? = null
     private var soundFontLoaded = false
     private var soundFontLoading = false
     private var playerEngineReady = false
@@ -70,7 +71,14 @@ class MainActivity : Activity() {
             newScore()
             // alphaTab Android 1.8.4 ships with SONiVOX and loads its default SoundFont
             // automatically when the synthesizer player is enabled.
+            handleIncomingFileIntent(intent)
         }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        window.decorView.post { handleIncomingFileIntent(intent) }
     }
 
     override fun onDestroy() {
@@ -167,6 +175,7 @@ class MainActivity : Activity() {
 
         alphaTabView = score
         statusView = status
+        titleView = title
 
         val scoreLayer = FrameLayout(this).apply { setBackgroundColor(0xFFFFFFFF.toInt()) }
         val editorOverlay = TabEditOverlayView(this).apply {
@@ -912,8 +921,41 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                "application/octet-stream",
+                "application/x-earam-tab",
+                "text/plain"
+            ))
         }
         startActivityForResult(intent, 4107)
+    }
+
+    private fun handleIncomingFileIntent(incoming: Intent?) {
+        if (incoming == null || incoming.action != Intent.ACTION_VIEW) return
+        val uri = incoming.data ?: return
+        try {
+            val readFlag = incoming.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (readFlag != 0 && incoming.hasFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)) {
+                try { contentResolver.takePersistableUriPermission(uri, readFlag) } catch (_: Throwable) { }
+            }
+            val fileName = displayNameForUri(uri)
+            statusView?.text = "Importing • $fileName"
+            importScore(uri, fileName)
+        } catch (t: Throwable) {
+            showImportError("Open TAB", t)
+        }
+    }
+
+    private fun displayNameForUri(uri: Uri): String {
+        val queried = contentResolver.query(
+            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            else null
+        }
+        return queried?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+            ?: "IMPORT TAB"
     }
 
     private fun importScore(uri: Uri, fileName: String) {
@@ -940,6 +982,8 @@ class MainActivity : Activity() {
         projectName = parsed.title.ifBlank { fileName.substringBeforeLast('.') }
 
         runOnUiThread {
+            titleView?.text = projectName
+
             try {
                 val width = view.width
                 val height = view.height
@@ -982,17 +1026,7 @@ class MainActivity : Activity() {
         if (requestCode != 4107 || resultCode != RESULT_OK || data?.data == null) return
 
         val uri = data.data!!
-        val name = contentResolver.query(
-            uri,
-            arrayOf(OpenableColumns.DISPLAY_NAME),
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
-            } else null
-        } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "IMPORT TAB"
+        val name = displayNameForUri(uri)
 
         val statusMessage = "Importing $name directly into AlphaTab Score…"
         Toast.makeText(this, statusMessage, Toast.LENGTH_SHORT).show()
