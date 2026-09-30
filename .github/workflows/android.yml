@@ -206,26 +206,26 @@ jobs:
           grep -q 'application/x-earam-tab' "$MANIFEST"
           grep -q 'application/octet-stream' "$MANIFEST"
 
-          # Verify the filters as registered by the installed Android PackageManager.
-          # We do not launch a synthetic content/file URI here: Android's shell
-          # resolver can close the adb channel when the URI has no backing provider.
-          # dumpsys package is the installed resolver registration view.
-          RESOLVER="$(adb -s emulator-5554 shell dumpsys package com.earam.tabs 2>&1)"
-          printf '%s\n' "$RESOLVER" | grep -A80 -B5 'com.earam.tabs/.MainActivity' | head -n 120
+          # Verify the MIME filters through the installed PackageManager itself.
+          # Use MIME-only VIEW intents: unlike synthetic file/content URIs, these
+          # do not require a backing ContentProvider and are stable on Android 15.
+          QUERY_X_EARAM="$(adb -s emulator-5554 shell cmd package query-activities --brief \
+            -a android.intent.action.VIEW \
+            -c android.intent.category.DEFAULT \
+            -t application/x-earam-tab 2>&1 || true)"
+          QUERY_OCTET="$(adb -s emulator-5554 shell cmd package query-activities --brief \
+            -a android.intent.action.VIEW \
+            -c android.intent.category.DEFAULT \
+            -t application/octet-stream 2>&1 || true)"
 
-          # MainActivity must be registered with VIEW + DEFAULT.
-          grep -q 'com.earam.tabs/.MainActivity' <<< "$RESOLVER"
-          grep -q 'android.intent.action.VIEW' <<< "$RESOLVER"
-          grep -q 'android.intent.category.DEFAULT' <<< "$RESOLVER"
+          printf '%s\n' "$QUERY_X_EARAM"
+          printf '%s\n' "$QUERY_OCTET"
 
-          # Both MIME registrations must survive manifest merge/install.
-          grep -q 'application/x-earam-tab' <<< "$RESOLVER"
-          grep -q 'application/octet-stream' <<< "$RESOLVER"
+          grep -q 'com.earam.tabs/.MainActivity' <<< "$QUERY_X_EARAM"
+          grep -q 'com.earam.tabs/.MainActivity' <<< "$QUERY_OCTET"
 
-          # The APK manifest itself is the authoritative source for the
-          # .tab pathSuffix registration; that check already passed above.
-          # dumpsys uses Android-internal PathFilter formatting, so do not
-          # depend on a private textual representation here.
+          # The APK manifest remains authoritative for the explicit .tab
+          # pathSuffix registrations; those checks already passed above.
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
