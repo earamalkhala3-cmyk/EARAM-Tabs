@@ -250,7 +250,7 @@ class MainActivity : Activity() {
         val trackContext = control("TRACK 1").apply { textSize = 10f }
         val voiceContext = control("VOICE 1").apply { textSize = 10f }
         val selectionContext = TextView(this).apply {
-            text = "SELECTED BAR 1 • BEAT 1 • STRING 1"
+            text = "SELECTED BAR 1 • CURSOR BEAT 1 • STRING 1"
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 11f
             gravity = Gravity.CENTER_VERTICAL
@@ -497,6 +497,12 @@ class MainActivity : Activity() {
             runOnUiThread {
                 status.text = "AlphaTab error: " + (error.message ?: "unknown")
             }
+        }
+
+        score.api.soundFontLoaded.on {
+            soundFontLoaded = true
+            soundFontLoading = false
+            android.util.Log.i("EARAM_PLAYER", "SoundFontLoaded=true")
         }
 
         score.api.playerReady.on {
@@ -1848,7 +1854,7 @@ class MainActivity : Activity() {
             for (note in beat.notes.toList()) beat.removeNote(note)
             beat.isEmpty = true
             finishEditedScore("rest")
-            updateStatus("Rest • Bar " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+            updateStatus("Rest • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
         }
 
         fun toggleTieFromUi() {
@@ -1858,8 +1864,8 @@ class MainActivity : Activity() {
                 return
             }
             val previousBeat = when {
-                currentBeatIndex > 0 -> bars()?.getOrNull(selectedBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex - 1)
-                selectedBarIndex > 0 -> bars()?.getOrNull(selectedBarIndex - 1)?.voices?.firstOrNull()?.beats?.toList()?.lastOrNull()
+                currentBeatIndex > 0 -> bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex - 1)
+                currentBarIndex > 0 -> bars()?.getOrNull(selectedBarIndex - 1)?.voices?.firstOrNull()?.beats?.toList()?.lastOrNull()
                 else -> null
             }
             val previousNote = previousBeat?.getNoteOnString(currentNote.string)
@@ -2012,8 +2018,8 @@ class MainActivity : Activity() {
 
         fun currentBeatDurationTicks(): Long = currentBeat()?.let { AlphaTabRhythmEngine.beatTicks(it) } ?: 0L
         fun currentBeatDuration(): Pair<Duration, Int> = currentBeat()?.let { Pair(it.duration, it.dots.toInt().coerceIn(0, 2)) } ?: Pair(Duration.Quarter, 0)
-        fun currentBarCapacityTicks(): Long = bars()?.getOrNull(selectedBarIndex)?.let { AlphaTabRhythmEngine.barCapacityTicks(it) } ?: 0L
-        fun currentBarUsedTicks(): Long = bars()?.getOrNull(selectedBarIndex)?.let { AlphaTabRhythmEngine.barUsedTicks(it) } ?: 0L
+        fun currentBarCapacityTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barCapacityTicks(it) } ?: 0L
+        fun currentBarUsedTicks(): Long = bars()?.getOrNull(currentBarIndex)?.let { AlphaTabRhythmEngine.barUsedTicks(it, currentVoiceIndex) } ?: 0L
 
         private fun currentSelectedDuration(): Duration = currentBeatDuration().first
         private fun currentSelectedDots(): Int = currentBeatDuration().second
@@ -2025,7 +2031,7 @@ class MainActivity : Activity() {
         fun setCurrentDuration(duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1): Boolean {
             pushUndoSnapshot()
             val beat = currentBeat() ?: return false
-            val bar = bars()?.getOrNull(selectedBarIndex) ?: return false
+            val bar = bars()?.getOrNull(currentBarIndex) ?: return false
             if (!AlphaTabRhythmEngine.fits(bar, currentVoiceIndex, beat, duration, dots, tupletNumerator, tupletDenominator)) {
                 updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
                 return false
@@ -2103,7 +2109,7 @@ class MainActivity : Activity() {
 
         private fun advanceAfterEntry() {
             val bs = bars() ?: return
-            val bar = bs.getOrNull(selectedBarIndex) ?: return
+            val bar = bs.getOrNull(currentBarIndex) ?: return
             val beat = currentBeat() ?: return
             if (AlphaTabRhythmEngine.nextBeat(bar, beat) != null) {
                 currentBeatIndex++
@@ -2115,13 +2121,13 @@ class MainActivity : Activity() {
             // The current measure is complete. Crossing its last beat always moves
             // to beat 1 of the next measure. If this was the trailing measure,
             // append four more Empty-Beat measures first.
-            if (selectedBarIndex == bs.lastIndex) {
+            if (currentBarIndex == bs.lastIndex) {
                 if (!createNextMeasures(4)) return
             }
-            selectedBarIndex++
+            currentBarIndex++
             currentBeatIndex = 0
             updateCursor()
-            updateStatus("Measure " + (selectedBarIndex + 1) + " • Beat 1")
+            updateStatus("Measure " + (currentBarIndex + 1) + " • Beat 1")
         }
 
         /** Arrow navigation never creates a measure. It only moves inside existing Score beats. */
@@ -2174,7 +2180,7 @@ class MainActivity : Activity() {
         private fun moveBeat(delta: Int) {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
-            var b = selectedBarIndex.coerceIn(0, bs.lastIndex)
+            var b = currentBarIndex.coerceIn(0, bs.lastIndex)
             var beat = currentBeatIndex
             val step = if (delta < 0) -1 else 1
 
@@ -2199,7 +2205,7 @@ class MainActivity : Activity() {
                 beat = candidate.coerceAtLeast(0)
             }
 
-            selectedBarIndex = b
+            currentBarIndex = b
             currentBeatIndex = beat
             armed = true
             pendingFret = ""
@@ -2211,8 +2217,8 @@ class MainActivity : Activity() {
         private fun moveToEdge(end: Boolean) {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
-            selectedBarIndex = if (end) bs.lastIndex else 0
-            val beats = bs[selectedBarIndex].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+            currentBarIndex = if (end) bs.lastIndex else 0
+            val beats = bs[currentBarIndex].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             currentBeatIndex = if (end) (beats.size - 1).coerceAtLeast(0) else 0
             armed = true
             pendingFret = ""
@@ -2292,7 +2298,7 @@ class MainActivity : Activity() {
                 // Stay on the same Beat after entering a fret. This is required for chords:
                 // move up/down through strings and enter additional frets at the same rhythmic
                 // position. Beat navigation is explicit via the left/right controls.
-                updateStatus("Fret " + fret + " • Bar " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
+                updateStatus("Fret " + fret + " • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
             } catch (t: Throwable) {
                 pendingFret = ""
                 inputGeneration++
@@ -2348,7 +2354,7 @@ class MainActivity : Activity() {
                 "EARAM_RENDER",
                 "reason=" + lastRenderReason +
                     " | " + barCounts +
-                    " | current=bar/" + (selectedBarIndex + 1) +
+                    " | current=bar/" + (currentBarIndex + 1) +
                     " beat/" + (currentBeatIndex + 1) +
                     " string/" + currentStringIndex +
                     " fret/" + (fret ?: "-") +
