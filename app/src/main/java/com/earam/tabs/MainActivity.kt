@@ -212,6 +212,11 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
         }
+        val addTrack = control("+ TRACK").apply {
+            textSize = 10f
+            setOnClickListener { addTrackDialog() }
+        }
+        trackButtons.addView(addTrack, LinearLayout.LayoutParams(dp(100f), dp(40f)))
         trackScroll.addView(trackButtons, LinearLayout.LayoutParams(-2, dp(44f)))
 
         val selectionInfo = TextView(this).apply {
@@ -358,6 +363,7 @@ class MainActivity : Activity() {
         speed15.setOnClickListener { setSpeed(1.50) }
 
         score.api.scoreLoaded.on { loaded ->
+            normalizeImportedTracks(loaded)
             currentScore = loaded
             projectName = loaded.title.ifBlank { projectName }
             noteEditor?.resetSelection()
@@ -541,6 +547,103 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun normalizeImportedTracks(score: Score) {
+        for (track in score.tracks.toList()) {
+            for (staff in track.staves.toList()) {
+                if (staff.isStringed) {
+                    staff.showStandardNotation = true
+                    staff.showTablature = true
+                }
+            }
+        }
+        try {
+            score.finish(alphaTabView?.settings ?: return)
+        } catch (t: Throwable) {
+            android.util.Log.w("EARAM_IMPORT", "Track display normalization finish failed", t)
+        }
+    }
+
+    private fun addTrackDialog() {
+        val choices = arrayOf("Guitar 2", "Guitar 3", "Bass", "Keyboard / Piano")
+        AlertDialog.Builder(this)
+            .setTitle("ADD TRACK")
+            .setItems(choices) { _, which ->
+                when (which) {
+                    0 -> addEditableTrack("Guitar 2", 30.0, true)
+                    1 -> addEditableTrack("Guitar 3", 30.0, true)
+                    2 -> addEditableTrack("Bass", 33.0, true)
+                    3 -> addEditableTrack("Keyboard / Piano", 0.0, false)
+                }
+            }
+            .show()
+    }
+
+    private fun addEditableTrack(name: String, midiProgram: Double, stringed: Boolean) {
+        try {
+            val score = currentScore ?: alphaTabView?.api?.score
+                ?: throw IllegalStateException("No Score is loaded")
+            val settings = alphaTabView?.settings
+                ?: throw IllegalStateException("AlphaTab settings are not initialized")
+            val templateStaff = score.tracks.firstOrNull()?.staves?.firstOrNull()
+                ?: throw IllegalStateException("The Score has no staff to copy")
+            val track = alphaTab.model.Track().apply {
+                this.name = name
+                this.shortName = name
+                playbackInfo.program = midiProgram
+                isVisibleOnMultiTrack = true
+            }
+            val staff = alphaTab.model.Staff().apply {
+                showStandardNotation = true
+                showTablature = stringed
+                if (stringed) {
+                    stringTuning = alphaTab.model.Tuning.getDefaultTuningFor(if (name == "Bass") 4.0 else 6.0)
+                        ?: throw IllegalStateException("No default tuning available for $name")
+                    stringTuning.finish()
+                }
+            }
+            track.addStaff(staff)
+            for (sourceBar in templateStaff.bars.toList()) {
+                val newBar = Bar()
+                staff.addBar(newBar)
+                val sourceVoices = sourceBar.voices.toList()
+                if (sourceVoices.isEmpty()) {
+                    val voice = alphaTab.model.Voice()
+                    newBar.addVoice(voice)
+                    addQuarterRestBeats(voice)
+                } else {
+                    for (sourceVoice in sourceVoices) {
+                        val voice = alphaTab.model.Voice()
+                        newBar.addVoice(voice)
+                        val sourceBeats = sourceVoice.beats.toList()
+                        if (sourceBeats.isEmpty()) {
+                            addQuarterRestBeats(voice)
+                        } else {
+                            for (sourceBeat in sourceBeats) {
+                                voice.addBeat(Beat().apply {
+                                    duration = sourceBeat.duration
+                                    dots = sourceBeat.dots
+                                    tupletNumerator = sourceBeat.tupletNumerator
+                                    tupletDenominator = sourceBeat.tupletDenominator
+                                    isEmpty = true
+                                })
+                            }
+                        }
+                    }
+                }
+            }
+            score.addTrack(track)
+            score.finish(settings)
+            currentScore = score
+            val newIndex = score.tracks.toList().lastIndex
+            alphaTabView?.api?.renderScore(score, alphaTab.collections.DoubleList(newIndex.toDouble()))
+            alphaTabView?.api?.render()
+            prepareMidiForCurrentScore("add-track")
+            noteEditor?.selectTrackFromUi(newIndex)
+            statusView?.text = "Added " + name + " • track " + score.tracks.toList().size
+        } catch (t: Throwable) {
+            showImportError("Add Track", t)
+        }
+    }
     private fun importTab() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -566,6 +669,8 @@ class MainActivity : Activity() {
             ?: throw IllegalStateException(
                 "The imported file contains no tracks (tracks=$trackCount, masterBars=$masterBarCount)"
             )
+
+        normalizeImportedTracks(parsed)
 
         currentScore = parsed
         projectName = parsed.title.ifBlank { fileName.substringBeforeLast('.') }
@@ -1095,8 +1200,10 @@ class MainActivity : Activity() {
                 renderAndLog("fret=" + fret)
                 updateCursor()
                 onSelectionChanged?.invoke()
+                // Stay on the same Beat after entering a fret. This is required for chords:
+                // move up/down through strings and enter additional frets at the same rhythmic
+                // position. Beat navigation is explicit via the left/right controls.
                 updateStatus("Fret " + fret + " • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1) + " • String " + currentStringIndex)
-                advanceAfterEntry()
             } catch (t: Throwable) {
                 pendingFret = ""
                 inputGeneration++
