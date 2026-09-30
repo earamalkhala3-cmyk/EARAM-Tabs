@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/earam_launcher_safe"
-    android:inset="0%" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFF8A00"
+        android:pathData="M65,18 L65,66.5 C65,73.4 59.4,79 52.5,79 C45.6,79 40,74.8 40,69 C40,63.2 45.6,59 52.5,59 C55.3,59 57.9,59.7 60,61 L60,30 L83,24 L83,35 L65,39 Z" />
+</vector>
