@@ -607,7 +607,7 @@ class MainActivity : Activity() {
         trackNames: List<String> = listOf("Guitar")
     ) {
         try {
-            val score = Score()
+            val score = Score().apply { this.title = title }
             projectName = title
             bpm = tempoBpm
             timeSig = "$numerator/$denominator"
