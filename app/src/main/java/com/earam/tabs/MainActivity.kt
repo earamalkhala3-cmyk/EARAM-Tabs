@@ -714,21 +714,28 @@ class MainActivity : Activity() {
     }
 
     private fun addTrackDialog() {
-        val choices = arrayOf("Guitar 2", "Guitar 3", "Bass", "Keyboard / Piano")
+        val choices = arrayOf(
+            "Guitar 2", "Guitar 3", "Guitar 7-string", "Guitar 8-string",
+            "Bass 4-string", "Bass 5-string", "Keyboard / Piano", "Drums"
+        )
         AlertDialog.Builder(this)
             .setTitle("ADD TRACK")
             .setItems(choices) { _, which ->
                 when (which) {
-                    0 -> addEditableTrack("Guitar 2", 30.0, true)
-                    1 -> addEditableTrack("Guitar 3", 30.0, true)
-                    2 -> addEditableTrack("Bass", 33.0, true)
-                    3 -> addEditableTrack("Keyboard / Piano", 0.0, false)
+                    0 -> addEditableTrack("Guitar 2", 30.0, 6, true)
+                    1 -> addEditableTrack("Guitar 3", 30.0, 6, true)
+                    2 -> addEditableTrack("Guitar 7-string", 30.0, 7, true)
+                    3 -> addEditableTrack("Guitar 8-string", 30.0, 8, true)
+                    4 -> addEditableTrack("Bass 4-string", 33.0, 4, true)
+                    5 -> addEditableTrack("Bass 5-string", 33.0, 5, true)
+                    6 -> addEditableTrack("Keyboard / Piano", 0.0, 0, false)
+                    7 -> addEditableTrack("Drums", 0.0, 0, false)
                 }
             }
             .show()
     }
 
-    private fun addEditableTrack(name: String, midiProgram: Double, stringed: Boolean) {
+    private fun addEditableTrack(name: String, midiProgram: Double, stringCount: Int, stringed: Boolean) {
         try {
             val score = currentScore ?: alphaTabView?.api?.score
                 ?: throw IllegalStateException("No Score is loaded")
@@ -740,13 +747,14 @@ class MainActivity : Activity() {
                 this.name = name
                 this.shortName = name
                 playbackInfo.program = midiProgram
+                if (name.equals("Drums", true)) playbackInfo.primaryChannel = 9.0
                 isVisibleOnMultiTrack = true
             }
             val staff = alphaTab.model.Staff().apply {
                 showStandardNotation = true
                 showTablature = stringed
                 if (stringed) {
-                    stringTuning = alphaTab.model.Tuning.getDefaultTuningFor(if (name == "Bass") 4.0 else 6.0)
+                    stringTuning = alphaTab.model.Tuning.getDefaultTuningFor(stringCount.toDouble())
                         ?: throw IllegalStateException("No default tuning available for $name")
                     stringTuning.finish()
                 }
@@ -794,6 +802,7 @@ class MainActivity : Activity() {
             showImportError("Add Track", t)
         }
     }
+
     private fun importTab() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
