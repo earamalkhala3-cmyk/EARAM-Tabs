@@ -620,8 +620,9 @@ class MainActivity : ComponentActivity() {
             runOnUiThread {
                 play.text = if (session.wasPlaying) "❚❚" else "▶"
                 if (score.api.isReadyForPlayback) {
+                    // Earam owns the playback cursor and anchors it to playedBeatChanged.
+                    // Never let AlphaTab's system cursor move the page by multiple measures.
                     status.text = "Sound ready • $bpm BPM"
-                    score.api.scrollToCursor()
                 }
             }
         }
@@ -2719,8 +2720,8 @@ class MainActivity : ComponentActivity() {
 
         private fun updateCursor() {
             val beat = currentBeat() ?: return
-            // Playback cursor remains AlphaTab's native cursor and is driven only by playback.
-            // Editor navigation uses the orange overlay and never changes the playback range.
+            // Playback cursor is Earam-owned and updated only by playedBeatChanged.
+            // Editor navigation uses the orange overlay and never touches playback state.
             refreshVisualCursor()
         }
 
