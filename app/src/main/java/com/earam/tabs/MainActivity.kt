@@ -2199,9 +2199,9 @@ class MainActivity : Activity() {
             return "♫" + (currentTrackIndex + 1) + " " + label +
                 "  ·  B" + (selectedBarIndex + 1) +
                 "  ·  V" + (currentVoiceIndex + 1) +
-                "   |   CURSOR BAR " + (currentBarIndex + 1) + " • BEAT " + (currentBeatIndex + 1) +
-                "   |   STRING " + currentStringIndex + " • " + currentStringLabel() +
-                "   |   FRET " + currentFretLabel()
+                "  ·  b" + (currentBeatIndex + 1) +
+                "  ·  S" + currentStringIndex +
+                "  ·  F" + currentFretLabel()
         }
 
         private fun moveBeat(delta: Int) {
