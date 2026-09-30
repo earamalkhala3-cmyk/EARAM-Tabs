@@ -364,7 +364,8 @@ class MainActivity : ComponentActivity() {
             textSize = 20f
             setOnClickListener { editor.moveBeatFromUi(1) }
         }
-        val speed = TextView(this).apply {
+        lateinit var speed: TextView
+        speed = TextView(this).apply {
             text = "1×"
             contentDescription = "Playback speed"
             setTextColor(0xFFF3F0E8.toInt())
@@ -1396,7 +1397,7 @@ class MainActivity : ComponentActivity() {
          * That keeps Score as the single source of truth while making fret/duration/delete edits
          * genuinely undoable. Redo stores the state that existed immediately before restoration.
          */
-        private data class BeatSnapshot(
+        private class BeatSnapshot(
             val barIndex: Int,
             val voiceIndex: Int,
             val beatIndex: Int,
