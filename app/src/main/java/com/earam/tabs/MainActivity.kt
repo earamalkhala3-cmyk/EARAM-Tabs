@@ -540,6 +540,11 @@ class MainActivity : Activity() {
             selection.text = editor.selectionInfoText()
             track.text = "♫ " + (editor.currentTrackIndex + 1)
             voice.text = "V" + (editor.currentVoiceIndex + 1)
+            session.selectedTrack = editor.currentTrackIndex
+            session.selectedVoice = editor.currentVoiceIndex
+            session.selectedBar = editor.selectedBarIndex
+            session.selectedBeat = editor.currentBeatIndex
+            session.selectedString = editor.currentStringIndex
         }
         editor.onSelectionChanged = { refreshSelectionInfo() }
 
@@ -1102,6 +1107,41 @@ class MainActivity : Activity() {
         // Android alphaTab 1.8.4 loads its bundled SONiVOX SoundFont automatically.
     }
 
+    /** AlphaTab is the authoritative musical timeline. */
+    private fun debugAlphaTabTimeline(score: Score) {
+        try {
+            val track = score.tracks.toList().firstOrNull() ?: return
+            val staff = track.staves.toList().firstOrNull() ?: return
+            val masters = score.masterBars.toList()
+            val bars = staff.bars.toList()
+            android.util.Log.d("EARAM_GP3_TIMELINE", "===== AlphaTab GP timeline =====")
+            for (i in masters.indices) {
+                val master = masters[i]
+                val bar = bars.getOrNull(i)
+                val beats = bar?.voices?.toList()?.firstOrNull()?.beats?.toList().orEmpty()
+                val startTick = beats.firstOrNull()?.absolutePlaybackStart ?: -1.0
+                val totalDisplayTicks = beats.sumOf { it.displayDuration }
+                val expectedTicks = 960.0 * 4.0 * master.timeSignatureNumerator / master.timeSignatureDenominator
+                val diff = totalDisplayTicks - expectedTicks
+                android.util.Log.d("EARAM_GP3_TIMELINE",
+                    "measure=${i + 1} meter=${master.timeSignatureNumerator.toInt()}/${master.timeSignatureDenominator.toInt()} " +
+                    "startTick=$startTick beatCount=${beats.size} total=$totalDisplayTicks expected=$expectedTicks diff=$diff")
+                var lastStart = Double.NEGATIVE_INFINITY
+                for ((bi, beat) in beats.withIndex()) {
+                    val start = beat.absolutePlaybackStart
+                    if (start < lastStart) android.util.Log.e("EARAM_GP3_TIMELINE",
+                        "NON_MONOTONIC measure=${i + 1} beat=${bi + 1} start=$start previous=$lastStart")
+                    lastStart = start
+                    android.util.Log.v("EARAM_GP3_TIMELINE",
+                        " beat=${bi + 1} start=$start displayDuration=${beat.displayDuration} duration=${beat.duration} " +
+                        "dots=${beat.dots} tuplet=${beat.tupletNumerator}:${beat.tupletDenominator}")
+                }
+            }
+            android.util.Log.d("EARAM_GP3_TIMELINE", "================================")
+        } catch (t: Throwable) {
+            android.util.Log.e("EARAM_GP3_TIMELINE", "Timeline diagnostics failed", t)
+        }
+    }
     private fun showImportError(stage: String, error: Throwable) {
         showDetailedImportError(stage, error, error.message ?: error.javaClass.name)
     }
@@ -2790,6 +2830,11 @@ class MainActivity : Activity() {
                 " · B" + (selectedBarIndex + 1) + " · beat " + (currentBeatIndex + 1) +
                 " · S" + currentStringIndex + " · F" + currentFretLabel()
             )
+            session.selectedTrack = currentTrackIndex
+            session.selectedVoice = currentVoiceIndex
+            session.selectedBar = selectedBarIndex
+            session.selectedBeat = currentBeatIndex
+            session.selectedString = currentStringIndex
             activity.runOnUiThread { status.text = text }
         }
     }
