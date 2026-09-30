@@ -935,7 +935,7 @@ class MainActivity : Activity() {
         val uri = incoming.data ?: return
         try {
             val readFlag = incoming.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
-            if (readFlag != 0 && incoming.hasFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)) {
+            if (readFlag != 0 && (incoming.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
                 try { contentResolver.takePersistableUriPermission(uri, readFlag) } catch (_: Throwable) { }
             }
             val fileName = displayNameForUri(uri)
