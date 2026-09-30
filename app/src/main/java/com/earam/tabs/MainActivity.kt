@@ -687,11 +687,13 @@ class MainActivity : ComponentActivity() {
             view.api.playbackSpeed = session.playbackSpeed.coerceIn(0.25, 2.0)
             view.api.updateSettings()
             score.finish(view.settings)
+            AlphaTabRhythmEngine.syncFromScore(score)
             renderAllTracks(score)
             view.api.render()
             view.api.loadMidiForScore()
 
             noteEditor?.resetSelection()
+            noteEditor?.restoreCaretFromSession()
             statusView?.text = "Restored • $projectName • $timeSig"
 
             // Restore the exact musical position only after the new MIDI timeline is ready.
@@ -3105,6 +3107,15 @@ class MainActivity : ComponentActivity() {
         }
 
         fun hidePlaybackCursor() = overlay.hidePlaybackCursor()
+
+        fun restoreCaretFromSession() {
+            caret = session.caret
+            currentVoiceIndex = 0
+            armed = true
+            pendingFret = ""
+            updateCursor()
+            updateStatus()
+        }
 
         fun rebuildBeatHitsAfterLayout() {
             buildBeatHits()
