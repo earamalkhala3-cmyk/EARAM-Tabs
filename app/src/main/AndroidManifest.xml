@@ -24,8 +24,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="file"
-                    android:host=""
-                    android:pathPattern=".*\\.tab" />
+                    android:pathSuffix=".tab" />
             </intent-filter>
 
             <!-- Content URI whose provider exposes the .tab filename. -->
@@ -36,7 +35,7 @@
                 <data
                     android:scheme="content"
                     android:host="*"
-                    android:pathPattern=".*\\.tab" />
+                    android:pathSuffix=".tab" />
             </intent-filter>
 
             <!-- Preferred association: providers/file managers that identify Earam TABs by MIME. -->
