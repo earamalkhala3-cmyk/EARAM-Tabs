@@ -2581,7 +2581,7 @@ class MainActivity : Activity() {
         }
 
         fun showDurationDialog() {
-            val labels = arrayOf("WHOLE", "HALF", "QUARTER", "EIGHTH", "16TH", "32ND", "DOT")
+            val labels = arrayOf("𝅝  WHOLE", "𝅗𝅥  HALF", "♩  QUARTER", "♪  EIGHTH", "𝅘𝅥𝅮  16TH", "𝅘𝅥𝅯  32ND", "♩.  DOTTED")
             AlertDialog.Builder(activity)
                 .setTitle("NOTE DURATION")
                 .setItems(labels) { _, which ->
