@@ -475,6 +475,25 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun prepareMidiForCurrentScore(reason: String) {
+        val api = alphaTabView?.api ?: return
+        try {
+            api.loadMidiForScore()
+            android.util.Log.i(
+                "EARAM_PLAYER",
+                "MIDI prepared from current Score; reason=" + reason +
+                    "; readyForPlayback=" + api.isReadyForPlayback
+            )
+        } catch (t: Throwable) {
+            android.util.Log.e("EARAM_PLAYER", "MIDI preparation failed; reason=" + reason, t)
+            statusView?.let { view ->
+                runOnUiThread {
+                    view.text = "MIDI preparation failed • " + (t.message ?: t.javaClass.simpleName)
+                }
+            }
+        }
+    }
+
     private fun importTab() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
