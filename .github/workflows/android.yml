@@ -207,16 +207,18 @@ jobs:
           grep -q 'application/octet-stream' "$MANIFEST"
 
           # The APK manifest is authoritative for the exact .tab registrations.
-          # Confirm the same installed package is present on the Android 15 emulator
-          # without using shell resolver commands, which have proven unstable in the
-          # headless CI transport even when installation and manifest validation pass.
+          # Confirm the same release APK is actually installed on Android 15.
+          # Do not invoke PackageManager resolver/dumpsys commands here: this
+          # headless emulator repeatedly tears down the ADB transport on those
+          # queries even though installation and the APK manifest are valid.
           INSTALLED_PATH="$(adb -s emulator-5554 shell pm path com.earam.tabs | tr -d '\r')"
           printf '%s\n' "$INSTALLED_PATH"
           grep -q '^package:' <<< "$INSTALLED_PATH"
-          adb -s emulator-5554 shell dumpsys package com.earam.tabs | grep -q 'com.earam.tabs'
 
-          # The explicit file/content .tab pathSuffix filters and MIME filters were
-          # already validated directly from the built APK above.
+          # Resolution-specific shell queries are intentionally omitted. The
+          # exact .tab file/content filters and MIME filters have already been
+          # validated from the final, signed APK's decoded AndroidManifest.xml.
+          # This avoids turning a CI transport defect into a false APK failure.
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
