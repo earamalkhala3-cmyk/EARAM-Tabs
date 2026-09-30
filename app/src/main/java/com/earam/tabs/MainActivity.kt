@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.text.InputType
 import android.view.inputmethod.InputMethodManager
 import android.content.Context
@@ -197,6 +198,9 @@ class MainActivity : Activity() {
                 setGravity(Gravity.BOTTOM)
             }
         }
+
+        lateinit var score: AlphaTabView
+        lateinit var editor: AlphaTabNoteEditor
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -472,7 +476,7 @@ class MainActivity : Activity() {
             })
         }
 
-        val score = AlphaTabView(this, null).apply {
+        score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFEFB.toInt())
             settings.display.layoutMode = LayoutMode.Page
             settings.display.staveProfile = StaveProfile.ScoreTab
@@ -503,7 +507,7 @@ class MainActivity : Activity() {
         }
         scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
         scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
-        val editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
+        editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
         noteEditor = editor
         editor.attach()
 
