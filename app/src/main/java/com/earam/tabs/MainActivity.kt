@@ -344,7 +344,10 @@ class MainActivity : ComponentActivity() {
         }
         val stop = iconButton("■", "Stop").apply {
             textSize = 16f
-            setOnClickListener { score.api.stop() }
+            setOnClickListener {
+                score.api.stop()
+                editor.hidePlaybackCursor()
+            }
         }
         val rewind = iconButton("↶", "Previous / rewind").apply {
             textSize = 20f
@@ -439,28 +442,22 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(0xFF191B1E.toInt())
         }
 
-        fun duration(symbol: String, name: String): TextView =
-            TextView(this).apply {
-                text = symbol
-                contentDescription = name
-                setTextColor(0xFFF3F0E8.toInt())
-                textSize = 22f
-                gravity = Gravity.CENTER
-                background = surface(0xFF25282C.toInt(), 9f)
-                isClickable = true
-                setOnClickListener { editor.showDurationDialog() }
-            }
-
-        listOf(
-            duration("𝅝", "Whole note"),
-            duration("𝅗𝅥", "Half note"),
-            duration("♩", "Quarter note"),
-            duration("♪", "Eighth note"),
-            duration("𝅘𝅥𝅮", "Sixteenth note"),
-            duration("𝅘𝅥𝅯", "Thirty-second note")
-        ).forEach { editingStrip.addView(it, LinearLayout.LayoutParams(0, dp(42f), 1f).apply {
+        // ONE duration control only. Choosing a duration closes the selector;
+        // the control then shows the selected rhythmic symbol as the current input/edit value.
+        val durationSelector = TextView(this).apply {
+            text = "Duration  ♩"
+            contentDescription = "Duration selector"
+            setTextColor(0xFFF3F0E8.toInt())
+            textSize = 14f
+            gravity = Gravity.CENTER
+            background = surface(0xFF25282C.toInt(), 9f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { editor.showDurationDialog() }
+        }
+        editingStrip.addView(durationSelector, LinearLayout.LayoutParams(0, dp(42f), 1f).apply {
             leftMargin = dp(2f); rightMargin = dp(2f)
-        }) }
+        })
 
         val editMore = iconButton("⋯", "More note tools", 42f).apply {
             textSize = 22f
@@ -516,9 +513,12 @@ class MainActivity : ComponentActivity() {
             settings.player.playerMode = PlayerMode.EnabledSynthesizer
             settings.player.enablePlayer = true
             settings.player.enableUserInteraction = true
-            settings.player.enableCursor = true
-            settings.player.enableAnimatedBeatCursor = true
-            settings.player.enableElementHighlighting = true
+            settings.player.enableCursor = false
+            // Earam draws its own playback cursor from AlphaTab's playedBeatChanged
+            // event. This prevents AlphaTab's animated system cursor from visually
+            // spanning an entire multi-measure system.
+            settings.player.enableAnimatedBeatCursor = false
+            settings.player.enableElementHighlighting = false
             settings.player.bufferTimeInMilliseconds = 1000.0
             api.masterVolume = 0.70
             api.updateSettings()
@@ -540,6 +540,7 @@ class MainActivity : ComponentActivity() {
 
         fun refreshSelectionInfo() {
             selection.text = editor.selectionInfoText()
+            durationSelector.text = "Duration  " + editor.currentDurationSymbol()
             track.text = "♫ " + (editor.currentTrackIndex + 1)
             voice.text = "V" + (editor.currentVoiceIndex + 1)
             session.selectedTrack = editor.currentTrackIndex
@@ -598,6 +599,19 @@ class MainActivity : ComponentActivity() {
 
         score.api.playerPositionChanged.on {
             session.tickPosition = score.api.tickPosition
+        }
+
+        // AlphaTab exposes the exact played Beat. Use it as the sole source for the
+        // playback marker so the cursor advances beat-by-beat and is constrained to
+        // the current measure instead of behaving like a six-measure system cursor.
+        score.api.playedBeatChanged.on { playedBeat ->
+            runOnUiThread {
+                editor.showPlaybackBeat(playedBeat)
+            }
+        }
+
+        score.api.playerFinished.on {
+            runOnUiThread { editor.hidePlaybackCursor() }
         }
 
         score.api.playerStateChanged.on {
@@ -1192,8 +1206,15 @@ class MainActivity : ComponentActivity() {
             color = 0xFFFF5A00.toInt()
         }
         private val beatRect = RectF()
+        private val playbackRect = RectF()
         private val noteRect = RectF()
+        private val playbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3f * resources.displayMetrics.density
+            color = 0xFFFF8A00.toInt()
+        }
         private var hasBeat = false
+        private var hasPlayback = false
         private var hasNote = false
 
         fun showBeatCursor(centerX: Float, top: Float, bottom: Float) {
@@ -1205,6 +1226,18 @@ class MainActivity : ComponentActivity() {
             val half = maxOf(5f, 6f * resources.displayMetrics.density)
             beatRect.set(centerX - half, top, centerX + half, bottom)
             hasBeat = true
+            invalidate()
+        }
+
+        fun showPlaybackCursor(centerX: Float, top: Float, bottom: Float) {
+            if (!centerX.isFinite() || !top.isFinite() || !bottom.isFinite() || bottom <= top) {
+                hasPlayback = false
+                invalidate()
+                return
+            }
+            val half = maxOf(3f, 4f * resources.displayMetrics.density)
+            playbackRect.set(centerX - half, top, centerX + half, bottom)
+            hasPlayback = true
             invalidate()
         }
 
@@ -1223,12 +1256,21 @@ class MainActivity : ComponentActivity() {
 
         fun hideCursor() {
             hasBeat = false
+            hasPlayback = false
             hasNote = false
+            invalidate()
+        }
+
+        fun hidePlaybackCursor() {
+            hasPlayback = false
             invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
+            if (hasPlayback) {
+                canvas.drawLine(playbackRect.centerX(), playbackRect.top, playbackRect.centerX(), playbackRect.bottom, playbackPaint)
+            }
             if (hasBeat) {
                 canvas.drawRoundRect(beatRect, 3f, 3f, beatFillPaint)
                 canvas.drawLine(beatRect.centerX(), beatRect.top, beatRect.centerX(), beatRect.bottom, beatLinePaint)
@@ -1431,6 +1473,10 @@ class MainActivity : ComponentActivity() {
                     pendingFret = ""
                     updateCursor()
                     score.requestFocus()
+                    updateStatus("SELECTED NOTE • B" + (currentBarIndex + 1) +
+                        " • BEAT " + (currentBeatIndex + 1) +
+                        " • STRING " + currentStringIndex +
+                        " • FRET " + note.fret.toInt())
                     onSelectionChanged?.invoke()
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_SELECTION", "note selection failed", t)
@@ -2362,6 +2408,21 @@ class MainActivity : ComponentActivity() {
                 ?: "Track " + (currentTrackIndex + 1)
         }
 
+        fun currentDurationSymbol(): String {
+            val beat = currentBeat() ?: return "♩"
+            val base = when (beat.duration) {
+                Duration.Whole -> "𝅝"
+                Duration.Half -> "𝅗𝅥"
+                Duration.Quarter -> "♩"
+                Duration.Eighth -> "♪"
+                Duration.Sixteenth -> "𝅘𝅥𝅮"
+                Duration.ThirtySecond -> "𝅘𝅥𝅯"
+                Duration.SixtyFourth -> "𝅘𝅥𝅰"
+                else -> "♪"
+            }
+            return if (beat.dots.toInt() > 0) base + "." else base
+        }
+
         fun selectionInfoText(): String {
             val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)
             val label = track?.name?.ifBlank { track.shortName }?.ifBlank { "Track " + (currentTrackIndex + 1) }
@@ -2585,6 +2646,27 @@ class MainActivity : ComponentActivity() {
          * Uses AlphaTab's own playback-range highlight as the visual editor cursor.
          * The cursor is therefore anchored to the real rendered Beat, not a fake grid.
          */
+        fun showPlaybackBeat(playedBeat: Beat) {
+            try {
+                val lookup = score.api.renderer.boundsLookup ?: return
+                val bounds = lookup.findBeat(playedBeat) ?: return
+                // BarBounds is the real rendered measure, not the surrounding system.
+                // Therefore this marker can never span the six-measure page row.
+                val barBounds = bounds.barBounds.realBounds
+                val cursorX = (bounds.onNotesX - score.scrollX).toFloat()
+                overlay.showPlaybackCursor(
+                    cursorX,
+                    (barBounds.y - score.scrollY).toFloat(),
+                    (barBounds.y + barBounds.h - score.scrollY).toFloat()
+                )
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_PLAYBACK_CURSOR", "cursor calculation failed", t)
+                overlay.hidePlaybackCursor()
+            }
+        }
+
+        fun hidePlaybackCursor() = overlay.hidePlaybackCursor()
+
         fun refreshVisualCursor() {
             val beat = currentBeat() ?: run {
                 overlay.hideCursor()
