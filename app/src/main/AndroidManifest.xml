@@ -17,32 +17,42 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Local file URI with the Earam .tab extension. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="content" android:pathSuffix=".tab" />
+                <data
+                    android:scheme="file"
+                    android:host=""
+                    android:pathPattern=".*\\.tab" />
             </intent-filter>
 
+            <!-- Content URI whose provider exposes the .tab filename. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="file" android:pathPattern=".*\.tab" />
+                <data
+                    android:scheme="content"
+                    android:host="*"
+                    android:pathPattern=".*\\.tab" />
             </intent-filter>
 
+            <!-- Preferred association: providers/file managers that identify Earam TABs by MIME. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="content" android:mimeType="application/x-earam-tab" />
+                <data android:mimeType="application/x-earam-tab" />
             </intent-filter>
 
+            <!-- Fallback used by Android file providers that expose unknown .tab files as binary. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".tab" />
+                <data android:scheme="content" android:host="*" android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 
