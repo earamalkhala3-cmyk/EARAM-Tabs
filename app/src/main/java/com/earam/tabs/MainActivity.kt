@@ -1202,21 +1202,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private class TabEditOverlayView(context: Context) : View(context) {
-        private val beatFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val caretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
-            color = 0x12000000
-        }
-        private val beatLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2f * resources.displayMetrics.density
-            color = 0xFFFF5A00.toInt()
+            color = 0xFFFFC107.toInt()
         }
         private val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 2f * resources.displayMetrics.density
-            color = 0xFFFF5A00.toInt()
+            color = 0xFFFFC107.toInt()
         }
-        private val beatRect = RectF()
+        private val caretRect = RectF()
         private val playbackRect = RectF()
         private val noteRect = RectF()
         private val playbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1234,8 +1229,10 @@ class MainActivity : ComponentActivity() {
                 invalidate()
                 return
             }
-            val half = maxOf(5f, 6f * resources.displayMetrics.density)
-            beatRect.set(centerX - half, top, centerX + half, bottom)
+            // Never draw a full-height measure rectangle. This is the editor caret only.
+            val size = maxOf(10f, 14f * resources.displayMetrics.density)
+            val y = (top + bottom) * 0.5f
+            caretRect.set(centerX - size, y - size, centerX + size, y + size)
             hasBeat = true
             invalidate()
         }
@@ -1282,10 +1279,7 @@ class MainActivity : ComponentActivity() {
             if (hasPlayback) {
                 canvas.drawLine(playbackRect.centerX(), playbackRect.top, playbackRect.centerX(), playbackRect.bottom, playbackPaint)
             }
-            if (hasBeat) {
-                canvas.drawRoundRect(beatRect, 3f, 3f, beatFillPaint)
-                canvas.drawLine(beatRect.centerX(), beatRect.top, beatRect.centerX(), beatRect.bottom, beatLinePaint)
-            }
+            if (hasBeat) canvas.drawRoundRect(caretRect, 3f, 3f, caretPaint)
             if (hasNote) canvas.drawRoundRect(noteRect, 4f, 4f, notePaint)
         }
     }
@@ -1375,6 +1369,14 @@ class MainActivity : ComponentActivity() {
         val tupletDenominator: Double,
         val isEmpty: Boolean,
         val notes: List<Pair<Double, Double>>
+    )
+
+    /** Single editor caret: all navigation resolves to real AlphaTab Score objects. */
+    private data class Caret(
+        val trackIndex: Int,
+        val measureIndex: Int,
+        val beatIndex: Int,
+        val stringIndex: Int
     )
 
     /** Phase 3: deterministic keyboard navigation over the real AlphaTab Score. */
@@ -1562,6 +1564,14 @@ class MainActivity : ComponentActivity() {
                     currentBeatIndex = beatIndex
                     armed = true
                     pendingFret = ""
+
+                    // A tapped AlphaTab Beat is the editor selection and playback origin.
+                    try {
+                        score.api.stop()
+                        score.api.tickPosition = beat.absolutePlaybackStart
+                        session.tickPosition = score.api.tickPosition
+                    } catch (_: Throwable) { }
+
                     updateCursor()
                     score.requestFocus()
                     updateStatus("SELECTED BAR " + (currentBarIndex + 1) +
@@ -1591,6 +1601,14 @@ class MainActivity : ComponentActivity() {
                         .coerceIn(1, maxStringIndex())
                     armed = true
                     pendingFret = ""
+
+                    // A tapped note is also the exact playback origin.
+                    try {
+                        score.api.stop()
+                        score.api.tickPosition = note.beat.absolutePlaybackStart
+                        session.tickPosition = score.api.tickPosition
+                    } catch (_: Throwable) { }
+
                     updateCursor()
                     score.requestFocus()
                     updateStatus("SELECTED NOTE • B" + (currentBarIndex + 1) +
