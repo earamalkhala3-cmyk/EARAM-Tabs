@@ -274,6 +274,8 @@ class MainActivity : ComponentActivity() {
                 showPanel("Earam", listOf(
                     "File" to { showFileMenu() },
                     "Edit" to { showPanel("EDIT", listOf(
+                        "Undo  ↶" to { editor.undoFromUi() },
+                        "Redo  ↷" to { editor.redoFromUi() },
                         "Copy note" to { editor.copyCurrentNoteFromUi() },
                         "Paste note" to { editor.pasteCurrentNoteFromUi() },
                         "Delete note" to { editor.deleteCurrentNoteFromUi() }
@@ -1378,9 +1380,118 @@ class MainActivity : ComponentActivity() {
         private var copiedBar: Bar? = null
         var onSelectionChanged: (() -> Unit)? = null
 
+        /**
+         * Command-level history for the editor's live AlphaTab Score.
+         *
+         * We deliberately snapshot only the affected Beat rather than cloning the whole Score.
+         * That keeps Score as the single source of truth while making fret/duration/delete edits
+         * genuinely undoable. Redo stores the state that existed immediately before restoration.
+         */
+        private data class BeatSnapshot(
+            val barIndex: Int,
+            val voiceIndex: Int,
+            val beatIndex: Int,
+            val duration: Duration,
+            val dots: Double,
+            val tupletNumerator: Double,
+            val tupletDenominator: Double,
+            val isEmpty: Boolean,
+            val notes: List<Pair<Double, Double>>
+        )
+
+        private val undoHistory = java.util.ArrayDeque<BeatSnapshot>()
+        private val redoHistory = java.util.ArrayDeque<BeatSnapshot>()
+        private var restoringHistory = false
+
+        private fun captureCurrentBeat(): BeatSnapshot? {
+            val beat = currentBeat() ?: return null
+            return BeatSnapshot(
+                currentBarIndex,
+                currentVoiceIndex,
+                currentBeatIndex,
+                beat.duration,
+                beat.dots,
+                beat.tupletNumerator,
+                beat.tupletDenominator,
+                beat.isEmpty,
+                beat.notes.toList().map { Pair(it.string, it.fret) }
+            )
+        }
+
         private fun pushUndoSnapshot() {
-            // Intentionally empty on Android AlphaTab 1.8.4: no supported full-score serializer.
-            // This hook keeps mutation sites centralized without exposing a nonfunctional Undo UI.
+            if (restoringHistory) return
+            captureCurrentBeat()?.let {
+                undoHistory.addLast(it)
+                while (undoHistory.size > 100) undoHistory.removeFirst()
+                redoHistory.clear()
+            }
+        }
+
+        private fun restoreSnapshot(snapshot: BeatSnapshot): Boolean {
+            val bs = bars() ?: return false
+            val bar = bs.getOrNull(snapshot.barIndex) ?: return false
+            val beat = bar.voices.toList().getOrNull(snapshot.voiceIndex)
+                ?.beats?.toList()?.getOrNull(snapshot.beatIndex) ?: return false
+
+            beat.duration = snapshot.duration
+            beat.dots = snapshot.dots
+            beat.tupletNumerator = snapshot.tupletNumerator
+            beat.tupletDenominator = snapshot.tupletDenominator
+
+            beat.notes.toList().forEach { beat.removeNote(it) }
+            snapshot.notes.forEach { (string, fret) ->
+                beat.addNote(Note().apply {
+                    this.string = string
+                    this.fret = fret
+                })
+            }
+            beat.isEmpty = snapshot.isEmpty || beat.notes.toList().isEmpty()
+            beat.notes.toList().forEach { it.finish(score.settings, null) }
+            beat.finish(score.settings, null)
+            score.api.score?.finish(score.settings)
+
+            currentBarIndex = snapshot.barIndex
+            selectedBarIndex = snapshot.barIndex
+            currentVoiceIndex = snapshot.voiceIndex
+            currentBeatIndex = snapshot.beatIndex
+            armed = true
+            pendingFret = ""
+            renderAndLog("history")
+            updateCursor()
+            onSelectionChanged?.invoke()
+            return true
+        }
+
+        fun undoFromUi() {
+            if (undoHistory.isEmpty()) {
+                updateStatus("Nothing to undo")
+                return
+            }
+            val current = captureCurrentBeat()
+            val previous = undoHistory.removeLast()
+            restoringHistory = true
+            try {
+                if (current != null) redoHistory.addLast(current)
+                if (restoreSnapshot(previous)) updateStatus("Undo")
+            } finally {
+                restoringHistory = false
+            }
+        }
+
+        fun redoFromUi() {
+            if (redoHistory.isEmpty()) {
+                updateStatus("Nothing to redo")
+                return
+            }
+            val current = captureCurrentBeat()
+            val next = redoHistory.removeLast()
+            restoringHistory = true
+            try {
+                if (current != null) undoHistory.addLast(current)
+                if (restoreSnapshot(next)) updateStatus("Redo")
+            } finally {
+                restoringHistory = false
+            }
         }
 
         fun resetSelection() {
@@ -2271,13 +2382,13 @@ class MainActivity : ComponentActivity() {
             currentBeat()?.let { if (it.tupletNumerator >= 0 && it.tupletDenominator > 0) it.tupletDenominator.toInt() else -1 } ?: -1
 
         fun setCurrentDuration(duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1): Boolean {
-            pushUndoSnapshot()
             val beat = currentBeat() ?: return false
             val bar = bars()?.getOrNull(currentBarIndex) ?: return false
             if (!AlphaTabRhythmEngine.fits(bar, currentVoiceIndex, beat, duration, dots, tupletNumerator, tupletDenominator)) {
                 updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
                 return false
             }
+            pushUndoSnapshot()
             AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
             if (beat.notes.toList().isEmpty()) beat.isEmpty = true
             score.api.score?.finish(score.settings)
