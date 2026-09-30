@@ -564,7 +564,6 @@ class MainActivity : ComponentActivity() {
 
         score.api.postRenderFinished.on {
             runOnUiThread {
-                editor.syncSelectedBarHighlight()
                 editor.refreshVisualCursor()
                 editor.logRenderState()
             }
@@ -580,7 +579,6 @@ class MainActivity : ComponentActivity() {
                 status.text = "Score loaded • preparing playback"
                 refreshSelectionInfo()
             }
-            noteEditor?.syncSelectedBarHighlight()
             try { score.api.loadMidiForScore() } catch (t: Throwable) {
                 android.util.Log.e("EARAM_PLAYER", "loadMidiForScore after scoreLoaded failed", t)
                 runOnUiThread { status.text = "MIDI preparation failed • " + (t.message ?: t.javaClass.simpleName) }
@@ -2050,8 +2048,7 @@ class MainActivity : ComponentActivity() {
                 currentBeatIndex = 0
                 song.finish(score.settings)
                 renderAndLog("delete-bar")
-                syncSelectedBarHighlight()
-                updateCursor()
+                    updateCursor()
                 onSelectionChanged?.invoke()
                 updateStatus("Deleted selected bar • " + (selectedBarIndex + 1) + " is now selected")
             } catch (t: Throwable) {
@@ -2513,8 +2510,7 @@ class MainActivity : ComponentActivity() {
                 val rendered = alphaTab.collections.List<alphaTab.model.Track>()
                 rendered.push(tracks[index])
                 score.api.renderTracks(rendered)
-                syncSelectedBarHighlight()
-                updateCursor()
+                    updateCursor()
                 updateStatus("TRACK " + (index + 1) + " • " + trackLabel())
                 onSelectionChanged?.invoke()
             } catch (t: Throwable) {
@@ -2939,31 +2935,20 @@ class MainActivity : ComponentActivity() {
             currentBeatIndex = if (beats.isEmpty()) 0 else currentBeatIndex.coerceIn(0, beats.lastIndex)
             armed = true
             pendingFret = ""
-            syncSelectedBarHighlight()
+            // Selecting a measure also seeks playback to that measure.
+            // Play/Pause will therefore start from the selected measure.
+            val selectedBeat = beats.getOrNull(currentBeatIndex)
+            if (selectedBeat != null) {
+                try {
+                    score.api.stop()
+                    score.api.tickPosition = selectedBeat.absolutePlaybackStart
+                    session.tickPosition = score.api.tickPosition
+                } catch (_: Throwable) { }
+            }
             updateCursor()
             updateStatus("SELECTED BAR " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
             onSelectionChanged?.invoke()
         }
-
-        fun syncSelectedBarHighlight() {
-            try {
-                val song = score.api.score ?: return
-                val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return
-                val staff = track.staves.firstOrNull() ?: return
-                val bar = staff.bars.toList().getOrNull(selectedBarIndex) ?: return
-                val beats = bar.voices.toList().firstOrNull { it.beats.toList().isNotEmpty() }
-                    ?.beats?.toList().orEmpty()
-                if (beats.isEmpty()) {
-                    score.api.clearPlaybackRangeHighlight()
-                } else {
-                    score.api.highlightPlaybackRange(beats.first(), beats.last())
-                }
-            } catch (t: Throwable) {
-                android.util.Log.e("EARAM_SELECTION", "native selected-bar highlight failed", t)
-            }
-        }
-
-
 
         fun playCurrentBeatFromUi() {
             val beat = currentBeat() ?: return
