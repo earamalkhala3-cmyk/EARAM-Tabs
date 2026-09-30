@@ -1169,7 +1169,7 @@ class MainActivity : ComponentActivity() {
             it.dots <= 0.0 &&
                 it.tupletNumerator < 0.0 &&
                 it.tupletDenominator < 0.0
-        } ?: return 960.0
+        } ?: return 1.0
         val multiplier = when (simple.duration) {
             Duration.DoubleWhole -> 8.0
             Duration.QuadrupleWhole -> 16.0
