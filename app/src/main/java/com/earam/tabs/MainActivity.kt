@@ -202,20 +202,21 @@ class MainActivity : Activity() {
             textSize = 11f
         }
 
-        fun menuButton(label: String): Button = control(label).apply {
+        fun menuButton(icon: String, label: String): Button = control(icon + "  " + label).apply {
             textSize = 10f
+            contentDescription = label
         }
 
-        val file = menuButton("FILE")
-        val playbackMenu = menuButton("PLAYBACK")
-        val editMenu = menuButton("EDIT")
-        val trackMenu = menuButton("TRACK")
-        val barMenu = menuButton("BAR")
-        val noteMenu = menuButton("NOTE")
-        val beatMenu = menuButton("BEAT")
-        val viewMenu = menuButton("VIEW")
+        val file = menuButton("☰", "FILE")
+        val playbackMenu = menuButton("▶", "PLAYBACK")
+        val editMenu = menuButton("✎", "EDIT")
+        val trackMenu = menuButton("♫", "TRACK")
+        val barMenu = menuButton("▣", "BAR")
+        val noteMenu = menuButton("♪", "NOTE")
+        val beatMenu = menuButton("♬", "BEAT")
+        val viewMenu = menuButton("◉", "VIEW")
         listOf(file, playbackMenu, editMenu, trackMenu, barMenu, noteMenu, beatMenu, viewMenu).forEach {
-            topMenus.addView(it, LinearLayout.LayoutParams(dp(88f), dp(40f)))
+            topMenus.addView(it, LinearLayout.LayoutParams(dp(74f), dp(38f)))
         }
         topMenuScroll.addView(topMenus, LinearLayout.LayoutParams(-2, dp(46f)))
 
@@ -228,15 +229,30 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
         }
-        val play = control("▶ PLAY").apply { textSize = 11f }
-        val stop = control("■ STOP").apply { textSize = 11f }
-        val speedButton = control("SPEED 1×").apply { textSize = 11f }
-        val selectedBarButton = control("BAR 1").apply { textSize = 10f }
-        transport.addView(play, LinearLayout.LayoutParams(dp(92f), dp(40f)))
-        transport.addView(stop, LinearLayout.LayoutParams(dp(88f), dp(40f)))
-        transport.addView(speedButton, LinearLayout.LayoutParams(dp(96f), dp(40f)))
-        transport.addView(selectedBarButton, LinearLayout.LayoutParams(dp(92f), dp(40f)))
-        transportScroll.addView(transport, LinearLayout.LayoutParams(-2, dp(44f)))
+        val play = control("▶").apply {
+            textSize = 19f
+            contentDescription = "Play / Pause"
+            setPadding(0, 0, 0, 0)
+        }
+        val stop = control("■").apply {
+            textSize = 16f
+            contentDescription = "Stop"
+            setPadding(0, 0, 0, 0)
+        }
+        val speedButton = control("1×").apply {
+            textSize = 12f
+            contentDescription = "Playback speed"
+            setPadding(0, 0, 0, 0)
+        }
+        val selectedBarButton = control("▣ 1").apply {
+            textSize = 11f
+            contentDescription = "Selected bar"
+        }
+        transport.addView(play, LinearLayout.LayoutParams(dp(46f), dp(38f)))
+        transport.addView(stop, LinearLayout.LayoutParams(dp(46f), dp(38f)))
+        transport.addView(speedButton, LinearLayout.LayoutParams(dp(54f), dp(38f)))
+        transport.addView(selectedBarButton, LinearLayout.LayoutParams(dp(66f), dp(38f)))
+        transportScroll.addView(transport, LinearLayout.LayoutParams(-2, dp(42f)))
 
         val contextScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -257,10 +273,10 @@ class MainActivity : Activity() {
             setPadding(dp(10f), 0, dp(10f), 0)
             setBackgroundColor(0xFF30353A.toInt())
         }
-        contextTools.addView(trackContext, LinearLayout.LayoutParams(dp(110f), dp(40f)))
-        contextTools.addView(voiceContext, LinearLayout.LayoutParams(dp(102f), dp(40f)))
-        contextTools.addView(selectionContext, LinearLayout.LayoutParams(dp(250f), dp(40f)))
-        contextScroll.addView(contextTools, LinearLayout.LayoutParams(-2, dp(44f)))
+        contextTools.addView(trackContext, LinearLayout.LayoutParams(dp(92f), dp(36f)))
+        contextTools.addView(voiceContext, LinearLayout.LayoutParams(dp(86f), dp(36f)))
+        contextTools.addView(selectionContext, LinearLayout.LayoutParams(dp(235f), dp(36f)))
+        contextScroll.addView(contextTools, LinearLayout.LayoutParams(-2, dp(40f)))
 
         val navigationScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -281,19 +297,19 @@ class MainActivity : Activity() {
                 setPadding(0, 0, 0, 0)
                 setOnClickListener { action() }
             }
-        navigation.addView(navButton("←") { editor.moveBeatFromUi(-1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
-        navigation.addView(navButton("↑") { editor.moveStringFromUi(-1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
-        navigation.addView(navButton("↓") { editor.moveStringFromUi(1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
-        navigation.addView(navButton("→") { editor.moveBeatFromUi(1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
+        navigation.addView(navButton("←") { editor.moveBeatFromUi(-1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
+        navigation.addView(navButton("↑") { editor.moveStringFromUi(-1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
+        navigation.addView(navButton("↓") { editor.moveStringFromUi(1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
+        navigation.addView(navButton("→") { editor.moveBeatFromUi(1) }, LinearLayout.LayoutParams(dp(44f), dp(36f)))
         val navHint = TextView(this).apply {
-            text = "BEAT  ← →     STRING  ↑ ↓"
+            text = "BEAT ← →  •  STRING ↑ ↓"
             textSize = 10f
             gravity = Gravity.CENTER_VERTICAL
             setTextColor(0xFFFFFFFF.toInt())
             setPadding(dp(10f), 0, dp(10f), 0)
         }
-        navigation.addView(navHint, LinearLayout.LayoutParams(dp(210f), dp(40f)))
-        navigationScroll.addView(navigation, LinearLayout.LayoutParams(-2, dp(44f)))
+        navigation.addView(navHint, LinearLayout.LayoutParams(dp(190f), dp(36f)))
+        navigationScroll.addView(navigation, LinearLayout.LayoutParams(-2, dp(40f)))
 
         val numberScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -314,9 +330,9 @@ class MainActivity : Activity() {
                 setPadding(0, 0, 0, 0)
                 setOnClickListener { editor.enterDigitFromUi(digit) }
             }
-            numbers.addView(button, LinearLayout.LayoutParams(dp(40f), dp(38f)))
+            numbers.addView(button, LinearLayout.LayoutParams(dp(36f), dp(36f)))
         }
-        numberScroll.addView(numbers, LinearLayout.LayoutParams(-2, dp(42f)))
+        numberScroll.addView(numbers, LinearLayout.LayoutParams(-2, dp(40f)))
 
         fun showMenu(titleText: String, labels: Array<String>, action: (Int) -> Unit) {
             AlertDialog.Builder(this)
@@ -346,11 +362,11 @@ class MainActivity : Activity() {
                     0 -> if (score.api.isReadyForPlayback) score.api.playPause()
                         else status.text = "Player is preparing…"
                     1 -> score.api.stop()
-                    2 -> { score.api.playbackSpeed = 0.50; speedButton.text = "SPEED 0.5×" }
-                    3 -> { score.api.playbackSpeed = 0.75; speedButton.text = "SPEED 0.75×" }
-                    4 -> { score.api.playbackSpeed = 1.00; speedButton.text = "SPEED 1×" }
-                    5 -> { score.api.playbackSpeed = 1.25; speedButton.text = "SPEED 1.25×" }
-                    6 -> { score.api.playbackSpeed = 1.50; speedButton.text = "SPEED 1.5×" }
+                    2 -> { score.api.playbackSpeed = 0.50; speedButton.text = "0.5×" }
+                    3 -> { score.api.playbackSpeed = 0.75; speedButton.text = "0.75×" }
+                    4 -> { score.api.playbackSpeed = 1.00; speedButton.text = "1×" }
+                    5 -> { score.api.playbackSpeed = 1.25; speedButton.text = "1.25×" }
+                    6 -> { score.api.playbackSpeed = 1.50; speedButton.text = "1.5×" }
                     7 -> status.text = "Ready=" + score.api.isReadyForPlayback +
                         " • Player=" + score.api.actualPlayerMode.toString()
                 }
