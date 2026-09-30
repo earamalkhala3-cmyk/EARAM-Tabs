@@ -167,9 +167,13 @@ class MainActivity : Activity() {
         statusView = status
 
         val scoreLayer = FrameLayout(this).apply { setBackgroundColor(0xFFFFFFFF.toInt()) }
-        val editorOverlay = TabEditOverlayView(this)
+        val editorOverlay = TabEditOverlayView(this).apply {
+            isEnabled = false
+            isClickable = false
+            isFocusable = false
+        }
         scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
-        // Full-page transparent painter for selected-bar and note cursor overlays.
+        // Full-page painter only; disabled so AlphaTab receives all touch gestures.
         scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
         val editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
         noteEditor = editor
@@ -255,6 +259,39 @@ class MainActivity : Activity() {
         contextTools.addView(voiceContext, LinearLayout.LayoutParams(dp(102f), dp(40f)))
         contextTools.addView(selectionContext, LinearLayout.LayoutParams(dp(250f), dp(40f)))
         contextScroll.addView(contextTools, LinearLayout.LayoutParams(-2, dp(44f)))
+
+        val navigationScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF30353A.toInt())
+        }
+        val navigation = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
+        }
+        fun navButton(label: String, action: () -> Unit): Button =
+            Button(this).apply {
+                text = label
+                isAllCaps = false
+                minWidth = 0
+                minimumWidth = 0
+                textSize = 14f
+                setPadding(0, 0, 0, 0)
+                setOnClickListener { action() }
+            }
+        navigation.addView(navButton("←") { editor.moveBeatFromUi(-1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
+        navigation.addView(navButton("↑") { editor.moveStringFromUi(-1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
+        navigation.addView(navButton("↓") { editor.moveStringFromUi(1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
+        navigation.addView(navButton("→") { editor.moveBeatFromUi(1) }, LinearLayout.LayoutParams(dp(52f), dp(40f)))
+        val navHint = TextView(this).apply {
+            text = "BEAT  ← →     STRING  ↑ ↓"
+            textSize = 10f
+            gravity = Gravity.CENTER_VERTICAL
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(dp(10f), 0, dp(10f), 0)
+        }
+        navigation.addView(navHint, LinearLayout.LayoutParams(dp(210f), dp(40f)))
+        navigationScroll.addView(navigation, LinearLayout.LayoutParams(-2, dp(44f)))
 
         val numberScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -496,6 +533,7 @@ class MainActivity : Activity() {
         root.addView(topMenuScroll, LinearLayout.LayoutParams(-1, dp(46f)))
         root.addView(transportScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(contextScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(navigationScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(numberScroll, LinearLayout.LayoutParams(-1, dp(44f)))
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -938,55 +976,90 @@ class MainActivity : Activity() {
     }
 
     private class TabEditOverlayView(context: Context) : View(context) {
-        private val barFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = 0x22FF8A00.toInt()
-        }
-        private val barStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 2f * resources.displayMetrics.density
             color = 0xFFFF8A00.toInt()
         }
-        private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val beatFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = 0x12000000
+        }
+        private val beatLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 3f * resources.displayMetrics.density
+            strokeWidth = 2f * resources.displayMetrics.density
+            color = 0xFFFF5A00.toInt()
+        }
+        private val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2f * resources.displayMetrics.density
             color = 0xFFFF5A00.toInt()
         }
         private val barRect = RectF()
-        private val cursorRect = RectF()
-        private var hasBarSelection = false
-        private var hasCursor = false
+        private val beatRect = RectF()
+        private val noteRect = RectF()
+        private var hasBar = false
+        private var hasBeat = false
+        private var hasNote = false
 
         fun showBarSelection(left: Float, top: Float, width: Float, height: Float) {
-            barRect.set(
-                left.coerceAtLeast(0f),
-                top.coerceAtLeast(0f),
-                (left + width).coerceAtLeast(left + 2f),
-                (top + height).coerceAtLeast(top + 2f)
-            )
-            hasBarSelection = true
+            if (!left.isFinite() || !top.isFinite() || !width.isFinite() || !height.isFinite()) {
+                hasBar = false
+                invalidate()
+                return
+            }
+            // Reject suspicious tiny/origin rectangles: those were the source of the
+            // unexplained orange square in the previous build.
+            if (width < 60f || height < 24f || width > this.width * 1.5f || height > this.height * 1.5f) {
+                hasBar = false
+                invalidate()
+                return
+            }
+            barRect.set(left, top, left + width, top + height)
+            hasBar = true
             invalidate()
         }
 
-        fun showCursor(left: Float, top: Float, width: Float, height: Float) {
-            cursorRect.set(left, top, left + width, top + height)
-            hasCursor = true
+        fun showBeatCursor(centerX: Float, top: Float, bottom: Float) {
+            if (!centerX.isFinite() || !top.isFinite() || !bottom.isFinite() || bottom <= top) {
+                hasBeat = false
+                invalidate()
+                return
+            }
+            val half = maxOf(6f, 8f * resources.displayMetrics.density)
+            beatRect.set(centerX - half, top, centerX + half, bottom)
+            hasBeat = true
+            invalidate()
+        }
+
+        fun showNoteCursor(left: Float, top: Float, width: Float, height: Float) {
+            if (!left.isFinite() || !top.isFinite() || !width.isFinite() || !height.isFinite()) {
+                hasNote = false
+                invalidate()
+                return
+            }
+            val w = width.coerceIn(16f, 64f)
+            val h = height.coerceIn(16f, 64f)
+            noteRect.set(left - 4f, top - 4f, left + w + 4f, top + h + 4f)
+            hasNote = true
             invalidate()
         }
 
         fun hideCursor() {
-            hasCursor = false
+            hasBeat = false
+            hasNote = false
+            hasBar = false
             invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
-            if (hasBarSelection) {
-                canvas.drawRoundRect(barRect, 6f, 6f, barFillPaint)
-                canvas.drawRoundRect(barRect, 6f, 6f, barStrokePaint)
+            super.onDraw(canvas)
+            if (hasBar) canvas.drawRoundRect(barRect, 5f, 5f, barPaint)
+            if (hasBeat) {
+                canvas.drawRoundRect(beatRect, 4f, 4f, beatFillPaint)
+                canvas.drawLine(beatRect.centerX(), beatRect.top, beatRect.centerX(), beatRect.bottom, beatLinePaint)
             }
-            if (hasCursor) {
-                canvas.drawRoundRect(cursorRect, 5f, 5f, cursorPaint)
-            }
+            if (hasNote) canvas.drawRoundRect(noteRect, 4f, 4f, notePaint)
         }
     }
 
@@ -1159,74 +1232,54 @@ class MainActivity : Activity() {
             score.setOnKeyListener(keyHandler)
             score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
 
-            score.api.noteMouseDown.on { note ->
-                val tracks = score.api.score?.tracks?.toList().orEmpty()
-                for ((ti, track) in tracks.withIndex()) {
-                    val staff = track.staves.firstOrNull() ?: continue
-                    val barList = staff.bars.toList()
-                    for (bi in barList.indices) {
-                        val beats = barList[bi].voices.firstOrNull()?.beats?.toList() ?: continue
-                        val index = beats.indexOf(note.beat)
-                        if (index >= 0) {
-                            currentTrackIndex = ti
-                            currentBarIndex = bi
-                            currentBeatIndex = index
-                        // UI numbering is top-to-bottom (1 = thin/high E). AlphaTab is bottom-to-top.
-                        currentStringIndex = (7 - note.string.toInt()).coerceIn(1, maxStringIndex())
-                        armed = true
-                        pendingFret = ""
-                        updateCursor()
-                        score.requestFocus()
-                            onSelectionChanged?.invoke()
-                            break
-                        }
-                    }
-                    if (currentTrackIndex == tracks.indexOf(track)) break
+            score.api.beatMouseDown.on { beat ->
+                try {
+                    val song = score.api.score ?: return@on
+                    val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return@on
+                    val staff = track.staves.firstOrNull() ?: return@on
+                    val bar = beat.voice.bar
+                    val barIndex = staff.bars.toList().indexOf(bar)
+                    val beatIndex = beat.voice.beats.toList().indexOf(beat)
+                    if (barIndex < 0 || beatIndex < 0) return@on
+                    currentBarIndex = barIndex
+                    currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
+                    currentBeatIndex = beatIndex
+                    armed = true
+                    pendingFret = ""
+                    updateCursor()
+                    score.requestFocus()
+                    updateStatus("SELECTED BAR " + (currentBarIndex + 1) +
+                        " • BEAT " + (currentBeatIndex + 1) +
+                        " • STRING " + currentStringIndex)
+                    onSelectionChanged?.invoke()
+                } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_SELECTION", "beat selection failed", t)
                 }
             }
 
-            score.setOnTouchListener { _, event ->
-                if (event.action == android.view.MotionEvent.ACTION_DOWN) {
+            score.api.noteMouseDown.on { note ->
+                try {
+                    val song = score.api.score ?: return@on
+                    val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return@on
+                    val staff = track.staves.firstOrNull() ?: return@on
+                    val bar = note.beat.voice.bar
+                    val barIndex = staff.bars.toList().indexOf(bar)
+                    val beatIndex = note.beat.voice.beats.toList().indexOf(note.beat)
+                    if (barIndex < 0 || beatIndex < 0) return@on
+                    currentBarIndex = barIndex
+                    currentVoiceIndex = note.beat.voice.index.toInt().coerceIn(0, 3)
+                    currentBeatIndex = beatIndex
+                    currentStringIndex = (maxStringIndex() + 1 - note.string.toInt())
+                        .coerceIn(1, maxStringIndex())
                     armed = true
+                    pendingFret = ""
+                    updateCursor()
                     score.requestFocus()
-                    try {
-                        val lookup = score.api.renderer.boundsLookup ?: score.api.boundsLookup
-                        if (lookup != null) {
-                            val x = event.x.toDouble() + score.scrollX.toDouble()
-                            val y = event.y.toDouble() + score.scrollY.toDouble()
-                            val beat = lookup.getBeatAtPos(x, y)
-                                ?: lookup.getBeatAtPos(event.x.toDouble(), event.y.toDouble())
-                            if (beat != null) {
-                                val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)
-                                val staff = track?.staves?.firstOrNull()
-                                if (staff != null) {
-                                    val barIndex = staff.bars.toList().indexOfFirst { bar ->
-                                        bar.voices.toList().any { voice ->
-                                            voice.beats.toList().any { it === beat }
-                                        }
-                                    }
-                                    if (barIndex >= 0) {
-                                        currentBarIndex = barIndex
-                                        val voices = staff.bars.toList()[barIndex].voices.toList()
-                                        val voiceIndex = voices.indexOfFirst { voice -> voice.beats.toList().any { it === beat } }
-                                        if (voiceIndex >= 0) {
-                                            currentVoiceIndex = voiceIndex.coerceAtMost(3)
-                                            currentBeatIndex = voices[voiceIndex].beats.toList().indexOf(beat).coerceAtLeast(0)
-                                        }
-                                        updateCursor()
-                                        updateStatus("SELECTED BAR " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
-                                        onSelectionChanged?.invoke()
-                                    }
-                                }
-                            }
-                        }
-                    } catch (t: Throwable) {
-                        android.util.Log.d("EARAM_SELECTION", "bar hit test skipped: " + (t.message ?: t.javaClass.simpleName))
-                    }
+                    onSelectionChanged?.invoke()
+                } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_SELECTION", "note selection failed", t)
                 }
-                false
             }
-        }
 
         private fun bars(): List<alphaTab.model.Bar>? =
             score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()
@@ -2323,67 +2376,57 @@ class MainActivity : Activity() {
          * The cursor is therefore anchored to the real rendered Beat, not a fake grid.
          */
         fun refreshVisualCursor() {
-            val beat = currentBeat() ?: run { overlay.hideCursor(); return }
+            val beat = currentBeat() ?: run {
+                overlay.hideCursor()
+                return
+            }
             try {
                 val lookup = score.api.renderer.boundsLookup ?: run {
                     overlay.hideCursor()
                     return
-                }
-                val selectedMaster = lookup.findMasterBarByIndex(currentBarIndex.toDouble())
-                if (selectedMaster != null) {
-                    val br = selectedMaster.realBounds
-                    overlay.showBarSelection(
-                        (br.x - score.scrollX).toFloat(),
-                        (br.y - score.scrollY).toFloat(),
-                        br.w.toFloat(),
-                        br.h.toFloat()
-                    )
                 }
                 val bounds = lookup.findBeat(beat) ?: run {
                     overlay.hideCursor()
                     return
                 }
 
+                // Derive the selected bar from the exact BeatBounds that owns the current beat.
+                // This avoids the previous page-origin rectangle problem.
+                val barBounds = bounds.barBounds.realBounds
+                overlay.showBarSelection(
+                    (barBounds.x - score.scrollX).toFloat(),
+                    (barBounds.y - score.scrollY).toFloat(),
+                    barBounds.w.toFloat(),
+                    barBounds.h.toFloat()
+                )
+
+                // AlphaTab places the native beat cursor at BeatBounds.onNotesX.
+                val cursorX = (bounds.onNotesX - score.scrollX).toFloat()
+                overlay.showBeatCursor(
+                    cursorX,
+                    (barBounds.y - score.scrollY).toFloat(),
+                    (barBounds.y + barBounds.h - score.scrollY).toFloat()
+                )
+
                 val targetString = alphaTabString(currentStringIndex)
                 val noteBounds = bounds.notes?.toList()
                     ?.firstOrNull { it.note.string.toInt() == targetString }
-
-                val x: Double
-                val y: Double
-                val size: Double
                 if (noteBounds != null) {
                     val nb = noteBounds.noteHeadBounds
-                    x = nb.x + nb.w / 2.0
-                    y = nb.y + nb.h / 2.0
-                    size = maxOf(nb.w, nb.h, 18.0)
-                } else {
-                    x = bounds.onNotesX
-                    // Empty beat: BeatBounds.barBounds spans the rendered staff region.
-                    // Map UI string 1..N directly onto the TAB staff lines.
-                    val r = bounds.barBounds.realBounds
-                    val strings = maxStringIndex().coerceAtLeast(1)
-                    val spacing = if (strings > 1) r.h / (strings - 1).toDouble() else r.h
-                    y = r.y + (currentStringIndex - 1) * spacing
-                    size = maxOf(spacing * 0.9, 18.0)
+                    overlay.showNoteCursor(
+                        (nb.x - score.scrollX).toFloat(),
+                        (nb.y - score.scrollY).toFloat(),
+                        nb.w.toFloat(),
+                        nb.h.toFloat()
+                    )
                 }
-
-                val left = x - size / 2.0
-                val top = y - size / 2.0
-                overlay.showCursor(
-                    (left - score.scrollX).toFloat(),
-                    (top - score.scrollY).toFloat(),
-                    size.toFloat(),
-                    size.toFloat()
-                )
 
                 android.util.Log.d(
                     "EARAM_CURSOR",
                     "bar=" + (currentBarIndex + 1) +
                         " beat=" + (currentBeatIndex + 1) +
                         " string=" + currentStringIndex +
-                        " x=" + x + " y=" + y +
-                        " source=" + if (noteBounds != null) "noteHeadBounds" else "tabBarBounds" +
-                        " scroll=" + score.scrollX + "," + score.scrollY
+                        " onNotesX=" + bounds.onNotesX
                 )
             } catch (t: Throwable) {
                 android.util.Log.e("EARAM_CURSOR", "cursor calculation failed", t)
