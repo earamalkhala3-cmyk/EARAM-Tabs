@@ -1142,6 +1142,12 @@ class MainActivity : Activity() {
             private set
         private var copiedFret: Int? = null
         private var copiedBar: Bar? = null
+        var onSelectionChanged: (() -> Unit)? = null
+
+        private fun pushUndoSnapshot() {
+            // Reserved internal hook. Full-score snapshot serialization is not available
+            // in AlphaTab Android 1.8.4, so no fake undo state is exposed in the UI.
+        }
 
         private fun pushUndoSnapshot() {
             // Intentionally empty on Android AlphaTab 1.8.4: no supported full-score serializer.
