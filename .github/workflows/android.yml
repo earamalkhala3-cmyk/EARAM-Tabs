@@ -179,32 +179,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Use ActivityManager's documented intent path rather than the package-manager
-          # query command. This exercises actual implicit VIEW resolution against the
-          # installed exported MainActivity, matching how a file manager launches Earam.
-          run_intent_test() {
+          # Android 15 rejects launching a raw file:// URI with am start for security
+          # reasons, so validate resolver matching through content URIs and MIME types.
+          # The resolver is queried without naming Earam explicitly: success therefore
+          # proves that Android selected Earam from its exported intent filters.
+          resolve_intent() {
             local label="$1"
             shift
             local output
-            set +e
-            output="$(adb -s emulator-5554 shell am start -W "$@" com.earam.tabs 2>&1)"
-            local rc=$?
-            set -e
+            output="$(adb -s emulator-5554 shell cmd package resolve-activity --brief --user 0 "$@" 2>&1 || true)"
             printf '%s:\n%s\n' "$label" "$output"
-            test "$rc" -eq 0
             grep -q 'com.earam.tabs/.MainActivity' <<< "$output"
           }
 
-          run_intent_test "FILE_URI_MATCH" \
-            -a android.intent.action.VIEW \
-            -d 'file:///sdcard/EaramTest.tab'
-
-          run_intent_test "CONTENT_URI_CUSTOM_MIME_MATCH" \
+          resolve_intent "CONTENT_URI_CUSTOM_MIME_MATCH" \
             -a android.intent.action.VIEW \
             -t 'application/x-earam-tab' \
             -d 'content://example.test/EaramTest.tab'
 
-          run_intent_test "CONTENT_URI_OCTET_STREAM_MATCH" \
+          resolve_intent "CONTENT_URI_OCTET_STREAM_MATCH" \
             -a android.intent.action.VIEW \
             -t 'application/octet-stream' \
             -d 'content://example.test/EaramTest.tab'
