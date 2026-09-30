@@ -58,6 +58,16 @@ data class BeatHit(
     val virtual: Boolean = false
 )
 
+data class BeatHitBeatHitBarMeta(
+    val measure: Int,
+    val bar: Bar,
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float,
+    val system: Int
+)
+
 class MainActivity : ComponentActivity() {
     private var projectName = "Music Home"
     private var instrument = "Guitar"
@@ -1723,16 +1733,6 @@ class MainActivity : ComponentActivity() {
         private val beatHits = mutableListOf<BeatHit>()
         private var stringSpacing: Float = 10f
 
-        private data class BarMeta(
-            val measure: Int,
-            val bar: Bar,
-            val x: Float,
-            val y: Float,
-            val w: Float,
-            val h: Float,
-            val system: Int
-        )
-
         private fun buildBeatHits() {
             beatHits.clear()
             val lookup = score.api.renderer.boundsLookup ?: return
@@ -1744,7 +1744,7 @@ class MainActivity : ComponentActivity() {
 
             data class NoteGeom(val system: Int, val y: Float, val uiString: Int)
             val noteGeoms = mutableListOf<NoteGeom>()
-            val barMeta = mutableListOf<BarMeta>()
+            val barMeta = mutableListOf<BeatHitBarMeta>()
 
             for ((mi, bar) in bars.withIndex()) {
                 val master = song.masterBars.toList().getOrNull(mi) ?: continue
