@@ -38,7 +38,6 @@ import alphaTab.model.Score
 import alphaTab.model.Automation
 import alphaTab.model.KeySignature
 import alphaTab.model.KeySignatureType
-import alphaTab.model.JsonConverter
 
 class MainActivity : Activity() {
     private var projectName = "Music Home"
@@ -1372,10 +1371,10 @@ class MainActivity : Activity() {
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
                     val lyrics = alphaTab.model.Lyrics()
-                    lyrics.startBar = ((start.text.toString().toIntOrNull() ?: 1) - 1).coerceAtLeast(0)
+                    lyrics.startBar = ((start.text.toString().toIntOrNull() ?: 1) - 1).coerceAtLeast(0).toDouble()
                     lyrics.text = raw.text.toString()
                     lyrics.finish(true)
-                    track.applyLyrics(arrayOf(lyrics))
+                    track.applyLyrics(listOf(lyrics))
                     score.api.score?.finish(score.settings)
                     score.api.render()
                     updateStatus("Lyrics updated")
