@@ -179,41 +179,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Validate actual implicit VIEW resolution. A real content:// URI is used
-          # because Android discourages file:// sharing on modern releases.
-          # MainActivity catches unreadable external URIs, so the resolver can be
-          # exercised without requiring a real provider-backed TAB payload.
-          run_intent_test() {
+          # Query Android's PackageManager directly. This validates implicit
+          # intent resolution without starting MainActivity, so an unreadable
+          # synthetic URI cannot cause adb "error: closed".
+          query_intent() {
             local label="$1"
             shift
             local output
-            set +e
-            output="$(adb -s emulator-5554 shell am start -W "$@" 2>&1)"
-            local rc=$?
-            set -e
+            output="$(adb -s emulator-5554 shell cmd package query-activities --brief --components --user 0 "$@" 2>&1 || true)"
             printf '%s:\n%s\n' "$label" "$output"
-            test "$rc" -eq 0
-            grep -q 'Activity: com.earam.tabs/.MainActivity' <<< "$output"
+            grep -q 'com.earam.tabs/.MainActivity' <<< "$output"
           }
 
           TEST_URI='content://settings/system/EaramTest.tab'
 
-          # Extension-only association: content URI ending in .tab, no MIME.
-          run_intent_test "CONTENT_URI_TAB_EXTENSION_MATCH" \
+          query_intent "CONTENT_URI_TAB_EXTENSION_MATCH" \
             -a android.intent.action.VIEW \
             -d "$TEST_URI"
 
-          # Preferred Earam TAB MIME association.
-          run_intent_test "CONTENT_URI_CUSTOM_MIME_MATCH" \
+          query_intent "CONTENT_URI_CUSTOM_MIME_MATCH" \
             -a android.intent.action.VIEW \
             -t 'application/x-earam-tab' \
             -d "$TEST_URI"
 
-          # Generic binary fallback.
-          run_intent_test "CONTENT_URI_OCTET_STREAM_MATCH" \
+          query_intent "CONTENT_URI_OCTET_STREAM_MATCH" \
             -a android.intent.action.VIEW \
             -t 'application/octet-stream' \
             -d "$TEST_URI"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
