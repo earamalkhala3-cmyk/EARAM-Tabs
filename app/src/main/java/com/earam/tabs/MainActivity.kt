@@ -99,29 +99,115 @@ class MainActivity : Activity() {
     private fun showAlphaTabEditor() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFFD7D9DC.toInt())
+            setBackgroundColor(0xFF17191C.toInt())
         }
 
-        val title = TextView(this).apply {
-            text = projectName
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 15f
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10f), 0, dp(12f), 0)
-            setBackgroundColor(0xFF191C1F.toInt())
+        fun surface(color: Int, radius: Float = 0f): android.graphics.drawable.GradientDrawable =
+            android.graphics.drawable.GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = dp(radius)
+            }
+
+        fun iconButton(symbol: String, description: String, size: Float = 46f): TextView =
+            TextView(this).apply {
+                text = symbol
+                contentDescription = description
+                setTextColor(0xFFF3F0E8.toInt())
+                textSize = 21f
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                background = surface(0xFF24272B.toInt(), 10f)
+                setPadding(0, 0, 0, 0)
+            }
+
+        fun labelView(textValue: String, size: Float = 11f): TextView =
+            TextView(this).apply {
+                text = textValue
+                setTextColor(0xFFB9BABD.toInt())
+                textSize = size
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+        fun panelButton(textValue: String, description: String? = null): TextView =
+            TextView(this).apply {
+                text = textValue
+                if (description != null) contentDescription = description
+                setTextColor(0xFFF3F0E8.toInt())
+                textSize = 14f
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16f), 0, dp(16f), 0)
+                background = surface(0xFF25282C.toInt(), 12f)
+                isClickable = true
+                isFocusable = true
+            }
+
+        // Compact Earam bottom sheet: replaces the generic Android AlertDialog look for editor menus.
+        fun showPanel(titleText: String, items: List<Pair<String, () -> Unit>>) {
+            val dialog = android.app.Dialog(this)
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12f), dp(10f), dp(12f), dp(12f))
+                background = surface(0xFF202327.toInt(), 20f)
+            }
+            val titleRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(6f), 0, dp(4f), dp(8f))
+            }
+            val titleTextView = TextView(this).apply {
+                text = titleText
+                setTextColor(0xFFF3F0E8.toInt())
+                textSize = 16f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val close = iconButton("×", "Close", 40f).apply {
+                textSize = 22f
+                background = surface(0x00303030, 10f)
+                setOnClickListener { dialog.dismiss() }
+            }
+            titleRow.addView(titleTextView, LinearLayout.LayoutParams(0, dp(40f), 1f))
+            titleRow.addView(close, LinearLayout.LayoutParams(dp(40f), dp(40f)))
+            container.addView(titleRow)
+
+            items.forEach { (textValue, action) ->
+                val item = panelButton(textValue)
+                item.setOnClickListener {
+                    dialog.dismiss()
+                    action()
+                }
+                container.addView(item, LinearLayout.LayoutParams(-1, dp(48f)).apply {
+                    bottomMargin = dp(6f)
+                })
+            }
+            dialog.setContentView(container)
+            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+            dialog.setOnShowListener {
+                dialog.window?.apply {
+                    setLayout(-1, WindowManager.LayoutParams.WRAP_CONTENT)
+                    setGravity(Gravity.BOTTOM)
+                    addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                    attributes = attributes.apply { dimAmount = 0.52f }
+                }
+            }
+            dialog.show()
+            dialog.window?.apply {
+                setLayout(-1, WindowManager.LayoutParams.WRAP_CONTENT)
+                setGravity(Gravity.BOTTOM)
+            }
         }
 
-        // Internal Earam branding: text is deliberately rendered as Android text so the
-        // exact spelling and orange center r remain visible on every density/device.
-        val brandBar = LinearLayout(this).apply {
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(0xFF191C1F.toInt())
-            setPadding(dp(10f), 0, dp(10f), 0)
+            setPadding(dp(16f), dp(8f), dp(10f), dp(8f))
+            setBackgroundColor(0xFF151719.toInt())
         }
+
         val brand = TextView(this).apply {
             text = "Ea"
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFFF3F0E8.toInt())
             textSize = 23f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
@@ -133,27 +219,261 @@ class MainActivity : Activity() {
         }
         val brandEnd = TextView(this).apply {
             text = "am"
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFFF3F0E8.toInt())
             textSize = 23f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
-        brandBar.addView(brand, LinearLayout.LayoutParams(-2, dp(50f)))
-        brandBar.addView(brandR, LinearLayout.LayoutParams(-2, dp(50f)))
-        brandBar.addView(brandEnd, LinearLayout.LayoutParams(-2, dp(50f)))
-        brandBar.addView(title, LinearLayout.LayoutParams(0, dp(50f), 1f))
+        val brandWrap = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        brandWrap.addView(brand, LinearLayout.LayoutParams(-2, dp(32f)))
+        brandWrap.addView(brandR, LinearLayout.LayoutParams(-2, dp(32f)))
+        brandWrap.addView(brandEnd, LinearLayout.LayoutParams(-2, dp(32f)))
 
-        val status = TextView(this).apply {
-            text = "Open a GP3 / GP4 / GP5 / GPX file to load its Score."
-            setTextColor(0xFFFFFFFF.toInt())
+        val title = TextView(this).apply {
+            text = projectName
+            setTextColor(0xFFBFC0C2.toInt())
             textSize = 12f
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), 0, dp(12f), 0)
-            setBackgroundColor(0xFF25292D.toInt())
+            setPadding(dp(12f), dp(3f), 0, 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        titleView = title
+
+        val overflow = iconButton("⋮", "Open Earam menu", 42f).apply {
+            textSize = 24f
+            setOnClickListener {
+                showPanel("EARAM", listOf(
+                    "File" to { showFileMenu() },
+                    "Edit" to { showPanel("EDIT", listOf(
+                        "Copy note" to { editor.copyCurrentNoteFromUi() },
+                        "Paste note" to { editor.pasteCurrentNoteFromUi() },
+                        "Delete note" to { editor.deleteCurrentNoteFromUi() }
+                    )) },
+                    "Track" to { showPanel("TRACK", listOf(
+                        "Select track" to { editor.showTrackSelectorDialog() },
+                        "Add track" to { addTrackDialog() },
+                        "Track mixer" to { editor.showTrackMixerDialog() }
+                    )) },
+                    "Bar" to { showPanel("BAR", listOf(
+                        "Select / go to bar" to { editor.showBarSelectionDialog() },
+                        "Bar tools" to { editor.showBarToolsDialog() },
+                        "+ Measure" to { editor.addMeasureFromUi() },
+                        "Duplicate bar" to { editor.duplicateCurrentBarToEndFromUi() },
+                        "Clear bar" to { editor.clearCurrentBarFromUi() },
+                        "Delete bar" to { editor.deleteCurrentBarFromUi() },
+                        "Time / key" to { editor.showTimelineDialog() }
+                    )) },
+                    "Note & effects" to { showPanel("NOTE", listOf(
+                        "Play current beat" to { editor.playCurrentBeatFromUi() },
+                        "Duration" to { editor.showDurationDialog() },
+                        "Tuplet" to { editor.showTupletDialog() },
+                        "Effects" to { editor.showNoteEffectsDialog() },
+                        "Bend" to { editor.showBendDialog() },
+                        "Pick stroke" to { editor.showPickStrokeDialog() },
+                        "Rest / delete" to { editor.makeCurrentRestFromUi() }
+                    )) },
+                    "View" to { showPanel("VIEW", listOf(
+                        "Score + TAB" to { score.settings.display.staveProfile = StaveProfile.ScoreTab; score.api.updateSettings(); score.api.render() },
+                        "TAB only" to { score.settings.display.staveProfile = StaveProfile.Tab; score.api.updateSettings(); score.api.render() },
+                        "Score only" to { score.settings.display.staveProfile = StaveProfile.Score; score.api.updateSettings(); score.api.render() },
+                        "Zoom 72%" to { score.settings.display.scale = 0.72; score.api.updateSettings(); score.api.render() },
+                        "Zoom 85%" to { score.settings.display.scale = 0.85; score.api.updateSettings(); score.api.render() },
+                        "Zoom 100%" to { score.settings.display.scale = 1.0; score.api.updateSettings(); score.api.render() }
+                    )) }
+                ))
+            }
         }
 
+        header.addView(brandWrap, LinearLayout.LayoutParams(-2, dp(42f)))
+        header.addView(title, LinearLayout.LayoutParams(0, dp(42f), 1f))
+        header.addView(overflow, LinearLayout.LayoutParams(dp(42f), dp(42f)))
+
+        val status = TextView(this).apply {
+            text = "Ready • $bpm BPM • $timeSig"
+            setTextColor(0xFF8F9296.toInt())
+            textSize = 10f
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16f), 0, dp(16f), 0)
+            setBackgroundColor(0xFF1C1F22.toInt())
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        statusView = status
+
+        val transport = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
+            setBackgroundColor(0xFF202327.toInt())
+        }
+        val play = iconButton("▶", "Play / Pause").apply {
+            textSize = 20f
+            setOnClickListener {
+                if (score.api.isReadyForPlayback) score.api.playPause()
+                else status.text = "Player is preparing…"
+            }
+        }
+        val stop = iconButton("■", "Stop").apply {
+            textSize = 16f
+            setOnClickListener { score.api.stop() }
+        }
+        val rewind = iconButton("↶", "Previous / rewind").apply {
+            textSize = 20f
+            setOnClickListener { editor.moveBeatFromUi(-1) }
+        }
+        val forward = iconButton("↷", "Next / forward").apply {
+            textSize = 20f
+            setOnClickListener { editor.moveBeatFromUi(1) }
+        }
+        val speed = TextView(this).apply {
+            text = "1×"
+            contentDescription = "Playback speed"
+            setTextColor(0xFFF3F0E8.toInt())
+            textSize = 13f
+            gravity = Gravity.CENTER
+            background = surface(0xFF2A2D31.toInt(), 10f)
+            isClickable = true
+            setOnClickListener {
+                showPanel("PLAYBACK SPEED", listOf(
+                    "0.5×" to { score.api.playbackSpeed = 0.50; text = "0.5×" },
+                    "0.75×" to { score.api.playbackSpeed = 0.75; text = "0.75×" },
+                    "1×" to { score.api.playbackSpeed = 1.00; text = "1×" },
+                    "1.25×" to { score.api.playbackSpeed = 1.25; text = "1.25×" },
+                    "1.5×" to { score.api.playbackSpeed = 1.50; text = "1.5×" }
+                ))
+            }
+        }
+
+        transport.addView(rewind, LinearLayout.LayoutParams(dp(42f), dp(42f)))
+        transport.addView(play, LinearLayout.LayoutParams(dp(48f), dp(42f)).apply { leftMargin = dp(3f); rightMargin = dp(3f) })
+        transport.addView(stop, LinearLayout.LayoutParams(dp(42f), dp(42f)))
+        transport.addView(speed, LinearLayout.LayoutParams(dp(54f), dp(34f)).apply { leftMargin = dp(10f); rightMargin = dp(10f) })
+        transport.addView(forward, LinearLayout.LayoutParams(dp(42f), dp(42f)))
+
+        val context = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16f), 0, dp(16f), 0)
+            setBackgroundColor(0xFF292C30.toInt())
+        }
+        val selection = TextView(this).apply {
+            text = "Bar 1  ·  Beat 1  ·  String —  ·  Fret —"
+            setTextColor(0xFFD7D5CE.toInt())
+            textSize = 11f
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        val track = TextView(this).apply {
+            text = "♫ 1"
+            setTextColor(0xFFFF8A00.toInt())
+            textSize = 12f
+            gravity = Gravity.CENTER
+            isClickable = true
+            contentDescription = "Select track"
+            setOnClickListener { editor.showTrackSelectorDialog() }
+        }
+        val voice = TextView(this).apply {
+            text = "V1"
+            setTextColor(0xFFB9BABD.toInt())
+            textSize = 11f
+            gravity = Gravity.CENTER
+            isClickable = true
+            contentDescription = "Select voice"
+            setOnClickListener { editor.showVoiceSelectorDialog() }
+        }
+        context.addView(track, LinearLayout.LayoutParams(dp(42f), dp(38f)))
+        context.addView(voice, LinearLayout.LayoutParams(dp(40f), dp(38f)))
+        context.addView(selection, LinearLayout.LayoutParams(0, dp(38f), 1f))
+
+        val navigation = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            setBackgroundColor(0xFF24272B.toInt())
+        }
+        fun nav(symbol: String, description: String, action: () -> Unit): TextView =
+            iconButton(symbol, description, 42f).apply {
+                setOnClickListener { action() }
+            }
+        navigation.addView(nav("←", "Previous beat") { editor.moveBeatFromUi(-1) })
+        navigation.addView(nav("↑", "Previous string") { editor.moveStringFromUi(-1) })
+        navigation.addView(nav("↓", "Next string") { editor.moveStringFromUi(1) })
+        navigation.addView(nav("→", "Next beat") { editor.moveBeatFromUi(1) })
+
+        // Contextual editing strip. Digits are hidden until fret-entry mode is requested.
+        val editingStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8f), dp(5f), dp(8f), dp(5f))
+            setBackgroundColor(0xFF191B1E.toInt())
+        }
+
+        fun duration(symbol: String, name: String): TextView =
+            TextView(this).apply {
+                text = symbol
+                contentDescription = name
+                setTextColor(0xFFF3F0E8.toInt())
+                textSize = 22f
+                gravity = Gravity.CENTER
+                background = surface(0xFF25282C.toInt(), 9f)
+                isClickable = true
+                setOnClickListener { editor.showDurationDialog() }
+            }
+
+        listOf(
+            duration("𝅝", "Whole note"),
+            duration("𝅗𝅥", "Half note"),
+            duration("♩", "Quarter note"),
+            duration("♪", "Eighth note"),
+            duration("𝅘𝅥𝅮", "Sixteenth note"),
+            duration("𝅘𝅥𝅯", "Thirty-second note")
+        ).forEach { editingStrip.addView(it, LinearLayout.LayoutParams(0, dp(42f), 1f).apply {
+            leftMargin = dp(2f); rightMargin = dp(2f)
+        }) }
+
+        val editMore = iconButton("⋯", "More note tools", 42f).apply {
+            textSize = 22f
+            setOnClickListener {
+                showPanel("NOTE TOOLS", listOf(
+                    "Dotted" to { status.text = "Dotted duration mode" },
+                    "3 Triplet" to { status.text = "Triplet duration mode" },
+                    "↓ Downstroke" to { editor.showPickStrokeDialog() },
+                    "↑ Upstroke" to { editor.showPickStrokeDialog() },
+                    "Effects" to { editor.showNoteEffectsDialog() },
+                    "Bend / Vibrato / Slide" to { editor.showBendDialog() }
+                ))
+            }
+        }
+        editingStrip.addView(editMore, LinearLayout.LayoutParams(dp(46f), dp(42f)))
+
+        val fretDigits = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            setBackgroundColor(0xFF202327.toInt())
+        }
+        for (digit in 0..9) {
+            val d = TextView(this).apply {
+                text = digit.toString()
+                setTextColor(0xFFF3F0E8.toInt())
+                textSize = 15f
+                gravity = Gravity.CENTER
+                background = surface(0xFF2A2D31.toInt(), 8f)
+                isClickable = true
+                setOnClickListener { editor.enterDigitFromUi(digit) }
+            }
+            fretDigits.addView(d, LinearLayout.LayoutParams(0, dp(38f), 1f).apply {
+                leftMargin = dp(1f); rightMargin = dp(1f)
+            })
+        }
 
         val score = AlphaTabView(this, null).apply {
-            setBackgroundColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xFFFFFEFB.toInt())
             settings.display.layoutMode = LayoutMode.Page
             settings.display.staveProfile = StaveProfile.ScoreTab
             settings.display.barsPerRow = 2.0
@@ -175,314 +495,24 @@ class MainActivity : Activity() {
 
         alphaTabView = score
         statusView = status
-        titleView = title
-
-        val scoreLayer = FrameLayout(this).apply { setBackgroundColor(0xFFFFFFFF.toInt()) }
+        val scoreLayer = FrameLayout(this).apply { setBackgroundColor(0xFFFFFEFB.toInt()) }
         val editorOverlay = TabEditOverlayView(this).apply {
             isEnabled = false
             isClickable = false
             isFocusable = false
         }
         scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
-        // Full-page painter only; disabled so AlphaTab receives all touch gestures.
         scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
         val editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
         noteEditor = editor
         editor.attach()
 
-        // PROFESSIONAL UI LAYOUT
-        // Keep playback visible; move editing features into category windows like FILE.
-        val topMenuScroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(0xFF202428.toInt())
-        }
-        val topMenus = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4f), dp(3f), dp(4f), dp(3f))
-        }
-
-        fun control(label: String): Button = Button(this).apply {
-            text = label
-            isAllCaps = false
-            minWidth = 0
-            minimumWidth = 0
-            setPadding(dp(6f), 0, dp(6f), 0)
-            textSize = 11f
-        }
-
-        fun menuButton(icon: String, label: String): Button = control(icon + "  " + label).apply {
-            textSize = 10f
-            contentDescription = label
-        }
-
-        val file = menuButton("☰", "FILE")
-        val playbackMenu = menuButton("▶", "PLAYBACK")
-        val editMenu = menuButton("✎", "EDIT")
-        val trackMenu = menuButton("♫", "TRACK")
-        val barMenu = menuButton("▣", "BAR")
-        val noteMenu = menuButton("♪", "NOTE")
-        val beatMenu = menuButton("♬", "BEAT")
-        val viewMenu = menuButton("◉", "VIEW")
-        listOf(file, playbackMenu, editMenu, trackMenu, barMenu, noteMenu, beatMenu, viewMenu).forEach {
-            topMenus.addView(it, LinearLayout.LayoutParams(dp(74f), dp(38f)))
-        }
-        topMenuScroll.addView(topMenus, LinearLayout.LayoutParams(-2, dp(46f)))
-
-        val transportScroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(0xFF25292D.toInt())
-        }
-        val transport = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
-        }
-        val play = control("▶").apply {
-            textSize = 19f
-            contentDescription = "Play / Pause"
-            setPadding(0, 0, 0, 0)
-        }
-        val stop = control("■").apply {
-            textSize = 16f
-            contentDescription = "Stop"
-            setPadding(0, 0, 0, 0)
-        }
-        val speedButton = control("1×").apply {
-            textSize = 12f
-            contentDescription = "Playback speed"
-            setPadding(0, 0, 0, 0)
-        }
-        val selectedBarButton = control("B1").apply {
-            textSize = 11f
-            contentDescription = "Selected bar"
-        }
-        transport.addView(play, LinearLayout.LayoutParams(dp(46f), dp(38f)))
-        transport.addView(stop, LinearLayout.LayoutParams(dp(46f), dp(38f)))
-        transport.addView(speedButton, LinearLayout.LayoutParams(dp(54f), dp(38f)))
-        transport.addView(selectedBarButton, LinearLayout.LayoutParams(dp(66f), dp(38f)))
-        transportScroll.addView(transport, LinearLayout.LayoutParams(-2, dp(42f)))
-
-        val contextScroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(0xFF30353A.toInt())
-        }
-        val contextTools = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
-        }
-        val trackContext = control("♫1").apply {
-            textSize = 13f
-            contentDescription = "Select track"
-        }
-        val voiceContext = control("V1").apply {
-            textSize = 12f
-            contentDescription = "Select voice"
-        }
-        val selectionContext = TextView(this).apply {
-            text = "B1 · S1 · F—"
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 11f
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10f), 0, dp(10f), 0)
-            setBackgroundColor(0xFF30353A.toInt())
-        }
-        contextTools.addView(trackContext, LinearLayout.LayoutParams(dp(48f), dp(36f)))
-        contextTools.addView(voiceContext, LinearLayout.LayoutParams(dp(46f), dp(36f)))
-        contextTools.addView(selectionContext, LinearLayout.LayoutParams(dp(132f), dp(36f)))
-        contextScroll.addView(contextTools, LinearLayout.LayoutParams(-2, dp(40f)))
-
-        val navigationScroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(0xFF30353A.toInt())
-        }
-        val navigation = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
-        }
-        fun navButton(label: String, action: () -> Unit): Button =
-            Button(this).apply {
-                text = label
-                isAllCaps = false
-                minWidth = 0
-                minimumWidth = 0
-                textSize = 14f
-                setPadding(0, 0, 0, 0)
-                setOnClickListener { action() }
-            }
-        navigation.addView(navButton("←") { editor.moveBeatFromUi(-1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
-        navigation.addView(navButton("↑") { editor.moveStringFromUi(-1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
-        navigation.addView(navButton("↓") { editor.moveStringFromUi(1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
-        navigation.addView(navButton("→") { editor.moveBeatFromUi(1) }, LinearLayout.LayoutParams(dp(40f), dp(36f)))
-        navigationScroll.addView(navigation, LinearLayout.LayoutParams(-2, dp(40f)))
-
-        val numberScroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(0xFF25292D.toInt())
-        }
-        val numbers = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
-        }
-        for (digit in 0..9) {
-            val button = Button(this).apply {
-                text = digit.toString()
-                isAllCaps = false
-                minWidth = 0
-                minimumWidth = 0
-                textSize = 15f
-                setPadding(0, 0, 0, 0)
-                setOnClickListener { editor.enterDigitFromUi(digit) }
-            }
-            numbers.addView(button, LinearLayout.LayoutParams(dp(36f), dp(36f)))
-        }
-        numberScroll.addView(numbers, LinearLayout.LayoutParams(-2, dp(40f)))
-
-        fun showMenu(titleText: String, labels: Array<String>, action: (Int) -> Unit) {
-            AlertDialog.Builder(this)
-                .setTitle(titleText)
-                .setItems(labels) { _, which -> action(which) }
-                .show()
-        }
-
-        fun refreshTrackButtons() {
-            trackContext.text = "♫" + (editor.currentTrackIndex + 1)
-        }
         fun refreshSelectionInfo() {
-            selectionContext.text = editor.selectionInfoText()
-            selectedBarButton.text = "B" + (editor.selectedBarIndex + 1)
-            voiceContext.text = "V" + (editor.currentVoiceIndex + 1)
-            trackContext.text = "♫" + (editor.currentTrackIndex + 1)
+            selection.text = editor.selectionInfoText()
+            track.text = "♫ " + (editor.currentTrackIndex + 1)
+            voice.text = "V" + (editor.currentVoiceIndex + 1)
         }
-        editor.onSelectionChanged = {
-            refreshSelectionInfo()
-        }
-
-        file.setOnClickListener { showFileMenu() }
-
-        playbackMenu.setOnClickListener {
-            showMenu("PLAYBACK", arrayOf("PLAY / PAUSE", "STOP", "0.5×", "0.75×", "1×", "1.25×", "1.5×", "PLAYER STATUS")) { which ->
-                when (which) {
-                    0 -> if (score.api.isReadyForPlayback) score.api.playPause()
-                        else status.text = "Player is preparing…"
-                    1 -> score.api.stop()
-                    2 -> { score.api.playbackSpeed = 0.50; speedButton.text = "0.5×" }
-                    3 -> { score.api.playbackSpeed = 0.75; speedButton.text = "0.75×" }
-                    4 -> { score.api.playbackSpeed = 1.00; speedButton.text = "1×" }
-                    5 -> { score.api.playbackSpeed = 1.25; speedButton.text = "1.25×" }
-                    6 -> { score.api.playbackSpeed = 1.50; speedButton.text = "1.5×" }
-                    7 -> status.text = "Ready=" + score.api.isReadyForPlayback +
-                        " • Player=" + score.api.actualPlayerMode.toString()
-                }
-            }
-        }
-
-        speedButton.setOnClickListener {
-            showMenu("PLAYBACK SPEED", arrayOf("0.5×", "0.75×", "1×", "1.25×", "1.5×")) { which ->
-                val value = when (which) {
-                    0 -> 0.50
-                    1 -> 0.75
-                    2 -> 1.00
-                    3 -> 1.25
-                    else -> 1.50
-                }
-                score.api.playbackSpeed = value
-                speedButton.text = when (which) {
-                    0 -> "0.5×"
-                    1 -> "0.75×"
-                    2 -> "1×"
-                    3 -> "1.25×"
-                    else -> "1.5×"
-                }
-            }
-        }
-        play.setOnClickListener {
-            if (score.api.isReadyForPlayback) score.api.playPause()
-            else status.text = "Player is preparing…"
-        }
-        stop.setOnClickListener { score.api.stop() }
-
-        editMenu.setOnClickListener {
-            showMenu("EDIT", arrayOf("COPY NOTE", "PASTE NOTE", "DELETE NOTE", "ARROW NAVIGATION")) { which ->
-                when (which) {
-                    0 -> editor.copyCurrentNoteFromUi()
-                    1 -> editor.pasteCurrentNoteFromUi()
-                    2 -> editor.deleteCurrentNoteFromUi()
-                    3 -> status.text = "← → Beat • ↑ ↓ String • Selected Bar stays independent"
-                }
-            }
-        }
-
-        trackMenu.setOnClickListener {
-            showMenu("TRACK", arrayOf("SELECT TRACK", "ADD TRACK", "TRACK MIXER")) { which ->
-                when (which) {
-                    0 -> editor.showTrackSelectorDialog()
-                    1 -> addTrackDialog()
-                    2 -> editor.showTrackMixerDialog()
-                }
-            }
-        }
-
-        barMenu.setOnClickListener {
-            showMenu("BAR • SELECTED BAR " + (editor.selectedBarIndex + 1),
-                arrayOf("SELECT / GO TO BAR", "BAR TOOLS", "+ MEASURE", "DUPLICATE BAR", "CLEAR BAR", "DELETE BAR", "TIME / KEY")) { which ->
-                when (which) {
-                    0 -> editor.showBarSelectionDialog()
-                    1 -> editor.showBarToolsDialog()
-                    2 -> editor.addMeasureFromUi()
-                    3 -> editor.duplicateCurrentBarToEndFromUi()
-                    4 -> editor.clearCurrentBarFromUi()
-                    5 -> editor.deleteCurrentBarFromUi()
-                    6 -> editor.showTimelineDialog()
-                }
-            }
-        }
-
-        noteMenu.setOnClickListener {
-            showMenu("NOTE", arrayOf("PLAY CURRENT BEAT", "DURATION", "TUPLET", "EFFECTS", "BEND", "PICK STROKE", "REST / DELETE")) { which ->
-                when (which) {
-                    0 -> editor.playCurrentBeatFromUi()
-                    1 -> editor.showDurationDialog()
-                    2 -> editor.showTupletDialog()
-                    3 -> editor.showNoteEffectsDialog()
-                    4 -> editor.showBendDialog()
-                    5 -> editor.showPickStrokeDialog()
-                    6 -> editor.makeCurrentRestFromUi()
-                }
-            }
-        }
-
-        beatMenu.setOnClickListener {
-            showMenu("BEAT", arrayOf("BEAT EFFECTS", "TIE", "REST", "COPY BAR", "PASTE BAR")) { which ->
-                when (which) {
-                    0 -> editor.showBeatEffectsDialog()
-                    1 -> editor.toggleTieFromUi()
-                    2 -> editor.makeCurrentRestFromUi()
-                    3 -> editor.copyCurrentBarFromUi()
-                    4 -> editor.pasteBarToCurrentFromUi()
-                }
-            }
-        }
-
-        viewMenu.setOnClickListener {
-            showMenu("VIEW", arrayOf("SCORE + TAB", "TAB ONLY", "SCORE ONLY", "ZOOM 72%", "ZOOM 85%", "ZOOM 100%")) { which ->
-                when (which) {
-                    0 -> { score.settings.display.staveProfile = StaveProfile.ScoreTab; score.settings.display.scale = 0.72; score.api.updateSettings(); score.api.render() }
-                    1 -> { score.settings.display.staveProfile = StaveProfile.Tab; score.settings.display.scale = 0.72; score.api.updateSettings(); score.api.render() }
-                    2 -> { score.settings.display.staveProfile = StaveProfile.Score; score.settings.display.scale = 0.72; score.api.updateSettings(); score.api.render() }
-                    3 -> { score.settings.display.scale = 0.72; score.api.updateSettings(); score.api.render() }
-                    4 -> { score.settings.display.scale = 0.85; score.api.updateSettings(); score.api.render() }
-                    5 -> { score.settings.display.scale = 1.0; score.api.updateSettings(); score.api.render() }
-                }
-            }
-        }
-
-        trackContext.setOnClickListener { editor.showTrackSelectorDialog() }
-        voiceContext.setOnClickListener { editor.showVoiceSelectorDialog() }
-        selectedBarButton.setOnClickListener { editor.showBarSelectionDialog() }
+        editor.onSelectionChanged = { refreshSelectionInfo() }
 
         score.api.postRenderFinished.on {
             runOnUiThread {
@@ -500,24 +530,17 @@ class MainActivity : Activity() {
             runOnUiThread {
                 title.text = projectName
                 status.text = "Score loaded • preparing playback"
-                refreshTrackButtons()
                 refreshSelectionInfo()
             }
             noteEditor?.syncSelectedBarHighlight()
-            try {
-                score.api.loadMidiForScore()
-            } catch (t: Throwable) {
+            try { score.api.loadMidiForScore() } catch (t: Throwable) {
                 android.util.Log.e("EARAM_PLAYER", "loadMidiForScore after scoreLoaded failed", t)
-                runOnUiThread {
-                    status.text = "MIDI preparation failed • " + (t.message ?: t.javaClass.simpleName)
-                }
+                runOnUiThread { status.text = "MIDI preparation failed • " + (t.message ?: t.javaClass.simpleName) }
             }
         }
 
         score.api.error.on { error ->
-            runOnUiThread {
-                status.text = "AlphaTab error: " + (error.message ?: "unknown")
-            }
+            runOnUiThread { status.text = "AlphaTab error: " + (error.message ?: "unknown") }
         }
 
         score.api.soundFontLoaded.on {
@@ -528,49 +551,34 @@ class MainActivity : Activity() {
 
         score.api.playerReady.on {
             playerEngineReady = true
-            // AlphaTab 1.8.4 Android reports playerReady only after audio output,
-            // SoundFont and MIDI are ready. Do not inject or replace the bundled SoundFont.
             soundFontLoaded = true
             soundFontLoading = false
-            android.util.Log.i(
-                "EARAM_PLAYER",
-                "playerReady=true; readyForPlayback=" + score.api.isReadyForPlayback +
-                    "; actualPlayerMode=" + score.api.actualPlayerMode +
-                    "; masterVolume=" + score.api.masterVolume
-            )
+            android.util.Log.i("EARAM_PLAYER", "playerReady=true; readyForPlayback=" + score.api.isReadyForPlayback)
             runOnUiThread {
-                val ready = score.api.isReadyForPlayback
                 play.isEnabled = true
-                status.text = if (ready) "Player ready • " + bpm + " BPM"
-                else "Player initialized • PLAY will activate when ready"
+                status.text = if (score.api.isReadyForPlayback) "Player ready • $bpm BPM" else "Player initialized • PLAY will activate when ready"
             }
         }
 
-
         score.api.playerStateChanged.on {
             runOnUiThread {
-                val ready = score.api.isReadyForPlayback
-                play.isEnabled = true
-                play.text =
-                    if (score.api.playerState.toString().contains("Playing", true)) "PAUSE"
-                    else "PLAY"
-                if (ready) {
-                    status.text = "Sound ready • " + bpm + " BPM"
+                play.text = if (score.api.playerState.toString().contains("Playing", true)) "❚❚" else "▶"
+                if (score.api.isReadyForPlayback) {
+                    status.text = "Sound ready • $bpm BPM"
                     score.api.scrollToCursor()
                 }
             }
         }
 
-        root.addView(brandBar, LinearLayout.LayoutParams(-1, dp(50f)))
-        root.addView(status, LinearLayout.LayoutParams(-1, dp(30f)))
-        root.addView(topMenuScroll, LinearLayout.LayoutParams(-1, dp(46f)))
-        root.addView(transportScroll, LinearLayout.LayoutParams(-1, dp(44f)))
-        root.addView(contextScroll, LinearLayout.LayoutParams(-1, dp(44f)))
-        root.addView(navigationScroll, LinearLayout.LayoutParams(-1, dp(44f)))
-        root.addView(numberScroll, LinearLayout.LayoutParams(-1, dp(44f)))
+        root.addView(header, LinearLayout.LayoutParams(-1, dp(58f)))
+        root.addView(status, LinearLayout.LayoutParams(-1, dp(24f)))
+        root.addView(transport, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(context, LinearLayout.LayoutParams(-1, dp(40f)))
+        root.addView(navigation, LinearLayout.LayoutParams(-1, dp(48f)))
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(44f)))
         setContentView(root)
-
         play.isEnabled = true
     }
 
