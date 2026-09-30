@@ -189,7 +189,7 @@ jobs:
           printf '%s\n' "$CONTENT_MATCH"
           grep -q 'com.earam.tabs' <<< "$CONTENT_MATCH"
 
-          MIME_MATCH="$($QUERY -a android.intent.action.VIEW -t 'application/x-earam-tab' 2>/dev/null || true)"
+          MIME_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' -t 'application/x-earam-tab' 2>/dev/null || true)"
           printf '%s\n' "$MIME_MATCH"
           grep -q 'com.earam.tabs' <<< "$MIME_MATCH"
 
