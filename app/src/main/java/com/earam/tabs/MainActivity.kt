@@ -1274,6 +1274,7 @@ class MainActivity : Activity() {
                     android.util.Log.e("EARAM_SELECTION", "note selection failed", t)
                 }
             }
+        }
 
         private fun bars(): List<alphaTab.model.Bar>? =
             score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()
