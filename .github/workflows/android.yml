@@ -175,6 +175,24 @@ jobs:
           adb -s emulator-5554 shell pm path com.earam.tabs
           adb -s emulator-5554 install -r --no-incremental "$APK_PATH"
 
+      - name: Verify .tab intent association on Android 15 emulator
+        run: |
+          set -euo pipefail
+
+          QUERY="adb -s emulator-5554 shell cmd package query-activities --components --user 0"
+
+          FILE_MATCH="$($QUERY -a android.intent.action.VIEW -d 'file:///sdcard/EaramTest.tab' 2>/dev/null || true)"
+          printf '%s\n' "$FILE_MATCH"
+          grep -q 'com.earam.tabs' <<< "$FILE_MATCH"
+
+          CONTENT_MATCH="$($QUERY -a android.intent.action.VIEW -d 'content://example.test/EaramTest.tab' 2>/dev/null || true)"
+          printf '%s\n' "$CONTENT_MATCH"
+          grep -q 'com.earam.tabs' <<< "$CONTENT_MATCH"
+
+          MIME_MATCH="$($QUERY -a android.intent.action.VIEW -t 'application/x-earam-tab' 2>/dev/null || true)"
+          printf '%s\n' "$MIME_MATCH"
+          grep -q 'com.earam.tabs' <<< "$MIME_MATCH"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
