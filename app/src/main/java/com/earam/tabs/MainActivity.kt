@@ -1916,7 +1916,7 @@ class MainActivity : ComponentActivity() {
             song.finish(score.settings)
         }
 
-        $barsMarker
+        private fun bars(): List<alphaTab.model.Bar>? =
             score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()
 
         fun selectVoiceFromUi(index: Int) {
