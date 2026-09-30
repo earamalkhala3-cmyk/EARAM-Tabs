@@ -499,8 +499,10 @@ class MainActivity : Activity() {
             track.addStaff(staff)
             score.addTrack(track)
 
-            // Every new 4/4 measure starts with exactly four real quarter Empty Beats.
-            repeat(4) { barNumber ->
+            // New File is intentionally an open-ended writing canvas:
+            // start with 200 empty 4/4 measures instead of an artificial 4-measure limit.
+            // When the user reaches the end, createNextMeasures(4) adds one full page.
+            repeat(200) { barNumber ->
                 if (barNumber > 0) {
                     val master = MasterBar().apply {
                         timeSignatureNumerator = 4.0
@@ -978,7 +980,8 @@ class MainActivity : Activity() {
         private fun createNextMeasures(count: Int = 4): Boolean {
             val song = score.api.score ?: return false
             val sourceBar = bars()?.lastOrNull() ?: return false
-            repeat(count.coerceAtLeast(1)) {
+            // Add a complete page at a time (the current page layout is 4 measures).
+            repeat(count.coerceAtLeast(4)) {
                 val master = MasterBar().apply {
                     timeSignatureNumerator = sourceBar.masterBar.timeSignatureNumerator
                     timeSignatureDenominator = sourceBar.masterBar.timeSignatureDenominator
