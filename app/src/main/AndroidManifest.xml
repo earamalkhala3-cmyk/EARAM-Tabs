@@ -46,12 +46,13 @@
                 <data android:mimeType="application/x-earam-tab" />
             </intent-filter>
 
-            <!-- Fallback used by Android file providers that expose unknown .tab files as binary. -->
+            <!-- Fallback for providers that expose unknown .tab files as generic binary data.
+                 MIME-only filters intentionally accept both content:// and file:// URIs. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="content" android:host="*" android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 
