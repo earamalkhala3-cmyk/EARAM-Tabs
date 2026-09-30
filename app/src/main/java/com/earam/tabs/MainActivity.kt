@@ -1700,7 +1700,11 @@ class MainActivity : Activity() {
 
         fun showBarToolsDialog() {
             val song = score.api.score ?: return
-            val bar = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
+            val masterBar = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
+            val track = song.tracks.toList().getOrNull(currentTrackIndex)
+                ?: return
+            val staff = track.staves.firstOrNull() ?: return
+            val selectedBar = staff.bars.toList().getOrNull(selectedBarIndex) ?: return
             val panel = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
@@ -1708,29 +1712,24 @@ class MainActivity : Activity() {
             val repeatCount = EditText(activity).apply {
                 hint = "Repeat count (0 = none)"
                 inputType = InputType.TYPE_CLASS_NUMBER
-                setText(if (bar.repeatCount > 0) bar.repeatCount.toInt().toString() else "0")
+                setText(if (masterBar.repeatCount > 0) masterBar.repeatCount.toInt().toString() else "0")
                 setSingleLine(true)
-            }
-            val lineBreak = android.widget.CheckBox(activity).apply {
-                text = "Force line break after this bar"
-                isChecked = false
             }
             val section = EditText(activity).apply {
                 hint = "Section / Marker text"
                 setSingleLine(true)
             }
             panel.addView(repeatCount, LinearLayout.LayoutParams(-1, activity.dp(46f)))
-            panel.addView(lineBreak, LinearLayout.LayoutParams(-1, activity.dp(42f)))
             panel.addView(section, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             AlertDialog.Builder(activity)
                 .setTitle("BAR TOOLS • " + (selectedBarIndex + 1))
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
-                    bar.repeatCount = repeatCount.text.toString().toIntOrNull()?.coerceIn(0, 99)?.toDouble() ?: 0.0
+                    masterBar.repeatCount = repeatCount.text.toString().toIntOrNull()?.coerceIn(0, 99)?.toDouble() ?: 0.0
                     val txt = section.text.toString().trim()
                     if (txt.isNotEmpty()) {
-                        val targetBeat = bar.voices.toList().firstOrNull()?.beats?.toList()?.firstOrNull()
+                        val targetBeat = selectedBar.voices.toList().firstOrNull()?.beats?.toList()?.firstOrNull()
                         if (targetBeat != null) targetBeat.text = txt
                     }
                     song.rebuildRepeatGroups()
