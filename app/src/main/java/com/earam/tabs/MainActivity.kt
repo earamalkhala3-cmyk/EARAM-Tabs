@@ -623,14 +623,22 @@ class MainActivity : Activity() {
                     this.name = name
                     this.shortName = name
                     playbackInfo.program = when {
-                        name.equals("Bass", true) -> 33.0
+                        name.startsWith("Bass", true) -> 33.0
+                        name.equals("Drums", true) -> 0.0
                         name.contains("Piano", true) || name.contains("Keyboard", true) -> 0.0
                         else -> 30.0
                     }
+                    if (name.equals("Drums", true)) playbackInfo.primaryChannel = 9.0
                     isVisibleOnMultiTrack = true
                 }
-                val stringed = !name.contains("Piano", true) && !name.contains("Keyboard", true)
-                val strings = if (name.equals("Bass", true)) 4.0 else 6.0
+                val stringed = !name.contains("Piano", true) && !name.contains("Keyboard", true) && !name.equals("Drums", true)
+                val strings = when {
+                    name.equals("Bass 5-string", true) -> 5.0
+                    name.startsWith("Bass", true) -> 4.0
+                    name.equals("Guitar 8-string", true) -> 8.0
+                    name.equals("Guitar 7-string", true) -> 7.0
+                    else -> 6.0
+                }
                 val staff = alphaTab.model.Staff().apply {
                     showStandardNotation = true
                     showTablature = stringed
