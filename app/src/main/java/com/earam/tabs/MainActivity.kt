@@ -38,6 +38,7 @@ import alphaTab.model.Score
 import alphaTab.model.Automation
 import alphaTab.model.KeySignature
 import alphaTab.model.KeySignatureType
+import alphaTab.model.JsonConverter
 
 class MainActivity : Activity() {
     private var projectName = "Music Home"
@@ -403,8 +404,12 @@ class MainActivity : Activity() {
         val del = editTool("DEL") { editor.deleteCurrentNoteFromUi() }
         val copy = editTool("COPY") { editor.copyCurrentNoteFromUi() }
         val paste = editTool("PASTE") { editor.pasteCurrentNoteFromUi() }
+        val copyBar = editTool("COPY BAR") { editor.copyCurrentBarFromUi() }
+        val pasteBar = editTool("PASTE BAR") { editor.pasteBarToCurrentFromUi() }
+        val undo = editTool("UNDO") { editor.undoFromUi() }
+        val redo = editTool("REDO") { editor.redoFromUi() }
 
-        listOf(prev, next, up, down, del, copy, paste).forEach {
+        listOf(prev, next, up, down, del, copy, paste, copyBar, pasteBar, undo, redo).forEach {
             editTools.addView(it, LinearLayout.LayoutParams(dp(54f), dp(38f)))
         }
         editScroll.addView(editTools, LinearLayout.LayoutParams(-2, dp(42f)))
@@ -1068,7 +1073,78 @@ class MainActivity : Activity() {
         var currentVoiceIndex: Int = 0
             private set
         private var copiedFret: Int? = null
+        private var copiedBar: Bar? = null
+        private val undoStack = ArrayDeque<String>()
+        private val redoStack = ArrayDeque<String>()
+        private var restoringHistory = false
         var onSelectionChanged: (() -> Unit)? = null
+
+        private fun captureScore(): String? {
+            val song = score.api.score ?: return null
+            return try { JsonConverter.scoreToJson(song) } catch (t: Throwable) {
+                android.util.Log.e("EARAM_HISTORY", "score snapshot failed", t)
+                null
+            }
+        }
+
+        private fun pushUndoSnapshot() {
+            if (restoringHistory) return
+            val snapshot = captureScore() ?: return
+            undoStack.addLast(snapshot)
+            while (undoStack.size > 30) undoStack.removeFirst()
+            redoStack.clear()
+        }
+
+        private fun restoreSnapshot(snapshot: String, label: String) {
+            try {
+                val settings = score.settings
+                val restored = JsonConverter.jsonToScore(snapshot, settings)
+                restored.finish(settings)
+                currentTrackIndex = currentTrackIndex.coerceIn(0, (restored.tracks.toList().size - 1).coerceAtLeast(0))
+                currentBarIndex = currentBarIndex.coerceIn(0, (restored.masterBars.toList().size - 1).coerceAtLeast(0))
+                currentBeatIndex = 0
+                currentStringIndex = currentStringIndex.coerceIn(1, maxStringIndexForScore(restored))
+                currentVoiceIndex = currentVoiceIndex.coerceAtLeast(0)
+                restoringHistory = true
+                score.api.renderScore(restored, alphaTab.collections.DoubleList(currentTrackIndex.toDouble()))
+                currentScore = restored
+                restoringHistory = false
+                score.api.render()
+                try { score.api.loadMidiForScore() } catch (_: Throwable) { }
+                updateCursor()
+                onSelectionChanged?.invoke()
+                updateStatus(label)
+            } catch (t: Throwable) {
+                restoringHistory = false
+                android.util.Log.e("EARAM_HISTORY", "restore failed", t)
+                updateStatus("History restore failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
+
+        private fun maxStringIndexForScore(song: Score): Int {
+            val staff = song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()
+            return staff?.stringTuning?.tunings?.toList()?.size?.coerceAtLeast(1) ?: 1
+        }
+
+        fun undoFromUi() {
+            val current = captureScore() ?: return
+            val previous = undoStack.removeLastOrNull() ?: run {
+                updateStatus("Nothing to undo")
+                return
+            }
+            redoStack.addLast(current)
+            restoreSnapshot(previous, "UNDO")
+        }
+
+        fun redoFromUi() {
+            val current = captureScore() ?: return
+            val next = redoStack.removeLastOrNull() ?: run {
+                updateStatus("Nothing to redo")
+                return
+            }
+            undoStack.addLast(current)
+            restoreSnapshot(next, "REDO")
+        }
 
         fun resetSelection() {
             currentBarIndex = 0
@@ -1416,7 +1492,82 @@ class MainActivity : Activity() {
             return cloned
         }
 
+        fun copyCurrentBarFromUi() {
+            try {
+                val song = score.api.score ?: return
+                val source = song.tracks.toList().getOrNull(currentTrackIndex)
+                    ?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(currentBarIndex)
+                    ?: throw IllegalStateException("No current bar")
+                copiedBar = cloneBarForScore(source, song.masterBars.toList().getOrNull(currentBarIndex)
+                    ?: throw IllegalStateException("No current master bar"))
+                updateStatus("Copied bar " + (currentBarIndex + 1))
+            } catch (t: Throwable) {
+                updateStatus("Copy bar failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
+
+        fun pasteBarToCurrentFromUi() {
+            try {
+                val source = copiedBar ?: run {
+                    updateStatus("No copied bar")
+                    return
+                }
+                val song = score.api.score ?: return
+                val targetIndex = currentBarIndex
+                pushUndoSnapshot()
+                for (track in song.tracks.toList()) {
+                    for (staff in track.staves.toList()) {
+                        val target = staff.bars.toList().getOrNull(targetIndex) ?: continue
+                        val sourceVoices = source.voices.toList()
+                        val targetVoices = target.voices.toList()
+                        for (vi in targetVoices.indices) {
+                            val tv = targetVoices[vi]
+                            for (tb in tv.beats.toList()) {
+                                for (note in tb.notes.toList()) tb.removeNote(note)
+                                tb.isEmpty = true
+                            }
+                            val sv = sourceVoices.getOrNull(vi) ?: continue
+                            val targetBeats = tv.beats.toList()
+                            val sourceBeats = sv.beats.toList()
+                            for (bi in targetBeats.indices) {
+                                val tb = targetBeats[bi]
+                                val sb = sourceBeats.getOrNull(bi) ?: continue
+                                tb.duration = sb.duration
+                                tb.dots = sb.dots
+                                tb.tupletNumerator = sb.tupletNumerator
+                                tb.tupletDenominator = sb.tupletDenominator
+                                for (sn in sb.notes.toList()) {
+                                    tb.addNote(Note().apply {
+                                        string = sn.string
+                                        fret = sn.fret
+                                        dynamics = sn.dynamics
+                                        isGhost = sn.isGhost
+                                        isDead = sn.isDead
+                                        isPalmMute = sn.isPalmMute
+                                        isLetRing = sn.isLetRing
+                                        isStaccato = sn.isStaccato
+                                        isHammerPullOrigin = sn.isHammerPullOrigin
+                                        isHammerPullDestination = sn.isHammerPullDestination
+                                    })
+                                }
+                                tb.isEmpty = tb.notes.toList().isEmpty()
+                                tb.finish(score.settings, null)
+                            }
+                        }
+                    }
+                }
+                song.finish(score.settings)
+                renderAndLog("paste-bar")
+                updateCursor()
+                onSelectionChanged?.invoke()
+                updateStatus("Pasted copied bar into bar " + (targetIndex + 1))
+            } catch (t: Throwable) {
+                updateStatus("Paste bar failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
+
         fun addMeasureFromUi() {
+            pushUndoSnapshot()
             if (createNextMeasures(1)) {
                 updateStatus("Measure added • total " + (score.api.score?.masterBars?.toList()?.size ?: 0))
                 onSelectionChanged?.invoke()
@@ -1424,6 +1575,7 @@ class MainActivity : Activity() {
         }
 
         fun duplicateCurrentBarToEndFromUi() {
+            pushUndoSnapshot()
             try {
                 val song = score.api.score ?: return
                 val sourceMaster = song.masterBars.toList().getOrNull(currentBarIndex)
@@ -1465,6 +1617,7 @@ class MainActivity : Activity() {
         }
 
         fun clearCurrentBarFromUi() {
+            pushUndoSnapshot()
             try {
                 val song = score.api.score ?: return
                 val index = currentBarIndex
@@ -1820,6 +1973,7 @@ class MainActivity : Activity() {
             currentBeat()?.let { if (it.tupletNumerator >= 0 && it.tupletDenominator > 0) it.tupletDenominator.toInt() else -1 } ?: -1
 
         fun setCurrentDuration(duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1): Boolean {
+            pushUndoSnapshot()
             val beat = currentBeat() ?: return false
             val bar = bars()?.getOrNull(currentBarIndex) ?: return false
             if (!AlphaTabRhythmEngine.fits(bar, beat, duration, dots, tupletNumerator, tupletDenominator)) {
@@ -2041,6 +2195,7 @@ class MainActivity : Activity() {
 
         private fun writeFret(fret: Int) {
             if (fret !in 0..24) return
+            pushUndoSnapshot()
             try {
                 val song = score.api.score ?: return
                 val beat = currentBeat() ?: return
@@ -2131,6 +2286,7 @@ class MainActivity : Activity() {
         }
 
         private fun deleteCurrentNote() {
+            pushUndoSnapshot()
             val beat = currentBeat() ?: return
             val alphaTabString = alphaTabString(currentStringIndex)
             val note = beat.getNoteOnString(alphaTabString.toDouble()) ?: run {
