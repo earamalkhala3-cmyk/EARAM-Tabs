@@ -68,7 +68,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        session = ViewModelProvider(this)[EditorSessionViewModel::class.java]
+        session = ViewModelProvider(this).get(EditorSessionViewModel::class.java)
         projectName = session.projectName
         bpm = session.bpm
         timeSig = session.timeSignature
@@ -1313,7 +1313,7 @@ class MainActivity : Activity() {
     }
 
     /** Phase 3: deterministic keyboard navigation over the real AlphaTab Score. */
-    private class AlphaTabNoteEditor(
+    private inner class AlphaTabNoteEditor(
         private val activity: MainActivity,
         private val score: AlphaTabView,
         private val status: TextView,
