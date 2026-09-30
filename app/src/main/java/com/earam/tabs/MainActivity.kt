@@ -106,7 +106,7 @@ class MainActivity : Activity() {
         fun surface(color: Int, radius: Float = 0f): android.graphics.drawable.GradientDrawable =
             android.graphics.drawable.GradientDrawable().apply {
                 setColor(color)
-                cornerRadius = dp(radius)
+                cornerRadius = dp(radius).toFloat()
             }
 
         fun iconButton(symbol: String, description: String, size: Float = 46f): TextView =
