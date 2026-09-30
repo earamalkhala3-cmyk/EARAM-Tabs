@@ -1142,6 +1142,12 @@ class MainActivity : Activity() {
             private set
         private var copiedFret: Int? = null
         private var copiedBar: Bar? = null
+
+        private fun pushUndoSnapshot() {
+            // Intentionally empty on Android AlphaTab 1.8.4: no supported full-score serializer.
+            // This hook keeps mutation sites centralized without exposing a nonfunctional Undo UI.
+        }
+
         fun resetSelection() {
             currentBarIndex = 0
             selectedBarIndex = 0
@@ -1242,7 +1248,7 @@ class MainActivity : Activity() {
             score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()
 
         fun selectVoiceFromUi(index: Int) {
-            val max = bars()?.firstOrNull()?.voices?.toList()?.lastIndex ?: 0
+            val max = bars()?.getOrNull(selectedBarIndex)?.voices?.toList()?.lastIndex ?: 0
             currentVoiceIndex = index.coerceIn(0, max)
             currentBeatIndex = 0
             armed = true
@@ -1723,8 +1729,8 @@ class MainActivity : Activity() {
                     bar.repeatCount = repeatCount.text.toString().toIntOrNull()?.coerceIn(0, 99)?.toDouble() ?: 0.0
                     val txt = section.text.toString().trim()
                     if (txt.isNotEmpty()) {
-                        val beat = currentBeat()
-                        if (beat != null) beat.text = txt
+                        val targetBeat = bar.voices.toList().firstOrNull()?.beats?.toList()?.firstOrNull()
+                        if (targetBeat != null) targetBeat.text = txt
                     }
                     song.rebuildRepeatGroups()
                     finishEditedScore("bar-tools")
@@ -2530,7 +2536,8 @@ class MainActivity : Activity() {
                 val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return
                 val staff = track.staves.firstOrNull() ?: return
                 val bar = staff.bars.toList().getOrNull(selectedBarIndex) ?: return
-                val beats = bar.voices.firstOrNull()?.beats?.toList().orEmpty()
+                val beats = bar.voices.toList().firstOrNull { it.beats.toList().isNotEmpty() }
+                    ?.beats?.toList().orEmpty()
                 if (beats.isEmpty()) {
                     score.api.clearPlaybackRangeHighlight()
                 } else {
