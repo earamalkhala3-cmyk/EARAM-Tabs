@@ -1324,7 +1324,7 @@ class MainActivity : Activity() {
             val artist = f("Artist", song.artist)
             val album = f("Album", song.album)
             val copyright = f("Copyright", song.copyright)
-            val transcriber = f("Transcriber", song.transcriber)
+            val transcriber = f("Transcriber", song.tab)
             listOf(title, artist, album, copyright, transcriber).forEach {
                 panel.addView(it, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             }
@@ -1337,7 +1337,7 @@ class MainActivity : Activity() {
                     song.artist = artist.text.toString()
                     song.album = album.text.toString()
                     song.copyright = copyright.text.toString()
-                    song.transcriber = transcriber.text.toString()
+                    song.tab = transcriber.text.toString()
                     activity.projectName = song.title.ifBlank { "Music Home" }
                     score.api.score?.finish(score.settings)
                     score.api.render()
@@ -1360,7 +1360,7 @@ class MainActivity : Activity() {
             }
             val raw = EditText(activity).apply {
                 hint = "Lyrics — use spaces for syllables, + to join"
-                setText(track.lyrics?.text ?: "")
+                setText("")
                 minLines = 4
                 gravity = Gravity.TOP
             }
@@ -1371,11 +1371,11 @@ class MainActivity : Activity() {
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
-                    val lyrics = track.lyrics ?: alphaTab.model.Lyrics()
-                    lyrics.startBar = ((start.text.toString().toIntOrNull() ?: 1) - 1).coerceAtLeast(0).toDouble()
+                    val lyrics = alphaTab.model.Lyrics()
+                    lyrics.startBar = ((start.text.toString().toIntOrNull() ?: 1) - 1).coerceAtLeast(0)
                     lyrics.text = raw.text.toString()
                     lyrics.finish(true)
-                    track.lyrics = lyrics
+                    track.applyLyrics(arrayOf(lyrics))
                     score.api.score?.finish(score.settings)
                     score.api.render()
                     updateStatus("Lyrics updated")
@@ -1428,8 +1428,8 @@ class MainActivity : Activity() {
                         master.keySignatureType = if (modeSpinner.selectedItemPosition == 1) KeySignatureType.Minor else KeySignatureType.Major
                         val tempoValue = tempo.text.toString().toDoubleOrNull()
                         if (tempoValue != null && tempoValue > 0) {
-                            master.tempoAutomations.clear()
-                            master.tempoAutomations.add(Automation.buildTempoAutomation(false, 0.0, tempoValue, tempoValue, true))
+                            master.tempoAutomations.splice(0.0, master.tempoAutomations.length)
+                            master.tempoAutomations.push(Automation.buildTempoAutomation(false, 0.0, tempoValue, tempoValue, true))
                         }
                         song.finish(score.settings)
                         renderAndLog("timeline-bar")
@@ -1483,7 +1483,6 @@ class MainActivity : Activity() {
                             isLetRing = sourceNote.isLetRing
                             isStaccato = sourceNote.isStaccato
                             isHammerPullOrigin = sourceNote.isHammerPullOrigin
-                            isHammerPullDestination = sourceNote.isHammerPullDestination
                         })
                     }
                     voice.addBeat(beat)
@@ -1825,8 +1824,15 @@ class MainActivity : Activity() {
                 return
             }
             val enabled = !currentNote.isTieDestination
-            previousNote.isTieOrigin = enabled
-            currentNote.isTieDestination = enabled
+            if (enabled) {
+                previousNote.tieDestination = currentNote
+                currentNote.tieOrigin = previousNote
+                currentNote.isTieDestination = true
+            } else {
+                previousNote.tieDestination = null
+                currentNote.tieOrigin = null
+                currentNote.isTieDestination = false
+            }
             finishEditedScore("tie")
             updateStatus(if (enabled) "Tie ON" else "Tie OFF")
         }
