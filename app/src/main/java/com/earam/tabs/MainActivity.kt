@@ -41,6 +41,22 @@ import alphaTab.model.Automation
 import alphaTab.model.KeySignature
 import alphaTab.model.KeySignatureType
 
+data class Caret(
+    val trackIndex: Int,
+    val measureIndex: Int,
+    val beatIndex: Int,
+    val stringIndex: Int
+)
+
+data class BeatHit(
+    val measure: Int,
+    val beat: Int,
+    val rect: RectF,
+    val tabTopY: Float,
+    val stringSpacing: Float,
+    val virtual: Boolean = false
+)
+
 class MainActivity : ComponentActivity() {
     private var projectName = "Music Home"
     private var instrument = "Guitar"
@@ -554,16 +570,18 @@ class MainActivity : ComponentActivity() {
             voice.text = "V" + (editor.currentVoiceIndex + 1)
             setActive(track, true)
             setActive(voice, true)
-            session.selectedTrack = editor.currentTrackIndex
-            session.selectedVoice = editor.currentVoiceIndex
-            session.selectedBar = editor.selectedBarIndex
-            session.selectedBeat = editor.currentBeatIndex
-            session.selectedString = editor.currentStringIndex
+            session.caret = Caret(
+                editor.currentTrackIndex,
+                editor.currentBarIndex,
+                editor.currentBeatIndex,
+                editor.currentStringIndex
+            )
         }
         editor.onSelectionChanged = { refreshSelectionInfo() }
 
         score.api.postRenderFinished.on {
             runOnUiThread {
+                editor.rebuildBeatHitsAfterLayout()
                 editor.refreshVisualCursor()
                 editor.logRenderState()
             }
@@ -572,6 +590,8 @@ class MainActivity : ComponentActivity() {
         score.api.scoreLoaded.on { loaded ->
             normalizeImportedTracks(loaded)
             currentScore = loaded
+            AlphaTabRhythmEngine.syncFromScore(loaded)
+            debugAlphaTabTimeline(loaded)
             projectName = loaded.title.ifBlank { projectName }
             noteEditor?.resetSelection()
             runOnUiThread {
@@ -1101,6 +1121,8 @@ class MainActivity : ComponentActivity() {
         normalizeImportedTracks(parsed)
 
         currentScore = parsed
+        AlphaTabRhythmEngine.syncFromScore(parsed)
+        debugAlphaTabTimeline(parsed)
         session.score = parsed
         session.sourceUri = uri.toString()
         session.sourceName = fileName
@@ -1135,6 +1157,34 @@ class MainActivity : ComponentActivity() {
         // Android alphaTab 1.8.4 loads its bundled SONiVOX SoundFont automatically.
     }
 
+    /** Derive PPQ from AlphaTab's finished Beat timing instead of assuming 960. */
+    private fun alphaTabQuarterTicks(score: Score): Double {
+        val beats = score.tracks.toList()
+            .flatMap { it.staves.toList() }
+            .flatMap { it.bars.toList() }
+            .flatMap { it.voices.toList() }
+            .flatMap { it.beats.toList() }
+        val simple = beats.firstOrNull {
+            it.dots <= 0.0 &&
+                it.tupletNumerator < 0.0 &&
+                it.tupletDenominator < 0.0
+        } ?: return 960.0
+        val multiplier = when (simple.duration) {
+            Duration.DoubleWhole -> 8.0
+            Duration.QuadrupleWhole -> 16.0
+            Duration.Whole -> 4.0
+            Duration.Half -> 2.0
+            Duration.Quarter -> 1.0
+            Duration.Eighth -> 0.5
+            Duration.Sixteenth -> 0.25
+            Duration.ThirtySecond -> 0.125
+            Duration.SixtyFourth -> 0.0625
+            Duration.OneHundredTwentyEighth -> 0.03125
+            Duration.TwoHundredFiftySixth -> 0.015625
+        }
+        return simple.displayDuration / multiplier
+    }
+
     /** AlphaTab is the authoritative musical timeline. */
     private fun debugAlphaTabTimeline(score: Score) {
         try {
@@ -1149,7 +1199,8 @@ class MainActivity : ComponentActivity() {
                 val beats = bar?.voices?.toList()?.firstOrNull()?.beats?.toList().orEmpty()
                 val startTick = beats.firstOrNull()?.absolutePlaybackStart ?: -1.0
                 val totalDisplayTicks = beats.sumOf { it.displayDuration }
-                val expectedTicks = 960.0 * 4.0 * master.timeSignatureNumerator / master.timeSignatureDenominator
+                val quarterTicks = alphaTabQuarterTicks(score)
+                val expectedTicks = quarterTicks * 4.0 * master.timeSignatureNumerator / master.timeSignatureDenominator
                 val diff = totalDisplayTicks - expectedTicks
                 android.util.Log.d("EARAM_GP3_TIMELINE",
                     "measure=${i + 1} meter=${master.timeSignatureNumerator.toInt()}/${master.timeSignatureDenominator.toInt()} " +
@@ -1223,16 +1274,14 @@ class MainActivity : ComponentActivity() {
         private var hasPlayback = false
         private var hasNote = false
 
-        fun showBeatCursor(centerX: Float, top: Float, bottom: Float) {
-            if (!centerX.isFinite() || !top.isFinite() || !bottom.isFinite() || bottom <= top) {
+        fun showBeatCaret(centerX: Float, centerY: Float, half: Float) {
+            if (!centerX.isFinite() || !centerY.isFinite() || !half.isFinite() || half <= 0f) {
                 hasBeat = false
                 invalidate()
                 return
             }
-            // Never draw a full-height measure rectangle. This is the editor caret only.
-            val size = maxOf(10f, 14f * resources.displayMetrics.density)
-            val y = (top + bottom) * 0.5f
-            caretRect.set(centerX - size, y - size, centerX + size, y + size)
+            val h = half.coerceAtLeast(1f)
+            caretRect.set(centerX - h, centerY - h, centerX + h, centerY + h)
             hasBeat = true
             invalidate()
         }
@@ -1286,19 +1335,46 @@ class MainActivity : ComponentActivity() {
 
 
     private object AlphaTabRhythmEngine {
-        const val QUARTER_TICKS = 960L
+        var quarterTicks: Long = 960L
+            private set
+        fun syncFromScore(score: Score) {
+            val simple = score.tracks.toList()
+                .flatMap { it.staves.toList() }
+                .flatMap { it.bars.toList() }
+                .flatMap { it.voices.toList() }
+                .flatMap { it.beats.toList() }
+                .firstOrNull {
+                    it.dots <= 0.0 &&
+                        it.tupletNumerator < 0.0 &&
+                        it.tupletDenominator < 0.0
+                } ?: return
+            val multiplier = when (simple.duration) {
+                Duration.DoubleWhole -> 8.0
+                Duration.QuadrupleWhole -> 16.0
+                Duration.Whole -> 4.0
+                Duration.Half -> 2.0
+                Duration.Quarter -> 1.0
+                Duration.Eighth -> 0.5
+                Duration.Sixteenth -> 0.25
+                Duration.ThirtySecond -> 0.125
+                Duration.SixtyFourth -> 0.0625
+                Duration.OneHundredTwentyEighth -> 0.03125
+                Duration.TwoHundredFiftySixth -> 0.015625
+            }
+            quarterTicks = kotlin.math.round(simple.displayDuration / multiplier).toLong().coerceAtLeast(1L)
+        }
         fun durationTicks(duration: Duration): Long = when (duration) {
-            Duration.QuadrupleWhole -> QUARTER_TICKS * 16
-            Duration.DoubleWhole -> QUARTER_TICKS * 8
-            Duration.Whole -> QUARTER_TICKS * 4
-            Duration.Half -> QUARTER_TICKS * 2
+            Duration.QuadrupleWhole -> quarterTicks * 16
+            Duration.DoubleWhole -> quarterTicks * 8
+            Duration.Whole -> quarterTicks * 4
+            Duration.Half -> quarterTicks * 2
             Duration.Quarter -> QUARTER_TICKS
-            Duration.Eighth -> QUARTER_TICKS / 2
-            Duration.Sixteenth -> QUARTER_TICKS / 4
-            Duration.ThirtySecond -> QUARTER_TICKS / 8
-            Duration.SixtyFourth -> QUARTER_TICKS / 16
-            Duration.OneHundredTwentyEighth -> QUARTER_TICKS / 32
-            Duration.TwoHundredFiftySixth -> QUARTER_TICKS / 64
+            Duration.Eighth -> quarterTicks / 2
+            Duration.Sixteenth -> quarterTicks / 4
+            Duration.ThirtySecond -> quarterTicks / 8
+            Duration.SixtyFourth -> quarterTicks / 16
+            Duration.OneHundredTwentyEighth -> quarterTicks / 32
+            Duration.TwoHundredFiftySixth -> quarterTicks / 64
         }
         fun beatTicks(beat: Beat): Long {
             var ticks = durationTicks(beat.duration)
@@ -1310,7 +1386,7 @@ class MainActivity : ComponentActivity() {
             return barCapacityTicksForMaster(bar.masterBar)
         }
         fun barCapacityTicksForMaster(m: MasterBar): Long {
-            return (m.timeSignatureNumerator.toLong().coerceAtLeast(1L) * QUARTER_TICKS * 4L) / m.timeSignatureDenominator.toLong().coerceAtLeast(1L)
+            return (m.timeSignatureNumerator.toLong().coerceAtLeast(1L) * quarterTicks * 4L) / m.timeSignatureDenominator.toLong().coerceAtLeast(1L)
         }
         fun barUsedTicks(bar: Bar, voiceIndex: Int = 0, excluding: Beat? = null): Long =
             bar.voices.toList().getOrNull(voiceIndex)?.beats?.toList()
@@ -1330,18 +1406,18 @@ class MainActivity : ComponentActivity() {
         }
         fun largestEmptyBeatSpec(ticks: Long): Quintuple? {
             val candidates = listOf(
-                Quintuple(Duration.Whole, 0, -1, -1, QUARTER_TICKS * 4),
+                Quintuple(Duration.Whole, 0, -1, -1, quarterTicks * 4),
                 Quintuple(Duration.Half, 1, -1, -1, QUARTER_TICKS * 3),
-                Quintuple(Duration.DoubleWhole, 0, -1, -1, QUARTER_TICKS * 8),
-                Quintuple(Duration.Half, 0, -1, -1, QUARTER_TICKS * 2),
+                Quintuple(Duration.DoubleWhole, 0, -1, -1, quarterTicks * 8),
+                Quintuple(Duration.Half, 0, -1, -1, quarterTicks * 2),
                 Quintuple(Duration.Quarter, 1, -1, -1, QUARTER_TICKS * 3 / 2),
                 Quintuple(Duration.Quarter, 0, -1, -1, QUARTER_TICKS),
                 Quintuple(Duration.Eighth, 1, -1, -1, QUARTER_TICKS * 3 / 4),
-                Quintuple(Duration.Eighth, 0, -1, -1, QUARTER_TICKS / 2),
+                Quintuple(Duration.Eighth, 0, -1, -1, quarterTicks / 2),
                 Quintuple(Duration.Sixteenth, 1, -1, -1, QUARTER_TICKS * 3 / 8),
-                Quintuple(Duration.Sixteenth, 0, -1, -1, QUARTER_TICKS / 4),
-                Quintuple(Duration.ThirtySecond, 0, -1, -1, QUARTER_TICKS / 8),
-                Quintuple(Duration.SixtyFourth, 0, -1, -1, QUARTER_TICKS / 16),
+                Quintuple(Duration.Sixteenth, 0, -1, -1, quarterTicks / 4),
+                Quintuple(Duration.ThirtySecond, 0, -1, -1, quarterTicks / 8),
+                Quintuple(Duration.SixtyFourth, 0, -1, -1, quarterTicks / 16),
                 Quintuple(Duration.Eighth, 0, 3, 2, QUARTER_TICKS / 3),
                 Quintuple(Duration.Sixteenth, 0, 3, 2, QUARTER_TICKS / 6),
                 Quintuple(Duration.ThirtySecond, 0, 3, 2, QUARTER_TICKS / 12)
@@ -1371,14 +1447,6 @@ class MainActivity : ComponentActivity() {
         val notes: List<Pair<Double, Double>>
     )
 
-    /** Single editor caret: all navigation resolves to real AlphaTab Score objects. */
-    private data class Caret(
-        val trackIndex: Int,
-        val measureIndex: Int,
-        val beatIndex: Int,
-        val stringIndex: Int
-    )
-
     /** Phase 3: deterministic keyboard navigation over the real AlphaTab Score. */
     private inner class AlphaTabNoteEditor(
         private val activity: MainActivity,
@@ -1386,16 +1454,14 @@ class MainActivity : ComponentActivity() {
         private val status: TextView,
         private val overlay: TabEditOverlayView
     ) {
-        var currentBarIndex: Int = 0
+        var caret: Caret = session.caret
             private set
-        var selectedBarIndex: Int = 0
-            private set
-        var currentBeatIndex: Int = 0
-            private set
-        var currentStringIndex: Int = 1
-            private set
-        var currentTrackIndex: Int = 0
-            private set
+
+        val currentBarIndex: Int get() = caret.measureIndex
+        val selectedBarIndex: Int get() = caret.measureIndex
+        val currentBeatIndex: Int get() = caret.beatIndex
+        val currentStringIndex: Int get() = caret.stringIndex
+        val currentTrackIndex: Int get() = caret.trackIndex
         var currentVoiceIndex: Int = 0
             private set
         private var copiedFret: Int? = null
@@ -1412,6 +1478,32 @@ class MainActivity : ComponentActivity() {
         private val undoHistory = java.util.ArrayDeque<BeatSnapshot>()
         private val redoHistory = java.util.ArrayDeque<BeatSnapshot>()
         private var restoringHistory = false
+
+        private fun setCaret(
+            trackIndex: Int = caret.trackIndex,
+            measureIndex: Int = caret.measureIndex,
+            beatIndex: Int = caret.beatIndex,
+            stringIndex: Int = caret.stringIndex,
+            notify: Boolean = true
+        ) {
+            val song = score.api.score
+            val trackMax = (song?.tracks?.toList()?.lastIndex ?: 0).coerceAtLeast(0)
+            val track = trackIndex.coerceIn(0, trackMax)
+            val bs = score.api.score?.tracks?.toList()?.getOrNull(track)?.staves?.firstOrNull()?.bars?.toList().orEmpty()
+            val measure = measureIndex.coerceIn(0, bs.lastIndex.coerceAtLeast(0))
+            val voice = currentVoiceIndex.coerceAtLeast(0)
+            val beatCount = bs.getOrNull(measure)?.voices?.toList()?.getOrNull(voice)?.beats?.toList()?.size ?: 0
+            val beat = if (beatCount > 0) beatIndex.coerceIn(0, beatCount - 1) else 0
+            val string = stringIndex.coerceIn(1, maxStringIndex())
+            caret = Caret(track, measure, beat, string)
+            session.caret = caret
+            armed = true
+            pendingFret = ""
+            if (notify) {
+                updateCursor()
+                onSelectionChanged?.invoke()
+            }
+        }
 
         private fun captureCurrentBeat(): BeatSnapshot? {
             val beat = currentBeat() ?: return null
@@ -1505,12 +1597,10 @@ class MainActivity : ComponentActivity() {
         }
 
         fun resetSelection() {
-            currentBarIndex = 0
-            selectedBarIndex = 0
-            currentBeatIndex = 0
-            currentStringIndex = 1
-            currentTrackIndex = 0.coerceAtMost((score.api.score?.tracks?.toList()?.size ?: 1) - 1)
             currentVoiceIndex = 0
+            val track = 0.coerceAtMost((score.api.score?.tracks?.toList()?.size ?: 1) - 1)
+            caret = Caret(track, 0, 0, 1)
+            session.caret = caret
             armed = false
             pendingFret = ""
             updateCursor()
@@ -1547,6 +1637,11 @@ class MainActivity : ComponentActivity() {
 
             score.setOnKeyListener(keyHandler)
             score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
+            score.setOnTouchListener { _, event ->
+                if (event.action == android.view.MotionEvent.ACTION_UP) {
+                    handleScoreTouch(event.x, event.y)
+                } else false
+            }
 
             score.api.beatMouseDown.on { beat ->
                 try {
@@ -1558,10 +1653,9 @@ class MainActivity : ComponentActivity() {
                     val barIndex = staff.bars.toList().indexOf(bar)
                     val beatIndex = beat.voice.beats.toList().indexOf(beat)
                     if (barIndex < 0 || beatIndex < 0) return@on
-                    currentBarIndex = barIndex
-                    selectedBarIndex = barIndex
                     currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
-                    currentBeatIndex = beatIndex
+                    caret = Caret(currentTrackIndex, barIndex, beatIndex, currentStringIndex)
+                    session.caret = caret
                     armed = true
                     pendingFret = ""
 
@@ -1593,12 +1687,10 @@ class MainActivity : ComponentActivity() {
                     val barIndex = staff.bars.toList().indexOf(bar)
                     val beatIndex = note.beat.voice.beats.toList().indexOf(note.beat)
                     if (barIndex < 0 || beatIndex < 0) return@on
-                    currentBarIndex = barIndex
-                    selectedBarIndex = barIndex
                     currentVoiceIndex = note.beat.voice.index.toInt().coerceIn(0, 3)
-                    currentBeatIndex = beatIndex
-                    currentStringIndex = (maxStringIndex() + 1 - note.string.toInt())
-                        .coerceIn(1, maxStringIndex())
+                    val uiString = (maxStringIndex() + 1 - note.string.toInt()).coerceIn(1, maxStringIndex())
+                    caret = Caret(currentTrackIndex, barIndex, beatIndex, uiString)
+                    session.caret = caret
                     armed = true
                     pendingFret = ""
 
@@ -1622,7 +1714,205 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        private fun bars(): List<alphaTab.model.Bar>? =
+        private val beatHits = mutableListOf<BeatHit>()
+        private var stringSpacing: Float = 10f
+
+        private fun buildBeatHits() {
+            beatHits.clear()
+            val lookup = score.api.renderer.boundsLookup ?: return
+            val song = score.api.score ?: return
+            val track = song.tracks.toList().getOrNull(currentTrackIndex) ?: return
+            val staff = track.staves.firstOrNull() ?: return
+            val bars = staff.bars.toList()
+            if (bars.isEmpty()) return
+
+            data class NoteGeom(val system: Int, val y: Float, val uiString: Int)
+            val noteGeoms = mutableListOf<NoteGeom>()
+            val barMeta = mutableListOf<Triple<Int, alphaTab.model.Bar, alphaTab.rendering.BarBounds>>()
+
+            for ((mi, bar) in bars.withIndex()) {
+                val master = song.masterBars.toList().getOrNull(mi) ?: continue
+                val masterBounds = lookup.findMasterBar(master) ?: continue
+                val barBounds = masterBounds.bars.toList().firstOrNull { it.bar === bar }
+                    ?: masterBounds.bars.toList().firstOrNull()
+                    ?: continue
+                barMeta.add(Triple(mi, bar, barBounds))
+
+                val voice = bar.voices.toList().getOrNull(currentVoiceIndex)
+                for (beat in voice?.beats?.toList().orEmpty()) {
+                    val bb = lookup.findBeat(beat) ?: continue
+                    for (nb in bb.notes?.toList().orEmpty()) {
+                        val ui = (maxStringIndex() + 1 - nb.note.string.toInt()).coerceIn(1, maxStringIndex())
+                        val nh = nb.noteHeadBounds
+                        noteGeoms.add(
+                            NoteGeom(
+                                bb.barBounds.masterBarBounds.staffSystemBounds?.index?.toInt() ?: mi,
+                                nh.y.toFloat() + nh.h.toFloat() * 0.5f,
+                                ui
+                            )
+                        )
+                    }
+                }
+            }
+
+            val systemSpacing = mutableMapOf<Int, Float>()
+            val systemTop = mutableMapOf<Int, Float>()
+            for ((system, notes) in noteGeoms.groupBy { it.system }) {
+                val candidates = mutableListOf<Float>()
+                for (i in notes.indices) for (j in i + 1 until notes.size) {
+                    val ds = kotlin.math.abs(notes[i].uiString - notes[j].uiString)
+                    if (ds > 0) {
+                        val candidate = kotlin.math.abs(notes[i].y - notes[j].y) / ds
+                        if (candidate.isFinite() && candidate in 3f..40f) candidates.add(candidate)
+                    }
+                }
+                val spacing = candidates.sorted().let { if (it.isEmpty()) 10f else it[it.size / 2] }
+                systemSpacing[system] = spacing
+                val tops = notes.map { it.y - it.uiString * spacing }.sorted()
+                if (tops.isNotEmpty()) systemTop[system] = tops[tops.size / 2]
+            }
+
+            for ((mi, bar, bb) in barMeta) {
+                val system = bb.masterBarBounds.staffSystemBounds?.index?.toInt() ?: mi
+                if (!systemTop.containsKey(system)) {
+                    systemTop[system] = (bb.realBounds.y + bb.realBounds.h * 0.58).toFloat()
+                }
+                if (!systemSpacing.containsKey(system)) {
+                    systemSpacing[system] = (bb.realBounds.h * 0.075).toFloat().coerceIn(6f, 24f)
+                }
+                val top = systemTop[system] ?: bb.realBounds.y.toFloat()
+                val spacing = systemSpacing[system] ?: 10f
+                val voice = bar.voices.toList().getOrNull(currentVoiceIndex)
+                val beats = voice?.beats?.toList().orEmpty()
+                if (beats.isEmpty()) {
+                    beatHits.add(
+                        BeatHit(
+                            mi, 0,
+                            RectF(
+                                bb.realBounds.x.toFloat(),
+                                bb.realBounds.y.toFloat(),
+                                (bb.realBounds.x + bb.realBounds.w).toFloat(),
+                                (bb.realBounds.y + bb.realBounds.h).toFloat()
+                            ),
+                            top, spacing, virtual = true
+                        )
+                    )
+                    continue
+                }
+                for ((bi, beat) in beats.withIndex()) {
+                    val bounds = lookup.findBeat(beat) ?: continue
+                    beatHits.add(
+                        BeatHit(
+                            mi, bi,
+                            RectF(
+                                bounds.realBounds.x.toFloat(),
+                                bounds.realBounds.y.toFloat(),
+                                (bounds.realBounds.x + bounds.realBounds.w).toFloat(),
+                                (bounds.realBounds.y + bounds.realBounds.h).toFloat()
+                            ),
+                            top, spacing, virtual = false
+                        )
+                    )
+                }
+            }
+            stringSpacing = systemSpacing.values.firstOrNull() ?: 10f
+            android.util.Log.d(
+                "EARAM_CARET",
+                "BeatHits rebuilt: count=${beatHits.size} systems=${systemTop.size} spacing=${systemSpacing.values.joinToString()} scroll=${score.scrollX},${score.scrollY} scale=${score.settings.display.scale}"
+            )
+        }
+
+        private fun hitTest(x: Float, y: Float): BeatHit? {
+            val contentX = x + score.scrollX.toFloat()
+            val contentY = y + score.scrollY.toFloat()
+            return beatHits.firstOrNull { hit ->
+                contentX >= hit.rect.left && contentX <= hit.rect.right &&
+                    contentY >= hit.tabTopY &&
+                    contentY <= hit.tabTopY + 5f * hit.stringSpacing
+            }
+        }
+
+        private fun handleScoreTouch(x: Float, y: Float): Boolean {
+            val hit = hitTest(x, y) ?: return false
+            val maxString = maxStringIndex()
+            val uiString = (((y + score.scrollY.toFloat() - hit.tabTopY) / hit.stringSpacing)
+                .roundToInt() + 1).coerceIn(1, maxString)
+            caret = Caret(currentTrackIndex, hit.measure, if (hit.virtual) 0 else hit.beat, uiString)
+            session.caret = caret
+            armed = true
+            pendingFret = ""
+            try {
+                if (!hit.virtual) {
+                    val beat = bars()?.getOrNull(hit.measure)?.voices?.toList()?.getOrNull(currentVoiceIndex)
+                        ?.beats?.toList()?.getOrNull(hit.beat)
+                    if (beat != null) {
+                        score.api.stop()
+                        score.api.tickPosition = beat.absolutePlaybackStart
+                        session.tickPosition = score.api.tickPosition
+                    }
+                }
+            } catch (_: Throwable) { }
+            updateCursor()
+            updateStatus()
+            onSelectionChanged?.invoke()
+            score.requestFocus()
+            return true
+        }
+
+        private fun ensureRealBeatForCaret(): Beat? {
+            val bar = bars()?.getOrNull(caret.measureIndex) ?: return null
+            val voice = bar.voices.toList().getOrNull(currentVoiceIndex)
+                ?: run {
+                    val v = alphaTab.model.Voice()
+                    bar.addVoice(v)
+                    v
+                }
+            if (voice.beats.toList().isNotEmpty()) {
+                return voice.beats.toList().getOrNull(caret.beatIndex.coerceAtLeast(0))
+            }
+            val duration = when (bar.masterBar.timeSignatureDenominator.toInt()) {
+                1 -> Duration.Whole
+                2 -> Duration.Half
+                4 -> Duration.Quarter
+                8 -> Duration.Eighth
+                16 -> Duration.Sixteenth
+                else -> Duration.ThirtySecond
+            }
+            voice.addBeat(Beat().apply {
+                this.duration = duration
+                dots = 0.0
+                tupletNumerator = -1.0
+                tupletDenominator = -1.0
+                isEmpty = true
+            })
+            caret = caret.copy(beatIndex = 0)
+            session.caret = caret
+            score.api.score?.finish(score.settings)
+            renderAndLog("materialize-empty-beat")
+            return voice.beats.toList().firstOrNull()
+        }
+
+        private fun writeFretInternal(beat: Beat, fret: Int) {
+            val song = score.api.score ?: return
+            val alphaString = alphaTabString(caret.stringIndex)
+            val existing = beat.getNoteOnString(alphaString.toDouble())
+            if (existing != null) {
+                existing.fret = fret.toDouble()
+                existing.finish(score.settings, null)
+            } else {
+                val note = Note().apply {
+                    string = alphaString.toDouble()
+                    this.fret = fret.toDouble()
+                }
+                beat.addNote(note)
+                note.finish(score.settings, null)
+            }
+            beat.isEmpty = beat.notes.toList().isEmpty()
+            beat.finish(score.settings, null)
+            song.finish(score.settings)
+        }
+
+        $barsMarker
             score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()
 
         fun selectVoiceFromUi(index: Int) {
@@ -2519,10 +2809,8 @@ class MainActivity : ComponentActivity() {
             val tracks = score.api.score?.tracks?.toList().orEmpty()
             if (index !in tracks.indices) return
             try {
-                currentTrackIndex = index
-                selectedBarIndex = 0
-                currentBeatIndex = 0
-                currentStringIndex = 1
+                caret = Caret(index, 0, 0, 1)
+                session.caret = caret
                 armed = true
                 pendingFret = ""
                 val rendered = alphaTab.collections.List<alphaTab.model.Track>()
@@ -2599,8 +2887,8 @@ class MainActivity : ComponentActivity() {
                 beat = candidate.coerceAtLeast(0)
             }
 
-            currentBarIndex = b
-            currentBeatIndex = beat
+            caret = Caret(currentTrackIndex, b, beat, currentStringIndex)
+            session.caret = caret
             armed = true
             pendingFret = ""
             updateCursor()
@@ -2611,9 +2899,10 @@ class MainActivity : ComponentActivity() {
         private fun moveToEdge(end: Boolean) {
             val bs = bars() ?: return
             if (bs.isEmpty()) return
-            currentBarIndex = if (end) bs.lastIndex else 0
-            val beats = bs[currentBarIndex].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-            currentBeatIndex = if (end) (beats.size - 1).coerceAtLeast(0) else 0
+            val targetBar = if (end) bs.lastIndex else 0
+            val beats = bs[targetBar].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+            caret = Caret(currentTrackIndex, targetBar, if (end) (beats.size - 1).coerceAtLeast(0) else 0, currentStringIndex)
+            session.caret = caret
             armed = true
             pendingFret = ""
             updateCursor()
@@ -2622,7 +2911,8 @@ class MainActivity : ComponentActivity() {
 
         /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
         private fun moveString(delta: Int) {
-            currentStringIndex = (currentStringIndex + delta).coerceIn(1, maxStringIndex())
+            caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
+            session.caret = caret
             armed = true
             pendingFret = ""
             updateCursor()
@@ -2668,26 +2958,9 @@ class MainActivity : ComponentActivity() {
             if (fret !in 0..24) return
             pushUndoSnapshot()
             try {
-                val song = score.api.score ?: return
-                val beat = currentBeat() ?: return
-                val alphaTabString = alphaTabString(currentStringIndex)
-                val existing = beat.getNoteOnString(alphaTabString.toDouble())
-                if (existing != null) {
-                    existing.fret = fret.toDouble()
-                    existing.finish(score.settings, null)
-                } else {
-                    val note = Note().apply {
-                        string = alphaTabString.toDouble()
-                        this.fret = fret.toDouble()
-                    }
-                    beat.addNote(note)
-                    note.finish(score.settings, null)
-                }
-                beat.isEmpty = beat.notes.toList().isEmpty()
-                beat.finish(score.settings, null)
-                song.finish(score.settings)
+                val beat = ensureRealBeatForCaret() ?: return
+                writeFretInternal(beat, fret)
                 renderAndLog("fret=" + fret)
-                updateCursor()
                 onSelectionChanged?.invoke()
                 // Stay on the same Beat after entering a fret. This is required for chords:
                 // move up/down through strings and enter additional frets at the same rhythmic
@@ -2803,6 +3076,10 @@ class MainActivity : ComponentActivity() {
 
         fun hidePlaybackCursor() = overlay.hidePlaybackCursor()
 
+        fun rebuildBeatHitsAfterLayout() {
+            buildBeatHits()
+        }
+
         fun refreshVisualCursor() {
             val beat = currentBeat() ?: run {
                 overlay.hideCursor()
@@ -2817,15 +3094,20 @@ class MainActivity : ComponentActivity() {
                     overlay.hideCursor()
                     return
                 }
-                val barBounds = bounds.barBounds.realBounds
-
-                // BeatBounds.onNotesX is AlphaTab's authoritative horizontal timing coordinate.
-                val cursorX = (bounds.onNotesX - score.scrollX).toFloat()
-                overlay.showBeatCursor(
-                    cursorX,
-                    (barBounds.y - score.scrollY).toFloat(),
-                    (barBounds.y + barBounds.h - score.scrollY).toFloat()
-                )
+                val hit = beatHits.firstOrNull {
+                    it.measure == caret.measureIndex && it.beat == caret.beatIndex
+                }
+                if (hit != null) {
+                    val cursorX = if (hit.virtual) {
+                        (hit.rect.left + 24f - score.scrollX).toFloat()
+                    } else {
+                        ((hit.rect.left + hit.rect.right) * 0.5f - score.scrollX).toFloat()
+                    }
+                    val cursorY = (hit.tabTopY + caret.stringIndex * hit.stringSpacing - score.scrollY).toFloat()
+                    overlay.showBeatCaret(cursorX, cursorY, hit.stringSpacing * 0.45f)
+                } else {
+                    overlay.hideCursor()
+                }
 
                 val targetString = alphaTabString(currentStringIndex)
                 val noteBounds = bounds.notes?.toList()
