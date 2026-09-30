@@ -375,6 +375,9 @@ class MainActivity : Activity() {
         val scoreInfo = technique("SCORE INFO") { editor.showScoreInfoDialog() }
         val lyrics = technique("LYRICS") { editor.showLyricsDialog() }
         val barTools = technique("BAR TOOLS") { editor.showBarToolsDialog() }
+        val addMeasure = technique("+ MEASURE") { editor.addMeasureFromUi() }
+        val duplicateBar = technique("DUP BAR") { editor.duplicateCurrentBarToEndFromUi() }
+        val clearBar = technique("CLEAR BAR") { editor.clearCurrentBarFromUi() }
         val timeline = technique("TIME / KEY") { editor.showTimelineDialog() }
         val tuning = technique("TUNING") { editor.showTuningDialog() }
         val mixer = technique("TRACK MIX") { editor.showTrackMixerDialog() }
@@ -388,7 +391,7 @@ class MainActivity : Activity() {
         val tie = technique("TIE") { editor.toggleTieFromUi() }
         val repeatStart = technique("REPEAT START") { editor.toggleRepeatStartFromUi() }
         val doubleBar = technique("DOUBLE BAR") { editor.toggleDoubleBarFromUi() }
-        listOf(scoreInfo, lyrics, barTools, timeline, tuning, mixer, bend, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
+        listOf(scoreInfo, lyrics, barTools, addMeasure, duplicateBar, clearBar, timeline, tuning, mixer, bend, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
             techniqueTools.addView(it, LinearLayout.LayoutParams(dp(94f), dp(38f)))
         }
         techniqueScroll.addView(techniqueTools, LinearLayout.LayoutParams(-2, dp(42f)))
@@ -1359,6 +1362,135 @@ class MainActivity : Activity() {
                         updateStatus("Timeline edit failed • " + (t.message ?: t.javaClass.simpleName))
                     }
                 }.show()
+        }
+
+        private fun cloneBarForScore(source: Bar, master: MasterBar): Bar {
+            val cloned = Bar()
+            cloned.barLineLeft = source.barLineLeft
+            cloned.barLineRight = source.barLineRight
+            cloned.clef = source.clef
+            cloned.clefOttava = source.clefOttava
+            cloned.keySignature = source.keySignature
+            cloned.keySignatureType = source.keySignatureType
+            val sourceVoices = source.voices.toList()
+            if (sourceVoices.isEmpty()) {
+                val voice = alphaTab.model.Voice()
+                cloned.addVoice(voice)
+                voice.addBeat(Beat().apply {
+                    duration = Duration.Quarter
+                    dots = 0.0
+                    tupletNumerator = -1.0
+                    tupletDenominator = -1.0
+                    isEmpty = true
+                })
+                return cloned
+            }
+            for (sourceVoice in sourceVoices) {
+                val voice = alphaTab.model.Voice()
+                cloned.addVoice(voice)
+                for (sourceBeat in sourceVoice.beats.toList()) {
+                    val beat = Beat().apply {
+                        duration = sourceBeat.duration
+                        dots = sourceBeat.dots
+                        tupletNumerator = sourceBeat.tupletNumerator
+                        tupletDenominator = sourceBeat.tupletDenominator
+                        isEmpty = sourceBeat.isEmpty
+                    }
+                    for (sourceNote in sourceBeat.notes.toList()) {
+                        beat.addNote(Note().apply {
+                            string = sourceNote.string
+                            fret = sourceNote.fret
+                            dynamics = sourceNote.dynamics
+                            isGhost = sourceNote.isGhost
+                            isDead = sourceNote.isDead
+                            isPalmMute = sourceNote.isPalmMute
+                            isLetRing = sourceNote.isLetRing
+                            isStaccato = sourceNote.isStaccato
+                            isHammerPullOrigin = sourceNote.isHammerPullOrigin
+                            isHammerPullDestination = sourceNote.isHammerPullDestination
+                        })
+                    }
+                    voice.addBeat(beat)
+                }
+            }
+            return cloned
+        }
+
+        fun addMeasureFromUi() {
+            if (createNextMeasures(1)) {
+                updateStatus("Measure added • total " + (score.api.score?.masterBars?.toList()?.size ?: 0))
+                onSelectionChanged?.invoke()
+            }
+        }
+
+        fun duplicateCurrentBarToEndFromUi() {
+            try {
+                val song = score.api.score ?: return
+                val sourceMaster = song.masterBars.toList().getOrNull(currentBarIndex)
+                    ?: throw IllegalStateException("No current measure")
+                val sourceIndex = currentBarIndex
+                val newMaster = MasterBar().apply {
+                    timeSignatureNumerator = sourceMaster.timeSignatureNumerator
+                    timeSignatureDenominator = sourceMaster.timeSignatureDenominator
+                    timeSignatureCommon = sourceMaster.timeSignatureCommon
+                    keySignature = sourceMaster.keySignature
+                    keySignatureType = sourceMaster.keySignatureType
+                    repeatCount = 0.0
+                    isRepeatStart = false
+                    isDoubleBar = false
+                }
+                song.addMasterBar(newMaster)
+
+                for (track in song.tracks.toList()) {
+                    for (staff in track.staves.toList()) {
+                        val sourceBar = staff.bars.toList().getOrNull(sourceIndex)
+                            ?: continue
+                        staff.addBar(cloneBarForScore(sourceBar, newMaster))
+                    }
+                }
+
+                song.finish(score.settings)
+                currentBarIndex = song.masterBars.toList().lastIndex
+                currentBeatIndex = 0
+                currentStringIndex = 1
+                armed = true
+                pendingFret = ""
+                renderAndLog("duplicate-bar")
+                updateCursor()
+                onSelectionChanged?.invoke()
+                updateStatus("Duplicated bar " + (sourceIndex + 1) + " → bar " + (currentBarIndex + 1))
+            } catch (t: Throwable) {
+                updateStatus("Duplicate bar failed • " + (t.message ?: t.javaClass.simpleName))
+            }
+        }
+
+        fun clearCurrentBarFromUi() {
+            try {
+                val song = score.api.score ?: return
+                val index = currentBarIndex
+                var cleared = 0
+                for (track in song.tracks.toList()) {
+                    for (staff in track.staves.toList()) {
+                        val bar = staff.bars.toList().getOrNull(index) ?: continue
+                        for (voice in bar.voices.toList()) {
+                            for (beat in voice.beats.toList()) {
+                                val notes = beat.notes.toList()
+                                for (note in notes) beat.removeNote(note)
+                                beat.isEmpty = true
+                                beat.finish(score.settings, null)
+                            }
+                        }
+                        cleared++
+                    }
+                }
+                song.finish(score.settings)
+                renderAndLog("clear-bar")
+                updateCursor()
+                onSelectionChanged?.invoke()
+                updateStatus("Bar " + (index + 1) + " cleared • " + cleared + " staves")
+            } catch (t: Throwable) {
+                updateStatus("Clear bar failed • " + (t.message ?: t.javaClass.simpleName))
+            }
         }
 
         fun showBarToolsDialog() {
