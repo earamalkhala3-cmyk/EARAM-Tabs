@@ -158,8 +158,10 @@ class MainActivity : Activity() {
             settings.player.enablePlayer = true
             settings.player.enableUserInteraction = true
             settings.player.enableCursor = true
+            settings.player.enableAnimatedBeatCursor = true
             settings.player.enableElementHighlighting = true
-            api.masterVolume = 1.0
+            settings.player.bufferTimeInMilliseconds = 1000.0
+            api.masterVolume = 0.70
             api.updateSettings()
         }
 
@@ -1687,40 +1689,6 @@ class MainActivity : Activity() {
                 updateStatus("Clear bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
         }
-        fun deleteCurrentBarFromUi() {
-            val song = score.api.score ?: return
-            val count = song.masterBars.toList().size
-            if (count <= 1) {
-                updateStatus("At least one measure must remain")
-                return
-            }
-            val index = selectedBarIndex
-            if (index !in 0 until count) return
-            try {
-                pushUndoSnapshot()
-                song.masterBars.splice(index.toDouble(), 1.0)
-                for (track in song.tracks.toList()) {
-                    for (staff in track.staves.toList()) {
-                        if (index < staff.bars.toList().size) {
-                            staff.bars.splice(index.toDouble(), 1.0)
-                        }
-                    }
-                }
-                val newLast = song.masterBars.toList().lastIndex
-                selectedBarIndex = index.coerceAtMost(newLast)
-                currentBarIndex = currentBarIndex.coerceAtMost(newLast)
-                currentBeatIndex = 0
-                song.finish(score.settings)
-                renderAndLog("delete-bar")
-                syncSelectedBarHighlight()
-                updateCursor()
-                onSelectionChanged?.invoke()
-                updateStatus("Deleted selected bar " + (index + 1) + " • " + song.masterBars.toList().size + " measures remain")
-            } catch (t: Throwable) {
-                updateStatus("Delete bar failed • " + (t.message ?: t.javaClass.simpleName))
-            }
-        }
-
         fun showBarToolsDialog() {
             val song = score.api.score ?: return
             val bar = song.masterBars.toList().getOrNull(selectedBarIndex) ?: return
@@ -2083,13 +2051,13 @@ class MainActivity : Activity() {
                     keySignatureType = sourceBar.masterBar.keySignatureType
                 }
                 song.addMasterBar(master)
-                for (track in song.tracks.toList()) for (sourceStaff in track.staves.toList()) {
-                    val newBar = Bar()
-                    sourceStaff.addBar(newBar)
+                for (track in song.tracks.toList()) for (staff in track.staves.toList()) {
+                    val bar = Bar()
+                    staff.addBar(bar)
                     val voiceCount = sourceBar.voices.toList().size.coerceAtLeast(1)
                     repeat(voiceCount) {
                         val voice = alphaTab.model.Voice()
-                        newBar.addVoice(voice)
+                        bar.addVoice(voice)
                         addEmptyBeatsForTimeSignature(
                             voice,
                             master.timeSignatureNumerator.toInt().coerceIn(1, 32),
@@ -2545,12 +2513,7 @@ class MainActivity : Activity() {
             selectedBarIndex = index
             selectedBarIndex = index
             val beats = bs[index].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-            if (beats.isEmpty()) {
-                currentVoiceIndex = 0
-                currentBeatIndex = 0
-            } else {
-                currentBeatIndex = currentBeatIndex.coerceIn(0, beats.lastIndex)
-            }
+            currentBeatIndex = if (beats.isEmpty()) 0 else currentBeatIndex.coerceIn(0, beats.lastIndex)
             armed = true
             pendingFret = ""
             syncSelectedBarHighlight()
@@ -2568,31 +2531,15 @@ class MainActivity : Activity() {
                 val beats = bar.voices.firstOrNull()?.beats?.toList().orEmpty()
                 if (beats.isEmpty()) {
                     score.api.clearPlaybackRangeHighlight()
-                    return
+                } else {
+                    score.api.highlightPlaybackRange(beats.first(), beats.last())
                 }
-                // AlphaTab renders this highlight itself, so there is no coordinate overlay
-                // capable of creating a stray square at the viewport origin.
-                score.api.highlightPlaybackRange(beats.first(), beats.last())
             } catch (t: Throwable) {
-                android.util.Log.e("EARAM_SELECTION", "selected bar highlight failed", t)
+                android.util.Log.e("EARAM_SELECTION", "native selected-bar highlight failed", t)
             }
         }
 
 
-
-        fun playCurrentBeatFromUi() {
-            val beat = currentBeat() ?: return
-            if (!score.api.isReadyForPlayback) {
-                updateStatus("Player is preparing…")
-                return
-            }
-            try {
-                score.api.playBeat(beat)
-                updateStatus("Playing selected beat • Bar " + (currentBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
-            } catch (t: Throwable) {
-                updateStatus("Beat playback failed • " + (t.message ?: t.javaClass.simpleName))
-            }
-        }
 
         fun showDurationDialog() {
             val labels = arrayOf("WHOLE", "HALF", "QUARTER", "EIGHTH", "16TH", "32ND", "DOT")
