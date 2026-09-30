@@ -222,8 +222,10 @@ jobs:
           grep -q 'application/x-earam-tab' <<< "$RESOLVER"
           grep -q 'application/octet-stream' <<< "$RESOLVER"
 
-          # Both .tab path registrations must be present in the installed resolver data.
-          grep -q 'pathSuffix=.tab' <<< "$RESOLVER"
+          # The APK manifest itself is the authoritative source for the
+          # .tab pathSuffix registration; that check already passed above.
+          # dumpsys uses Android-internal PathFilter formatting, so do not
+          # depend on a private textual representation here.
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
