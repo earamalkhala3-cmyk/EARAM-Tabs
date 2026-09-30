@@ -25,6 +25,7 @@ import android.widget.Toast
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import kotlin.math.roundToInt
 import alphaTab.AlphaTabView
 import alphaTab.LayoutMode
 import alphaTab.PlayerMode
@@ -1335,7 +1336,7 @@ class MainActivity : ComponentActivity() {
 
 
     private object AlphaTabRhythmEngine {
-        var quarterTicks: Long = 960L
+        var quarterTicks: Long = 1L
             private set
         fun syncFromScore(score: Score) {
             val simple = score.tracks.toList()
@@ -1368,7 +1369,7 @@ class MainActivity : ComponentActivity() {
             Duration.DoubleWhole -> quarterTicks * 8
             Duration.Whole -> quarterTicks * 4
             Duration.Half -> quarterTicks * 2
-            Duration.Quarter -> QUARTER_TICKS
+            Duration.Quarter -> quarterTicks
             Duration.Eighth -> quarterTicks / 2
             Duration.Sixteenth -> quarterTicks / 4
             Duration.ThirtySecond -> quarterTicks / 8
@@ -1407,20 +1408,20 @@ class MainActivity : ComponentActivity() {
         fun largestEmptyBeatSpec(ticks: Long): Quintuple? {
             val candidates = listOf(
                 Quintuple(Duration.Whole, 0, -1, -1, quarterTicks * 4),
-                Quintuple(Duration.Half, 1, -1, -1, QUARTER_TICKS * 3),
+                Quintuple(Duration.Half, 1, -1, -1, quarterTicks * 3),
                 Quintuple(Duration.DoubleWhole, 0, -1, -1, quarterTicks * 8),
                 Quintuple(Duration.Half, 0, -1, -1, quarterTicks * 2),
-                Quintuple(Duration.Quarter, 1, -1, -1, QUARTER_TICKS * 3 / 2),
-                Quintuple(Duration.Quarter, 0, -1, -1, QUARTER_TICKS),
-                Quintuple(Duration.Eighth, 1, -1, -1, QUARTER_TICKS * 3 / 4),
+                Quintuple(Duration.Quarter, 1, -1, -1, quarterTicks * 3 / 2),
+                Quintuple(Duration.Quarter, 0, -1, -1, quarterTicks),
+                Quintuple(Duration.Eighth, 1, -1, -1, quarterTicks * 3 / 4),
                 Quintuple(Duration.Eighth, 0, -1, -1, quarterTicks / 2),
-                Quintuple(Duration.Sixteenth, 1, -1, -1, QUARTER_TICKS * 3 / 8),
+                Quintuple(Duration.Sixteenth, 1, -1, -1, quarterTicks * 3 / 8),
                 Quintuple(Duration.Sixteenth, 0, -1, -1, quarterTicks / 4),
                 Quintuple(Duration.ThirtySecond, 0, -1, -1, quarterTicks / 8),
                 Quintuple(Duration.SixtyFourth, 0, -1, -1, quarterTicks / 16),
-                Quintuple(Duration.Eighth, 0, 3, 2, QUARTER_TICKS / 3),
-                Quintuple(Duration.Sixteenth, 0, 3, 2, QUARTER_TICKS / 6),
-                Quintuple(Duration.ThirtySecond, 0, 3, 2, QUARTER_TICKS / 12)
+                Quintuple(Duration.Eighth, 0, 3, 2, quarterTicks / 3),
+                Quintuple(Duration.Sixteenth, 0, 3, 2, quarterTicks / 6),
+                Quintuple(Duration.ThirtySecond, 0, 3, 2, quarterTicks / 12)
             ).sortedByDescending { it.fifth }
             return candidates.firstOrNull { it.fifth <= ticks }
         }
@@ -1552,10 +1553,9 @@ class MainActivity : ComponentActivity() {
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
 
-            currentBarIndex = snapshot.barIndex
-            selectedBarIndex = snapshot.barIndex
             currentVoiceIndex = snapshot.voiceIndex
-            currentBeatIndex = snapshot.beatIndex
+            caret = caret.copy(measureIndex = snapshot.barIndex, beatIndex = snapshot.beatIndex)
+            session.caret = caret
             armed = true
             pendingFret = ""
             renderAndLog("history")
@@ -1647,7 +1647,9 @@ class MainActivity : ComponentActivity() {
                 try {
                     val song = score.api.score ?: return@on
                     val clickedTrack = beat.voice.bar.staff.track
-                    currentTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
+                    val clickedTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
+                    caret = caret.copy(trackIndex = clickedTrackIndex)
+                    session.caret = caret
                     val staff = clickedTrack.staves.firstOrNull() ?: return@on
                     val bar = beat.voice.bar
                     val barIndex = staff.bars.toList().indexOf(bar)
@@ -1681,7 +1683,9 @@ class MainActivity : ComponentActivity() {
                 try {
                     val song = score.api.score ?: return@on
                     val clickedTrack = note.beat.voice.bar.staff.track
-                    currentTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
+                    val clickedTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
+                    caret = caret.copy(trackIndex = clickedTrackIndex)
+                    session.caret = caret
                     val staff = clickedTrack.staves.firstOrNull() ?: return@on
                     val bar = note.beat.voice.bar
                     val barIndex = staff.bars.toList().indexOf(bar)
@@ -1918,7 +1922,8 @@ class MainActivity : ComponentActivity() {
         fun selectVoiceFromUi(index: Int) {
             val max = bars()?.getOrNull(selectedBarIndex)?.voices?.toList()?.lastIndex ?: 0
             currentVoiceIndex = index.coerceIn(0, max)
-            currentBeatIndex = 0
+            caret = caret.copy(beatIndex = 0)
+            session.caret = caret
             armed = true
             pendingFret = ""
             updateCursor()
@@ -2290,9 +2295,12 @@ class MainActivity : ComponentActivity() {
                 }
 
                 song.finish(score.settings)
-                selectedBarIndex = song.masterBars.toList().lastIndex
-                currentBeatIndex = 0
-                currentStringIndex = 1
+                caret = caret.copy(
+                    measureIndex = song.masterBars.toList().lastIndex,
+                    beatIndex = 0,
+                    stringIndex = 1
+                )
+                session.caret = caret
                 armed = true
                 pendingFret = ""
                 renderAndLog("duplicate-bar")
@@ -2351,9 +2359,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val last = song.masterBars.toList().lastIndex
-                selectedBarIndex = index.coerceAtMost(last)
-                currentBarIndex = selectedBarIndex
-                currentBeatIndex = 0
+                val target = index.coerceAtMost(last)
+                caret = caret.copy(measureIndex = target, beatIndex = 0)
+                session.caret = caret
                 song.finish(score.settings)
                 renderAndLog("delete-bar")
                     updateCursor()
@@ -2793,7 +2801,8 @@ class MainActivity : ComponentActivity() {
                 if (!createNextMeasures(4)) return
             }
             currentBarIndex++
-            currentBeatIndex = 0
+            caret = caret.copy(measureIndex = currentBarIndex + 1, beatIndex = 0)
+            session.caret = caret
             updateCursor()
             updateStatus("Measure " + (currentBarIndex + 1) + " • Beat 1")
         }
@@ -3229,10 +3238,10 @@ class MainActivity : ComponentActivity() {
         fun selectBarFromUi(index: Int) {
             val bs = bars() ?: return
             if (index !in bs.indices) return
-            selectedBarIndex = index
-            currentBarIndex = index
             val beats = bs[index].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-            currentBeatIndex = if (beats.isEmpty()) 0 else currentBeatIndex.coerceIn(0, beats.lastIndex)
+            val targetBeat = if (beats.isEmpty()) 0 else currentBeatIndex.coerceIn(0, beats.lastIndex)
+            caret = caret.copy(measureIndex = index, beatIndex = targetBeat)
+            session.caret = caret
             armed = true
             pendingFret = ""
             // Selecting a measure also seeks playback to that measure.
