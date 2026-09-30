@@ -2329,7 +2329,7 @@ class MainActivity : Activity() {
                     overlay.hideCursor()
                     return
                 }
-                val selectedMaster = lookup.findMasterBarByIndex(currentBarIndex)
+                val selectedMaster = lookup.findMasterBarByIndex(currentBarIndex.toDouble())
                 if (selectedMaster != null) {
                     val br = selectedMaster.realBounds
                     overlay.showBarSelection(
