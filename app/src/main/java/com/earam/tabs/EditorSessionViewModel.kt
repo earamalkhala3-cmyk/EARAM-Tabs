@@ -27,9 +27,10 @@ class EditorSessionViewModel : ViewModel() {
     var tickPosition: Double = 0.0
     var wasPlaying: Boolean = false
 
-    var selectedTrack: Int = 0
-    var selectedVoice: Int = 0
-    var selectedBar: Int = 0
-    var selectedBeat: Int = 0
-    var selectedString: Int = 1
+    var caret: Caret = Caret(
+        trackIndex = 0,
+        measureIndex = 0,
+        beatIndex = 0,
+        stringIndex = 1
+    )
 }
