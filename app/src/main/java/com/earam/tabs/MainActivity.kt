@@ -346,6 +346,7 @@ class MainActivity : Activity() {
             setPadding(dp(4f), 0, dp(4f), 0)
             setOnClickListener { action() }
         }
+        val mixer = technique("TRACK MIX") { editor.showTrackMixerDialog() }
         val fx = technique("EFFECTS") { editor.showNoteEffectsDialog() }
         val beatFx = technique("BEAT FX") { editor.showBeatEffectsDialog() }
         val pickDown = technique("↓ PICK") { editor.setPickStrokeFromUi("down") }
@@ -355,7 +356,7 @@ class MainActivity : Activity() {
         val tie = technique("TIE") { editor.toggleTieFromUi() }
         val repeatStart = technique("REPEAT START") { editor.toggleRepeatStartFromUi() }
         val doubleBar = technique("DOUBLE BAR") { editor.toggleDoubleBarFromUi() }
-        listOf(fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
+        listOf(mixer, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
             techniqueTools.addView(it, LinearLayout.LayoutParams(dp(94f), dp(38f)))
         }
         techniqueScroll.addView(techniqueTools, LinearLayout.LayoutParams(-2, dp(42f)))
@@ -1110,6 +1111,73 @@ class MainActivity : Activity() {
 
         private fun currentBeat(): alphaTab.model.Beat? =
             bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
+
+        fun showTrackMixerDialog() {
+            val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex) ?: return
+            val staff = track.staves.firstOrNull()
+            val panel = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(activity.dp(20f), activity.dp(6f), activity.dp(20f), 0)
+            }
+            val nameField = EditText(activity).apply {
+                setText(track.name)
+                hint = "Track name"
+                setSingleLine(true)
+            }
+            val transposeField = EditText(activity).apply {
+                val p = staff?.transpositionPitch?.toInt() ?: 0
+                setText(p.toString())
+                hint = "Transpose (semitones)"
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+                setSingleLine(true)
+            }
+            val mute = android.widget.CheckBox(activity).apply {
+                text = "Mute"
+                isChecked = track.playbackInfo.isMute
+            }
+            val solo = android.widget.CheckBox(activity).apply {
+                text = "Solo"
+                isChecked = track.playbackInfo.isSolo
+            }
+            val volumeLabel = TextView(activity).apply { text = "Volume" }
+            val volume = android.widget.SeekBar(activity).apply {
+                max = 100
+                progress = (track.playbackInfo.volume / 16.0 * 100.0).toInt().coerceIn(0, 100)
+            }
+            val panLabel = TextView(activity).apply { text = "Pan" }
+            val pan = android.widget.SeekBar(activity).apply {
+                max = 100
+                progress = ((track.playbackInfo.balance / 16.0 * 100.0).toInt()).coerceIn(0, 100)
+            }
+            panel.addView(nameField, LinearLayout.LayoutParams(-1, activity.dp(48f)))
+            panel.addView(transposeField, LinearLayout.LayoutParams(-1, activity.dp(48f)))
+            panel.addView(mute, LinearLayout.LayoutParams(-1, activity.dp(40f)))
+            panel.addView(solo, LinearLayout.LayoutParams(-1, activity.dp(40f)))
+            panel.addView(volumeLabel, LinearLayout.LayoutParams(-1, activity.dp(26f)))
+            panel.addView(volume, LinearLayout.LayoutParams(-1, activity.dp(44f)))
+            panel.addView(panLabel, LinearLayout.LayoutParams(-1, activity.dp(26f)))
+            panel.addView(pan, LinearLayout.LayoutParams(-1, activity.dp(44f)))
+
+            AlertDialog.Builder(activity)
+                .setTitle("TRACK MIXER")
+                .setView(panel)
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("APPLY") { _, _ ->
+                    track.name = nameField.text.toString().trim().ifBlank { track.name }
+                    track.shortName = track.name
+                    track.playbackInfo.isMute = mute.isChecked
+                    track.playbackInfo.isSolo = solo.isChecked
+                    track.playbackInfo.volume = volume.progress / 100.0 * 16.0
+                    track.playbackInfo.balance = pan.progress / 100.0 * 16.0
+                    staff?.transpositionPitch = transposeField.text.toString().toIntOrNull()?.coerceIn(-24, 24)?.toDouble() ?: 0.0
+                    score.api.score?.finish(score.settings)
+                    score.api.render()
+                    try { score.api.loadMidiForScore() } catch (_: Throwable) { }
+                    onSelectionChanged?.invoke()
+                    updateStatus("Track settings applied")
+                }
+                .show()
+        }
 
         fun setPickStrokeFromUi(direction: String) {
             val beat = currentBeat() ?: return
