@@ -203,6 +203,26 @@ class MainActivity : Activity() {
         noteEditor = editor
         editor.attach()
 
+        val trackScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(0xFF25292D.toInt())
+        }
+        val trackButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
+        }
+        trackScroll.addView(trackButtons, LinearLayout.LayoutParams(-2, dp(44f)))
+
+        val selectionInfo = TextView(this).apply {
+            text = "TRACK • Guitar  |  STRING 1 • HIGH E"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 12f
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12f), 0, dp(12f), 0)
+            setBackgroundColor(0xFF30353A.toInt())
+        }
+
         fun refreshTrackButtons() {
             trackButtons.removeAllViews()
             val tracks = score.api.score?.tracks?.toList().orEmpty()
@@ -224,26 +244,6 @@ class MainActivity : Activity() {
         }
         refreshTrackButtons()
         refreshSelectionInfo()
-
-        val trackScroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(0xFF25292D.toInt())
-        }
-        val trackButtons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
-        }
-        trackScroll.addView(trackButtons, LinearLayout.LayoutParams(-2, dp(44f)))
-
-        val selectionInfo = TextView(this).apply {
-            text = "TRACK • Guitar  |  STRING 1 • HIGH E"
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 12f
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), 0, dp(12f), 0)
-            setBackgroundColor(0xFF30353A.toInt())
-        }
 
         val durationScroll = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
