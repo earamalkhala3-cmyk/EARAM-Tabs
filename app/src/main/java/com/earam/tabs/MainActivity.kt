@@ -346,6 +346,10 @@ class MainActivity : Activity() {
             setPadding(dp(4f), 0, dp(4f), 0)
             setOnClickListener { action() }
         }
+        val scoreInfo = technique("SCORE INFO") { editor.showScoreInfoDialog() }
+        val lyrics = technique("LYRICS") { editor.showLyricsDialog() }
+        val barTools = technique("BAR TOOLS") { editor.showBarToolsDialog() }
+        val tuning = technique("TUNING") { editor.showTuningDialog() }
         val mixer = technique("TRACK MIX") { editor.showTrackMixerDialog() }
         val fx = technique("EFFECTS") { editor.showNoteEffectsDialog() }
         val beatFx = technique("BEAT FX") { editor.showBeatEffectsDialog() }
@@ -356,7 +360,7 @@ class MainActivity : Activity() {
         val tie = technique("TIE") { editor.toggleTieFromUi() }
         val repeatStart = technique("REPEAT START") { editor.toggleRepeatStartFromUi() }
         val doubleBar = technique("DOUBLE BAR") { editor.toggleDoubleBarFromUi() }
-        listOf(mixer, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
+        listOf(scoreInfo, lyrics, barTools, tuning, mixer, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
             techniqueTools.addView(it, LinearLayout.LayoutParams(dp(94f), dp(38f)))
         }
         techniqueScroll.addView(techniqueTools, LinearLayout.LayoutParams(-2, dp(42f)))
@@ -1111,6 +1115,155 @@ class MainActivity : Activity() {
 
         private fun currentBeat(): alphaTab.model.Beat? =
             bars()?.getOrNull(currentBarIndex)?.voices?.firstOrNull()?.beats?.toList()?.getOrNull(currentBeatIndex)
+
+        fun showScoreInfoDialog() {
+            val song = score.api.score ?: return
+            val panel = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
+            }
+            fun f(h: String, v: String) = EditText(activity).apply {
+                hint = h
+                setText(v)
+                setSingleLine(true)
+            }
+            val title = f("Title", song.title)
+            val artist = f("Artist", song.artist)
+            val album = f("Album", song.album)
+            val copyright = f("Copyright", song.copyright)
+            val transcriber = f("Transcriber", song.transcriber)
+            listOf(title, artist, album, copyright, transcriber).forEach {
+                panel.addView(it, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            }
+            AlertDialog.Builder(activity)
+                .setTitle("SCORE INFO")
+                .setView(panel)
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("APPLY") { _, _ ->
+                    song.title = title.text.toString()
+                    song.artist = artist.text.toString()
+                    song.album = album.text.toString()
+                    song.copyright = copyright.text.toString()
+                    song.transcriber = transcriber.text.toString()
+                    activity.projectName = song.title.ifBlank { "Music Home" }
+                    score.api.score?.finish(score.settings)
+                    score.api.render()
+                    onSelectionChanged?.invoke()
+                    updateStatus("Score information updated")
+                }.show()
+        }
+
+        fun showLyricsDialog() {
+            val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex) ?: return
+            val panel = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
+            }
+            val start = EditText(activity).apply {
+                hint = "Start bar (1-based)"
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText("1")
+                setSingleLine(true)
+            }
+            val raw = EditText(activity).apply {
+                hint = "Lyrics — use spaces for syllables, + to join"
+                setText(track.lyrics?.text ?: "")
+                minLines = 4
+                gravity = Gravity.TOP
+            }
+            panel.addView(start, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            panel.addView(raw, LinearLayout.LayoutParams(-1, activity.dp(110f)))
+            AlertDialog.Builder(activity)
+                .setTitle("TRACK LYRICS")
+                .setView(panel)
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("APPLY") { _, _ ->
+                    val lyrics = track.lyrics ?: alphaTab.model.Lyrics()
+                    lyrics.startBar = ((start.text.toString().toIntOrNull() ?: 1) - 1).coerceAtLeast(0).toDouble()
+                    lyrics.text = raw.text.toString()
+                    lyrics.finish(true)
+                    track.lyrics = lyrics
+                    score.api.score?.finish(score.settings)
+                    score.api.render()
+                    updateStatus("Lyrics updated")
+                }.show()
+        }
+
+        fun showBarToolsDialog() {
+            val song = score.api.score ?: return
+            val bar = song.masterBars.toList().getOrNull(currentBarIndex) ?: return
+            val panel = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
+            }
+            val repeatCount = EditText(activity).apply {
+                hint = "Repeat count (0 = none)"
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText(if (bar.repeatCount > 0) bar.repeatCount.toInt().toString() else "0")
+                setSingleLine(true)
+            }
+            val lineBreak = android.widget.CheckBox(activity).apply {
+                text = "Force line break after this bar"
+                isChecked = false
+            }
+            val section = EditText(activity).apply {
+                hint = "Section / Marker text"
+                setSingleLine(true)
+            }
+            panel.addView(repeatCount, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            panel.addView(lineBreak, LinearLayout.LayoutParams(-1, activity.dp(42f)))
+            panel.addView(section, LinearLayout.LayoutParams(-1, activity.dp(46f)))
+            AlertDialog.Builder(activity)
+                .setTitle("BAR TOOLS • " + (currentBarIndex + 1))
+                .setView(panel)
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("APPLY") { _, _ ->
+                    bar.repeatCount = repeatCount.text.toString().toIntOrNull()?.coerceIn(0, 99)?.toDouble() ?: 0.0
+                    val txt = section.text.toString().trim()
+                    if (txt.isNotEmpty()) {
+                        val beat = currentBeat()
+                        if (beat != null) beat.text = txt
+                    }
+                    song.rebuildRepeatGroups()
+                    finishEditedScore("bar-tools")
+                }.show()
+        }
+
+        fun showTuningDialog() {
+            val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex) ?: return
+            val staff = track.staves.firstOrNull() ?: return
+            val tuning = staff.stringTuning ?: run {
+                updateStatus("This track has no string tuning")
+                return
+            }
+            val values = tuning.tunings.toList()
+            val inputs = values.mapIndexed { idx, value ->
+                EditText(activity).apply {
+                    hint = "String " + (idx + 1)
+                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    setText(value.toString())
+                    setSingleLine(true)
+                }
+            }
+            val panel = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(activity.dp(20f), activity.dp(4f), activity.dp(20f), 0)
+            }
+            inputs.forEach { panel.addView(it, LinearLayout.LayoutParams(-1, activity.dp(42f))) }
+            AlertDialog.Builder(activity)
+                .setTitle("CUSTOM TUNING • " + track.name)
+                .setView(android.widget.ScrollView(activity).apply { addView(panel) })
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("APPLY") { _, _ ->
+                    for (i in inputs.indices) {
+                        val v = inputs[i].text.toString().toDoubleOrNull()
+                        if (v != null) tuning.tunings[i] = v
+                    }
+                    tuning.isStandard = false
+                    tuning.finish()
+                    finishEditedScore("tuning")
+                }.show()
+        }
 
         fun showTrackMixerDialog() {
             val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex) ?: return
