@@ -351,6 +351,7 @@ class MainActivity : Activity() {
         val barTools = technique("BAR TOOLS") { editor.showBarToolsDialog() }
         val tuning = technique("TUNING") { editor.showTuningDialog() }
         val mixer = technique("TRACK MIX") { editor.showTrackMixerDialog() }
+        val bend = technique("BEND") { editor.showBendDialog() }
         val fx = technique("EFFECTS") { editor.showNoteEffectsDialog() }
         val beatFx = technique("BEAT FX") { editor.showBeatEffectsDialog() }
         val pickDown = technique("↓ PICK") { editor.setPickStrokeFromUi("down") }
@@ -360,7 +361,7 @@ class MainActivity : Activity() {
         val tie = technique("TIE") { editor.toggleTieFromUi() }
         val repeatStart = technique("REPEAT START") { editor.toggleRepeatStartFromUi() }
         val doubleBar = technique("DOUBLE BAR") { editor.toggleDoubleBarFromUi() }
-        listOf(scoreInfo, lyrics, barTools, tuning, mixer, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
+        listOf(scoreInfo, lyrics, barTools, tuning, mixer, bend, fx, beatFx, pickDown, pickUp, pickNone, rest, tie, repeatStart, doubleBar).forEach {
             techniqueTools.addView(it, LinearLayout.LayoutParams(dp(94f), dp(38f)))
         }
         techniqueScroll.addView(techniqueTools, LinearLayout.LayoutParams(-2, dp(42f)))
@@ -1389,6 +1390,36 @@ class MainActivity : Activity() {
             bar.isDoubleBar = !bar.isDoubleBar
             finishEditedScore("double-bar")
             updateStatus(if (bar.isDoubleBar) "Double bar ON" else "Double bar OFF")
+        }
+
+        fun showBendDialog() {
+            val beat = currentBeat() ?: return
+            val note = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) ?: run {
+                updateStatus("Enter/select a note first")
+                return
+            }
+            val types = arrayOf("None", "Bend", "Release", "Bend + Release", "Hold", "Pre-bend", "Pre-bend + Bend", "Pre-bend + Release")
+            val values = arrayOf(
+                alphaTab.model.BendType.None,
+                alphaTab.model.BendType.Bend,
+                alphaTab.model.BendType.Release,
+                alphaTab.model.BendType.BendRelease,
+                alphaTab.model.BendType.Hold,
+                alphaTab.model.BendType.Prebend,
+                alphaTab.model.BendType.PrebendBend,
+                alphaTab.model.BendType.PrebendRelease
+            )
+            var selected = values.indexOf(note.bendType).coerceAtLeast(0)
+            AlertDialog.Builder(activity)
+                .setTitle("BEND")
+                .setSingleChoiceItems(types, selected) { dialog, which ->
+                    selected = which
+                    dialog.dismiss()
+                    note.bendType = values[selected]
+                    finishEditedScore("bend")
+                }
+                .setNegativeButton("CANCEL", null)
+                .show()
         }
 
         fun showNoteEffectsDialog() {
