@@ -703,7 +703,7 @@ class MainActivity : ComponentActivity() {
             isEnabled = false
             isClickable = false
             isFocusable = false
-            elevation = dp(20f)
+            elevation = dp(20f).toFloat()
             clipToOutline = false
         }
         scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
@@ -3462,7 +3462,7 @@ class MainActivity : ComponentActivity() {
                     val last = lastCaretPosition
                     if (last != null) {
                         android.util.Log.w("EARAM_CARET", "caret drawn: fallback=last-known bar=" + (caretBar + 1) + " beat=" + (caretBeat + 1) + " string=" + caretString + " beatHits=" + beatHits.size + " cx=" + last.first + " cy=" + last.second)
-                        overlay.showBeatCaret(last.first, last.second, last.third)
+                        overlay.showBeatCaretContent(last.first, last.second, last.third)
                     } else {
                         android.util.Log.w("EARAM_CARET", "caret skipped: no hit, no BarBounds, no last-known position bar=" + (caretBar + 1) + " beat=" + (caretBeat + 1) + " string=" + caretString + " beatHits=" + beatHits.size)
                         overlay.hideCursor()
