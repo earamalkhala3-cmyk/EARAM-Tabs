@@ -1765,6 +1765,7 @@ class MainActivity : ComponentActivity() {
         private var pendingFret: String = ""
         private var pendingAtMs: Long = 0L
         private var inputGeneration: Long = 0L
+        private var noteTouchSelectionPending = false
 
         fun attach() {
             score.isFocusable = true
@@ -1791,9 +1792,21 @@ class MainActivity : ComponentActivity() {
             score.setOnKeyListener(keyHandler)
             score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
             score.setOnTouchListener { _, event ->
-                if (event.action == android.view.MotionEvent.ACTION_UP) {
-                    handleScoreTouch(event.x, event.y)
-                } else false
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        noteTouchSelectionPending = false
+                        false
+                    }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        if (noteTouchSelectionPending) {
+                            noteTouchSelectionPending = false
+                            true
+                        } else {
+                            handleScoreTouch(event.x, event.y)
+                        }
+                    }
+                    else -> false
+                }
             }
 
             score.api.beatMouseDown.on { beat ->
@@ -1834,6 +1847,7 @@ class MainActivity : ComponentActivity() {
 
             score.api.noteMouseDown.on { note ->
                 try {
+                    noteTouchSelectionPending = true
                     val song = score.api.score ?: return@on
                     val clickedTrack = note.beat.voice.bar.staff.track
                     val clickedTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
@@ -3112,32 +3126,42 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun acceptDigit(digit: Int) {
+            if (digit !in 0..9) return
             if (!armed) armed = true
             val now = android.os.SystemClock.uptimeMillis()
-            if (now - pendingAtMs > 900L) pendingFret = ""
+            if (now - pendingAtMs > 700L) pendingFret = ""
             pendingAtMs = now
             val generation = ++inputGeneration
-            val candidate = (pendingFret + digit).take(2)
-            val value = candidate.toIntOrNull() ?: return
-            if (value > 24) {
+
+            if (pendingFret.isEmpty()) {
                 pendingFret = digit.toString()
-                writeFret(digit)
+            } else {
+                val candidate = pendingFret + digit
+                val value = candidate.toIntOrNull()
+                if (value != null && value <= 24) {
+                    writeFret(value)
+                    pendingFret = ""
+                    return
+                }
+                val first = pendingFret.toIntOrNull()
+                if (first != null && first <= 9) writeFret(first)
+                pendingFret = digit.toString()
                 pendingAtMs = now
-                return
             }
-            pendingFret = candidate
-            if (candidate.length == 2 || value == 0) {
-                writeFret(value)
+
+            val value = pendingFret.toIntOrNull() ?: return
+            if (value == 0) {
+                writeFret(0)
                 pendingFret = ""
             } else {
-                updateStatus("Fret $candidate…")
+                updateStatus("Fret $pendingFret…")
                 activity.window.decorView.postDelayed({
                     val t = android.os.SystemClock.uptimeMillis()
-                    if (generation == inputGeneration && t - pendingAtMs >= 850L && pendingFret == candidate) {
+                    if (generation == inputGeneration && t - pendingAtMs >= 700L && pendingFret == value.toString()) {
                         writeFret(value)
                         pendingFret = ""
                     }
-                }, 900L)
+                }, 720L)
             }
         }
 
@@ -3221,25 +3245,25 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun deleteCurrentNote() {
-            pushUndoSnapshot()
             val beat = currentBeat() ?: return
             val alphaTabString = alphaTabString(currentStringIndex)
-            val note = beat.getNoteOnString(alphaTabString.toDouble()) ?: run {
-                beat.isEmpty = beat.notes.toList().isEmpty()
-                score.api.score?.finish(score.settings)
-                renderAndLog("delete-empty")
-                updateCursor()
-                updateStatus("No note on current string")
+            val note = beat.getNoteOnString(alphaTabString.toDouble())
+
+            if (note == null) {
+                moveBeat(-1)
+                updateStatus("No note on current string • previous beat")
                 return
             }
+
+            pushUndoSnapshot()
             beat.removeNote(note)
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
-            renderAndLog("delete")
+            renderAndLog("delete-string-note")
             updateCursor()
             onSelectionChanged?.invoke()
-            updateStatus(if (beat.isEmpty) "Beat cleared" else "Note deleted")
+            updateStatus(if (beat.isEmpty) "Beat is now rest" else "Note deleted")
         }
 
         /**
@@ -3316,10 +3340,14 @@ class MainActivity : ComponentActivity() {
                     masterBounds?.bars?.toList()?.firstOrNull { it.bar === bar } ?: masterBounds?.bars?.toList()?.getOrNull(0)
                 } else null
                 if (hit != null) {
-                    val cursorX = if (hit.virtual) hit.rect.left + 24f - score.scrollX else ((hit.rect.left + hit.rect.right) * 0.5f) - score.scrollX
-                    val cursorY = hit.tabTopY + caretString * hit.stringSpacing - score.scrollY
+                    val contentX = if (hit.virtual) hit.rect.left + 24f else (hit.rect.left + hit.rect.right) * 0.5f
+                    val contentY = hit.tabTopY + caretString * hit.stringSpacing
+                    ensureCaretVisible(contentX, contentY)
+                    val cursorX = contentX - score.scrollX
+                    val cursorY = contentY - score.scrollY
                     android.util.Log.d("EARAM_CARET", "draw caret bar=" + (caretBar + 1) + " beat=" + (caretBeat + 1) + " string=" + caretString +
-                        " beatHits=" + beatHits.size + " hit=true virtual=" + hit.virtual + " cx=" + cursorX + " cy=" + cursorY +
+                        " hit=true virtual=" + hit.virtual + " cx=" + cursorX + " cy=" + cursorY +
+                        " contentCx=" + contentX + " contentCy=" + contentY + " tabTopY=" + hit.tabTopY + " stringSpacing=" + hit.stringSpacing +
                         " rect=" + hit.rect + " scroll=" + score.scrollX + "," + score.scrollY + " scale=" + score.settings.display.scale)
                     lastCaretPosition = Triple(cursorX, cursorY, (hit.stringSpacing * 0.45f).coerceAtLeast(2f))
                     overlay.showBeatCaret(cursorX, cursorY, lastCaretPosition!!.third)
@@ -3361,6 +3389,27 @@ class MainActivity : ComponentActivity() {
                 overlay.hideCursor()
             }
         }
+        private fun ensureCaretVisible(contentX: Float, contentY: Float) {
+            if (!contentX.isFinite() || !contentY.isFinite() || score.width <= 0 || score.height <= 0) return
+            val marginX = (score.width * 0.12f).coerceAtLeast(24f)
+            val marginY = (score.height * 0.10f).coerceAtLeast(24f)
+            var targetX = score.scrollX
+            var targetY = score.scrollY
+            if (contentX - score.scrollX < marginX) targetX = (contentX - marginX).toInt()
+            else if (contentX - score.scrollX > score.width - marginX) targetX = (contentX - score.width + marginX).toInt()
+            if (contentY - score.scrollY < marginY) targetY = (contentY - marginY).toInt()
+            else if (contentY - score.scrollY > score.height - marginY) targetY = (contentY - score.height + marginY).toInt()
+            val maxX = (score.computeHorizontalScrollRange() - score.width).coerceAtLeast(0)
+            val maxY = (score.computeVerticalScrollRange() - score.height).coerceAtLeast(0)
+            targetX = targetX.coerceIn(0, maxX)
+            targetY = targetY.coerceIn(0, maxY)
+            if (targetX != score.scrollX || targetY != score.scrollY) {
+                android.util.Log.d("EARAM_CARET", "auto-scroll caret to x=" + targetX + " y=" + targetY +
+                    " from=" + score.scrollX + "," + score.scrollY + " content=" + contentX + "," + contentY)
+                score.scrollTo(targetX, targetY)
+            }
+        }
+
         private fun updateCursor() {
             val beat = currentBeat()
             android.util.Log.d("EARAM_CARET", "updateCursor: currentBeat=" + (beat != null) + " bar=" + (caret.measureIndex + 1) + " beat=" + (caret.beatIndex + 1) + " string=" + caret.stringIndex + " beatHits=" + beatHits.size)
