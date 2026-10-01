@@ -205,7 +205,7 @@ jobs:
           adb -s emulator-5554 shell am force-stop com.earam.tabs || true
           timeout 20s adb -s emulator-5554 shell am start -a com.earam.tabs.CI_CURSOR_TEST -n com.earam.tabs/.MainActivity >/dev/null
           for _ in $(seq 1 30); do
-            PID="$(adb -s emulator-5554 shell pidof com.earam.tabs | tr -d '' || true)"
+            PID="$(adb -s emulator-5554 shell pidof com.earam.tabs | tr -d '\r' || true)"
             echo "Earam PID=$PID"
             test -n "$PID" && break
             sleep 1
