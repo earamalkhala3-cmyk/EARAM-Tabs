@@ -592,9 +592,14 @@ class MainActivity : ComponentActivity() {
 
         score.api.postRenderFinished.on {
             runOnUiThread {
-                editor.rebuildBeatHitsAfterLayout()
-                editor.refreshVisualCursor()
-                editor.logRenderState()
+                try {
+                    editor.rebuildBeatHitsAfterLayout()
+                    editor.refreshVisualCursor()
+                    editor.logRenderState()
+                } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_RENDER", "post-render editor overlay failed", t)
+                    // Rendering the score must never be allowed to terminate the Activity.
+                }
             }
         }
 
@@ -610,10 +615,16 @@ class MainActivity : ComponentActivity() {
                 status.text = "Score loaded • preparing playback"
                 refreshSelectionInfo()
             }
-            try { score.api.loadMidiForScore() } catch (t: Throwable) {
-                android.util.Log.e("EARAM_PLAYER", "loadMidiForScore after scoreLoaded failed", t)
-                runOnUiThread { status.text = "MIDI preparation failed • " + (t.message ?: t.javaClass.simpleName) }
-            }
+            // Do not block/kill startup while the renderer is still attaching its first page.
+            // MIDI preparation is deferred until the UI has had a chance to finish opening.
+            window.decorView.postDelayed({
+                try {
+                    score.api.loadMidiForScore()
+                } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_PLAYER", "deferred loadMidiForScore failed", t)
+                    runOnUiThread { status.text = "MIDI preparation failed • " + (t.message ?: t.javaClass.simpleName) }
+                }
+            }, 1200L)
         }
 
         score.api.error.on { error ->
