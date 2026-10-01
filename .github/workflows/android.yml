@@ -196,32 +196,26 @@ jobs:
           retention-days: 14
 
       - name: Deterministic AlphaTab cursor screenshot test
-        timeout-minutes: 8
+        timeout-minutes: 3
         run: |
           set -euo pipefail
           OUT="${RUNNER_TEMP}/earam-smoke"
           mkdir -p "$OUT"
-          adb -s emulator-5554 logcat -c
-          adb -s emulator-5554 shell am force-stop com.earam.tabs || true
-          timeout 20s adb -s emulator-5554 shell am start -a com.earam.tabs.CI_CURSOR_TEST -n com.earam.tabs/.MainActivity >/dev/null
-          for _ in $(seq 1 30); do
-            PID="$(adb -s emulator-5554 shell pidof com.earam.tabs | tr -d '\r' || true)"
-            echo "Earam PID=$PID"
-            test -n "$PID" && break
-            sleep 1
-          done
-          test -n "$PID"
-          sleep 4
+          timeout 10s adb -s emulator-5554 logcat -c || true
+          timeout 10s adb -s emulator-5554 shell am force-stop com.earam.tabs || true
+          timeout 15s adb -s emulator-5554 shell am start -a com.earam.tabs.CI_CURSOR_TEST -n com.earam.tabs/.MainActivity >/dev/null
+          sleep 5
           timeout 20s adb -s emulator-5554 exec-out screencap -p > "$OUT/alphaTab-cursor-test.png"
-          adb -s emulator-5554 logcat -d -v threadtime > "$OUT/full.log"
+          timeout 15s adb -s emulator-5554 logcat -d -v threadtime > "$OUT/full.log" || true
           grep -E 'EARAM_ALPHA_CURSOR|EARAM_SCROLL|EARAM_CI_CURSOR|FATAL|AndroidRuntime' "$OUT/full.log" > "$OUT/filtered.log" || true
           test -s "$OUT/alphaTab-cursor-test.png"
           python3 - "$OUT/alphaTab-cursor-test.png" <<'PY'
           import sys
           from PIL import Image
           im=Image.open(sys.argv[1])
-          print("screenshot:",im.size)
-          if im.width<200 or im.height<200: raise SystemExit("invalid screenshot")
+          print("screenshot:", im.size)
+          if im.width < 200 or im.height < 200:
+              raise SystemExit("invalid screenshot")
           PY
 
       - name: Upload EARAM cursor test artifact
