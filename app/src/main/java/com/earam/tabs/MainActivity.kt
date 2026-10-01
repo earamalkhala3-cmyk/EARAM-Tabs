@@ -699,8 +699,7 @@ class MainActivity : ComponentActivity() {
         window.decorView.post {
             try {
                 score.api.updateSettings()
-                score.api.render()
-                android.util.Log.i("EARAM_STARTUP", "AlphaTab renderer initialized after view attachment")
+                android.util.Log.i("EARAM_STARTUP", "AlphaTab renderer settings initialized after view attachment")
             } catch (t: Throwable) {
                 android.util.Log.e("EARAM_STARTUP", "AlphaTab renderer initialization failed", t)
                 status.text = "Renderer unavailable • Earam opened safely"
