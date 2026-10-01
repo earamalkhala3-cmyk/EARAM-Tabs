@@ -195,40 +195,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Launch smoke test and collect crash diagnostics
-        continue-on-error: true
-        timeout-minutes: 2
+      - name: Deterministic AlphaTab cursor screenshot test
+        timeout-minutes: 8
         run: |
-          set -u
-          mkdir -p "${RUNNER_TEMP}/earam-smoke"
-          : > "${RUNNER_TEMP}/earam-smoke/crash.log"
-          : > "${RUNNER_TEMP}/earam-smoke/filtered.log"
-          : > "${RUNNER_TEMP}/earam-smoke/full.log"
-          : > "${RUNNER_TEMP}/earam-smoke/activities.log"
-          : > "${RUNNER_TEMP}/earam-smoke/monkey.log"
-
-          echo "===== SMOKE START ====="
-          adb -s emulator-5554 get-state > "${RUNNER_TEMP}/earam-smoke/adb-state.log" 2>&1 || true
-          timeout 15s adb -s emulator-5554 wait-for-device || true
-          adb -s emulator-5554 logcat -c || true
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/earam-smoke"
+          mkdir -p "$OUT"
+          adb -s emulator-5554 logcat -c
           adb -s emulator-5554 shell am force-stop com.earam.tabs || true
-          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 > "${RUNNER_TEMP}/earam-smoke/monkey.log" 2>&1 || true
+          adb -s emulator-5554 shell am start -W -a com.earam.tabs.CI_CURSOR_TEST -n com.earam.tabs/.MainActivity
+          for _ in $(seq 1 30); do
+            RESUMED="$(adb -s emulator-5554 shell dumpsys activity activities | grep -m1 'mResumedActivity' || true)"
+            echo "$RESUMED"
+            echo "$RESUMED" | grep -q 'com.earam.tabs/.MainActivity' && break
+            sleep 1
+          done
+          echo "$RESUMED" | grep -q 'com.earam.tabs/.MainActivity'
+          sleep 4
+          adb -s emulator-5554 exec-out screencap -p > "$OUT/alphaTab-cursor-test.png"
+          adb -s emulator-5554 logcat -d -v threadtime > "$OUT/full.log"
+          grep -E 'EARAM_ALPHA_CURSOR|EARAM_SCROLL|EARAM_CI_CURSOR|FATAL|AndroidRuntime' "$OUT/full.log" > "$OUT/filtered.log" || true
+          test -s "$OUT/alphaTab-cursor-test.png"
+          python3 - "$OUT/alphaTab-cursor-test.png" <<'PY'
+          import sys
+          from PIL import Image
+          im=Image.open(sys.argv[1])
+          print("screenshot:",im.size)
+          if im.width<200 or im.height<200: raise SystemExit("invalid screenshot")
+          PY
 
-          echo "===== WAIT 20s ====="
-          sleep 20
-
-          timeout 15s adb -s emulator-5554 logcat -d -b crash -v threadtime > "${RUNNER_TEMP}/earam-smoke/crash.log" 2>&1 || true
-          timeout 15s adb -s emulator-5554 logcat -d -v threadtime > "${RUNNER_TEMP}/earam-smoke/full.log" 2>&1 || true
-          grep -E "FATAL|AndroidRuntime|EARAM" "${RUNNER_TEMP}/earam-smoke/full.log" > "${RUNNER_TEMP}/earam-smoke/filtered.log" || true
-          timeout 15s adb -s emulator-5554 shell dumpsys activity activities > "${RUNNER_TEMP}/earam-smoke/activities.log" 2>&1 || true
-
-          echo "===== CRASH BUFFER ====="
-          cat "${RUNNER_TEMP}/earam-smoke/crash.log" || true
-          echo "===== FATAL / AndroidRuntime / EARAM ====="
-          cat "${RUNNER_TEMP}/earam-smoke/filtered.log" || true
-          echo "===== ACTIVITY ====="
-          grep -E "mResumedActivity|com.earam.tabs" "${RUNNER_TEMP}/earam-smoke/activities.log" | tail -50 || true
-          echo "===== SMOKE END ====="
+      - name: Upload EARAM cursor test artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Earam-Cursor-Test-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/earam-smoke/
+            /tmp/earam-emulator.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload EARAM smoke logs
         if: always()
