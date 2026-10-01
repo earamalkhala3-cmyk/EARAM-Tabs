@@ -1761,6 +1761,7 @@ class MainActivity : ComponentActivity() {
         private var stringSpacing: Float = 10f
 
         private fun buildBeatHits() {
+            try {
             beatHits.clear()
             val lookup = score.api.renderer.boundsLookup ?: return
             val song = score.api.score ?: return
@@ -1880,6 +1881,10 @@ class MainActivity : ComponentActivity() {
                     " scroll=" + score.scrollX + "," + score.scrollY +
                     " scale=" + score.settings.display.scale
             )
+            } catch (t: Throwable) {
+                beatHits.clear()
+                android.util.Log.e("EARAM_CARET", "buildBeatHits failed", t)
+            }
         }
 
         private fun hitTest(x: Float, y: Float): BeatHit? {
