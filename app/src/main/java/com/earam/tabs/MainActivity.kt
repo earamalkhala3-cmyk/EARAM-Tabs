@@ -1542,6 +1542,7 @@ class MainActivity : ComponentActivity() {
             pendingFret = ""
             if (notify) {
                 updateCursor()
+                invalidateCaretOverlay("setCaret")
                 onSelectionChanged?.invoke()
             }
         }
@@ -1977,6 +1978,11 @@ class MainActivity : ComponentActivity() {
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             song.finish(score.settings)
+            window.decorView.post {
+                buildBeatHits()
+                refreshVisualCursor()
+                invalidateCaretOverlay("writeFret")
+            }
         }
 
         private fun bars(): List<alphaTab.model.Bar>? =
