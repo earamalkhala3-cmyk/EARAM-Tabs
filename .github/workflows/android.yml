@@ -195,24 +195,40 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Launch smoke test and collect caret diagnostics
+      - name: Launch smoke test and collect crash diagnostics
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 2
         run: |
           set -u
+          mkdir -p "${RUNNER_TEMP}/earam-smoke"
+          : > "${RUNNER_TEMP}/earam-smoke/crash.log"
+          : > "${RUNNER_TEMP}/earam-smoke/filtered.log"
+          : > "${RUNNER_TEMP}/earam-smoke/full.log"
+          : > "${RUNNER_TEMP}/earam-smoke/activities.log"
+          : > "${RUNNER_TEMP}/earam-smoke/monkey.log"
+
+          echo "===== SMOKE START ====="
+          adb -s emulator-5554 get-state > "${RUNNER_TEMP}/earam-smoke/adb-state.log" 2>&1 || true
+          timeout 15s adb -s emulator-5554 wait-for-device || true
           adb -s emulator-5554 logcat -c || true
           adb -s emulator-5554 shell am force-stop com.earam.tabs || true
-          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 >/tmp/earam-monkey.txt 2>&1 || true
-          sleep 8
-          PID="$(adb -s emulator-5554 shell pidof com.earam.tabs 2>/dev/null | tr -d '\r' || true)"
-          echo "Earam PID: ${PID:-<none>}"
-          adb -s emulator-5554 shell dumpsys activity activities > "${RUNNER_TEMP}/earam-activities.txt" 2>&1 || true
-          adb -s emulator-5554 logcat -d -v threadtime > "${RUNNER_TEMP}/earam-logcat-full.txt" 2>&1 || true
-          grep 'EARAM_' "${RUNNER_TEMP}/earam-logcat-full.txt" > "${RUNNER_TEMP}/earam-caret.log" || true
-          echo "===== EARAM_* LOGS ====="
-          cat "${RUNNER_TEMP}/earam-caret.log" || true
+          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 > "${RUNNER_TEMP}/earam-smoke/monkey.log" 2>&1 || true
+
+          echo "===== WAIT 20s ====="
+          sleep 20
+
+          timeout 15s adb -s emulator-5554 logcat -d -b crash -v threadtime > "${RUNNER_TEMP}/earam-smoke/crash.log" 2>&1 || true
+          timeout 15s adb -s emulator-5554 logcat -d -v threadtime > "${RUNNER_TEMP}/earam-smoke/full.log" 2>&1 || true
+          grep -E "FATAL|AndroidRuntime|EARAM" "${RUNNER_TEMP}/earam-smoke/full.log" > "${RUNNER_TEMP}/earam-smoke/filtered.log" || true
+          timeout 15s adb -s emulator-5554 shell dumpsys activity activities > "${RUNNER_TEMP}/earam-smoke/activities.log" 2>&1 || true
+
+          echo "===== CRASH BUFFER ====="
+          cat "${RUNNER_TEMP}/earam-smoke/crash.log" || true
+          echo "===== FATAL / AndroidRuntime / EARAM ====="
+          cat "${RUNNER_TEMP}/earam-smoke/filtered.log" || true
           echo "===== ACTIVITY ====="
-          grep -E 'mResumedActivity|com.earam.tabs' "${RUNNER_TEMP}/earam-activities.txt" | tail -50 || true
+          grep -E "mResumedActivity|com.earam.tabs" "${RUNNER_TEMP}/earam-smoke/activities.log" | tail -50 || true
+          echo "===== SMOKE END ====="
 
       - name: Upload EARAM smoke logs
         if: always()
@@ -220,13 +236,11 @@ jobs:
         with:
           name: Earam-Smoke-Logs-${{ github.run_number }}
           path: |
-            ${{ runner.temp }}/earam-logcat-full.txt
-            ${{ runner.temp }}/earam-caret.log
-            ${{ runner.temp }}/earam-activities.txt
-            /tmp/earam-monkey.txt
+            ${{ runner.temp }}/earam-smoke/
             /tmp/earam-emulator.log
           if-no-files-found: warn
           retention-days: 14
+
       - name: Verify .tab intent association on Android 15 emulator
         run: |
           set -euo pipefail
