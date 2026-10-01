@@ -212,11 +212,19 @@ jobs:
           grep -E 'EARAM_ALPHA_CURSOR|EARAM_SCROLL|EARAM_CI_CURSOR|FATAL|AndroidRuntime' "$OUT/full.log" > "$OUT/filtered.log" || true
           test -s "$OUT/alphaTab-cursor-test.png"
           python3 - "$OUT/alphaTab-cursor-test.png" <<'PY'
+          import struct
           import sys
-          from PIL import Image
-          im=Image.open(sys.argv[1])
-          print("screenshot:", im.size)
-          if im.width < 200 or im.height < 200:
+          path = sys.argv[1]
+          with open(path, "rb") as f:
+              if f.read(8) != b"\\x89PNG\\r\\n\\x1a\\n":
+                  raise SystemExit("invalid PNG signature")
+              length = struct.unpack(">I", f.read(4))[0]
+              chunk = f.read(4)
+              if chunk != b"IHDR" or length != 13:
+                  raise SystemExit("invalid PNG IHDR")
+              width, height = struct.unpack(">II", f.read(8))
+          print(f"screenshot: {width}x{height}")
+          if width < 200 or height < 200:
               raise SystemExit("invalid screenshot")
           PY
 
