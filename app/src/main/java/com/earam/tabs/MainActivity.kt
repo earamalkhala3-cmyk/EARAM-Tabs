@@ -1784,12 +1784,15 @@ class MainActivity : ComponentActivity() {
         private var lastCaretRect: RectF? = null
         fun attachAlphaTabCursorLayer() {
             try {
-                val cursors=score.api.uiFacade.createCursors() ?: throw IllegalStateException("AlphaTab cursor containers unavailable")
-                val caretElement=score.api.uiFacade.createSelectionElement() ?: throw IllegalStateException("AlphaTab selection element unavailable")
-                cursors.selectionWrapper.appendChild(caretElement)
-                alphaTabCaret=caretElement
-                android.util.Log.i("EARAM_ALPHA_CURSOR","editor caret attached to AlphaTab selectionWrapper")
-            } catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","native caret attach failed",t)}
+                // Use AlphaTab's official beat cursor container for the editor caret.
+                // No Android overlay coordinate conversion is used for the caret itself.
+                val cursors = score.api.uiFacade.createCursors()
+                    ?: throw IllegalStateException("AlphaTab cursor containers unavailable")
+                alphaTabCaret = cursors.beatCursor
+                android.util.Log.i("EARAM_ALPHA_CURSOR", "editor caret attached to AlphaTab beatCursor")
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_ALPHA_CURSOR", "native caret attach failed", t)
+            }
         }
         fun setCiTestCaret(){caret=Caret(0,0,0,2);session.caret=caret;currentVoiceIndex=0;armed=true;pendingFret="";updateCursor()}
         private var armed = false
@@ -3329,15 +3332,16 @@ class MainActivity : ComponentActivity() {
                     session.tickPosition = tick
                     score.api.tickPosition = tick
 
-                    // The old selection-layer caret is deliberately disabled. It was
-                    // a second coordinate system and could drift away from the score.
-                    alphaTabCaret?.setBounds(-1000.0, -1000.0, 0.0, 0.0)
-
+                    // Use the same AlphaTab BeatBounds geometry as the official cursor handler.
                     val barBounds = bb.barBounds.masterBarBounds.visualBounds
                     val x = bb.onNotesX
                     val y = barBounds.y
                     val w = barBounds.w
                     val h = barBounds.h
+
+                    // Keep the editing caret visible while stopped. The beat cursor is
+                    // inside AlphaTab's cursorWrapper, so no Android-space translation is needed.
+                    alphaTabCaret?.setBounds(x, y, 2.0, h)
 
                     lastCaretPosition = Triple(x.toFloat(), y.toFloat(), 0f)
                     lastCaretRect = RectF(
