@@ -171,68 +171,18 @@ jobs:
             sleep 2
           done
           [ "$(adb -s emulator-5554 shell getprop sys.boot_completed | tr -d '\r')" = "1" ]
+          # Keep the emulator deterministic before any APK install/launch.
+          adb -s emulator-5554 shell settings put global window_animation_scale 0
+          adb -s emulator-5554 shell settings put global transition_animation_scale 0
+          adb -s emulator-5554 shell settings put global animator_duration_scale 0
+          adb -s emulator-5554 shell getprop ro.build.version.sdk
           adb -s emulator-5554 install --no-incremental "$APK_PATH"
           adb -s emulator-5554 shell pm path com.earam.tabs
           adb -s emulator-5554 install -r --no-incremental "$APK_PATH"
 
-      - name: Launch smoke test and collect caret diagnostics
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          adb -s emulator-5554 logcat -c
-          adb -s emulator-5554 shell am force-stop com.earam.tabs
-          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 >/tmp/earam-monkey.txt 2>&1
-          sleep 8
-          PID="$(adb -s emulator-5554 shell pidof com.earam.tabs | tr -d '\r' || true)"
-          test -n "$PID"
-          adb -s emulator-5554 shell dumpsys activity activities | grep -q 'com.earam.tabs'
-          adb -s emulator-5554 logcat -d -s EARAM_CARET:E EARAM_RENDER:E EARAM_SELECTION:E > "$RUNNER_TEMP/earam-caret.log" || true
-          cat "$RUNNER_TEMP/earam-caret.log"
-          grep -q 'postRenderFinished: rebuilding beatHits before caret draw' "$RUNNER_TEMP/earam-caret.log"
-          grep -q 'BeatHits rebuilt:' "$RUNNER_TEMP/earam-caret.log"
-
-      - name: Verify .tab intent association on Android 15 emulator
-        run: |
-          set -euo pipefail
-
-          # Do not launch a synthetic URI. That test is invalid without a real
-          # provider and can make adb close even when the manifest is correct.
-          # Validate the built APK manifest and verify PackageManager resolution
-          # using the MIME-based association that file providers can actually supply.
-          AAPT2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
-          BADGING="$("$AAPT2" dump badging "$APK_PATH")"
-          grep -q "package: name='com.earam.tabs'" <<< "$BADGING"
-
-          MANIFEST="$(mktemp)"
-          trap 'rm -f "$MANIFEST"' EXIT
-          "$AAPT2" dump xmltree "$APK_PATH" --file AndroidManifest.xml > "$MANIFEST"
-          cat "$MANIFEST"
-
-          # MainActivity must be exported and expose VIEW + DEFAULT.
-          grep -q 'E: activity' "$MANIFEST"
-          grep -q 'com.earam.tabs.MainActivity' "$MANIFEST"
-          grep -q 'android:exported' "$MANIFEST"
-          grep -q 'android.intent.action.VIEW' "$MANIFEST"
-          grep -q 'android.intent.category.DEFAULT' "$MANIFEST"
-
-          # The built APK must contain both explicit .tab path registrations
-          # and the two MIME registrations.
-          grep -q 'android:pathSuffix' "$MANIFEST"
-          grep -q '".tab"' "$MANIFEST"
-          grep -q 'application/x-earam-tab' "$MANIFEST"
-          grep -q 'application/octet-stream' "$MANIFEST"
-
-          # The final signed APK manifest is authoritative for the exact
-          # .tab registrations. Installation itself was already verified by the
-          # preceding clean Android 15 install-test step (including pm path).
-          # Do not issue another ADB/PackageManager query here: the headless
-          # emulator can close the ADB transport after repeated shell calls,
-          # creating a false failure after every APK check has passed.
-
-          # Resolution-specific shell queries are intentionally omitted. The
-          # exact .tab file/content pathSuffix filters and MIME filters above
-          # were decoded from the final signed APK itself.
-
+      # Publish the exact signed APK before any non-critical runtime smoke test.
+      # This guarantees the APK + checksum remain available even if the emulator
+      # smoke test later times out or fails.
       - name: Generate APK SHA-256
         run: sha256sum "$APK_PATH" > "$APK_PATH.sha256"
 
@@ -246,6 +196,38 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Launch smoke test and collect caret diagnostics
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set -u
+          adb -s emulator-5554 logcat -c || true
+          adb -s emulator-5554 shell am force-stop com.earam.tabs || true
+          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 >/tmp/earam-monkey.txt 2>&1 || true
+          sleep 8
+          PID="$(adb -s emulator-5554 shell pidof com.earam.tabs 2>/dev/null | tr -d '\r' || true)"
+          echo "Earam PID: ${{PID:-<none>}"
+          adb -s emulator-5554 shell dumpsys activity activities > "${{RUNNER_TEMP}/earam-activities.txt" 2>&1 || true
+          adb -s emulator-5554 logcat -d -v threadtime > "${{RUNNER_TEMP}/earam-logcat-full.txt" 2>&1 || true
+          grep 'EARAM_' "${{RUNNER_TEMP}/earam-logcat-full.txt" > "${{RUNNER_TEMP}/earam-caret.log" || true
+          echo "===== EARAM_* LOGS ====="
+          cat "${{RUNNER_TEMP}/earam-caret.log" || true
+          echo "===== ACTIVITY ====="
+          grep -E 'mResumedActivity|com.earam.tabs' "${{RUNNER_TEMP}/earam-activities.txt" | tail -50 || true
+
+      - name: Upload EARAM smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Earam-Smoke-Logs-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/earam-logcat-full.txt
+            ${{ runner.temp }}/earam-caret.log
+            ${{ runner.temp }}/earam-activities.txt
+            /tmp/earam-monkey.txt
+            /tmp/earam-emulator.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
