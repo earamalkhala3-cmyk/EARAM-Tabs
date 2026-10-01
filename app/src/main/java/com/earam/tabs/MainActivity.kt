@@ -931,7 +931,7 @@ class MainActivity : ComponentActivity() {
                     statusView?.text = "CI CURSOR TEST • B1 b1 S2"
                     window.decorView.postDelayed({
                         editor.refreshVisualCursor()
-                        editor.updateDebugOverlay()
+                        editor.refreshVisualCursor()
                         editor.logCoordinateDiagnostic("ci-screenshot-ready")
                     }, 1000L)
                 } catch (t: Throwable) {
