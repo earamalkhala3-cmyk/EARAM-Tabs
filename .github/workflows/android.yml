@@ -205,14 +205,14 @@ jobs:
           adb -s emulator-5554 shell monkey -p com.earam.tabs 1 >/tmp/earam-monkey.txt 2>&1 || true
           sleep 8
           PID="$(adb -s emulator-5554 shell pidof com.earam.tabs 2>/dev/null | tr -d '\r' || true)"
-          echo "Earam PID: ${{PID:-<none>}"
-          adb -s emulator-5554 shell dumpsys activity activities > "${{RUNNER_TEMP}/earam-activities.txt" 2>&1 || true
-          adb -s emulator-5554 logcat -d -v threadtime > "${{RUNNER_TEMP}/earam-logcat-full.txt" 2>&1 || true
-          grep 'EARAM_' "${{RUNNER_TEMP}/earam-logcat-full.txt" > "${{RUNNER_TEMP}/earam-caret.log" || true
+          echo "Earam PID: ${PID:-<none>}"
+          adb -s emulator-5554 shell dumpsys activity activities > "${RUNNER_TEMP}/earam-activities.txt" 2>&1 || true
+          adb -s emulator-5554 logcat -d -v threadtime > "${RUNNER_TEMP}/earam-logcat-full.txt" 2>&1 || true
+          grep 'EARAM_' "${RUNNER_TEMP}/earam-logcat-full.txt" > "${RUNNER_TEMP}/earam-caret.log" || true
           echo "===== EARAM_* LOGS ====="
-          cat "${{RUNNER_TEMP}/earam-caret.log" || true
+          cat "${RUNNER_TEMP}/earam-caret.log" || true
           echo "===== ACTIVITY ====="
-          grep -E 'mResumedActivity|com.earam.tabs' "${{RUNNER_TEMP}/earam-activities.txt" | tail -50 || true
+          grep -E 'mResumedActivity|com.earam.tabs' "${RUNNER_TEMP}/earam-activities.txt" | tail -50 || true
 
       - name: Upload EARAM smoke logs
         if: always()
