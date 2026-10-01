@@ -3155,6 +3155,24 @@ class MainActivity : ComponentActivity() {
 
         fun hidePlaybackCursor() = overlay.hidePlaybackCursor()
 
+        /**
+         * Forces the Earam caret overlay to redraw after AlphaTab layout/render changes
+         * or editor-state mutations. The caret remains owned by the canonical Caret state;
+         * this method only invalidates the existing overlay and never changes selection.
+         */
+        fun invalidateCaretOverlay(reason: String) {
+            android.util.Log.d(
+                "EARAM_CARET",
+                "invalidate caret overlay: reason=" + reason +
+                    " bar=" + (caret.measureIndex + 1) +
+                    " beat=" + (caret.beatIndex + 1) +
+                    " string=" + caret.stringIndex +
+                    " beatHits=" + beatHits.size
+            )
+            refreshVisualCursor()
+            overlay.invalidate()
+        }
+
         fun restoreCaretFromSession() {
             caret = session.caret
             currentVoiceIndex = 0
