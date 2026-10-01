@@ -175,6 +175,22 @@ jobs:
           adb -s emulator-5554 shell pm path com.earam.tabs
           adb -s emulator-5554 install -r --no-incremental "$APK_PATH"
 
+      - name: Launch smoke test and collect caret diagnostics
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          adb -s emulator-5554 logcat -c
+          adb -s emulator-5554 shell am force-stop com.earam.tabs
+          adb -s emulator-5554 shell monkey -p com.earam.tabs 1 >/tmp/earam-monkey.txt 2>&1
+          sleep 8
+          PID="$(adb -s emulator-5554 shell pidof com.earam.tabs | tr -d '\r' || true)"
+          test -n "$PID"
+          adb -s emulator-5554 shell dumpsys activity activities | grep -q 'com.earam.tabs'
+          adb -s emulator-5554 logcat -d -s EARAM_CARET:E EARAM_RENDER:E EARAM_SELECTION:E > "$RUNNER_TEMP/earam-caret.log" || true
+          cat "$RUNNER_TEMP/earam-caret.log"
+          grep -q 'postRenderFinished: rebuilding beatHits before caret draw' "$RUNNER_TEMP/earam-caret.log"
+          grep -q 'BeatHits rebuilt:' "$RUNNER_TEMP/earam-caret.log"
+
       - name: Verify .tab intent association on Android 15 emulator
         run: |
           set -euo pipefail
@@ -216,6 +232,9 @@ jobs:
           # Resolution-specific shell queries are intentionally omitted. The
           # exact .tab file/content pathSuffix filters and MIME filters above
           # were decoded from the final signed APK itself.
+
+      - name: Generate APK SHA-256
+        run: sha256sum "$APK_PATH" > "$APK_PATH.sha256"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
