@@ -206,11 +206,15 @@ jobs:
           timeout 15s adb -s emulator-5554 shell settings put global earam_ci_cursor_test 1
           timeout 15s adb -s emulator-5554 shell monkey -p com.earam.tabs -c android.intent.category.LAUNCHER --dbg-no-events 1 >/dev/null
           sleep 6
-          # Capture directly to a device file. This avoids adb shell/exec-out text
-          # transport entirely; adb pull then copies the PNG as a binary file.
-          timeout 15s adb -s emulator-5554 shell screencap -p /sdcard/earam_cursor_test.png
-          timeout 15s adb -s emulator-5554 pull /sdcard/earam_cursor_test.png "$OUT/alphaTab-cursor-test.png" >/dev/null
-          timeout 10s adb -s emulator-5554 shell rm -f /sdcard/earam_cursor_test.png || true
+          # Capture in the shell-owned temp area. Android 15 can reject writes to
+          # shared storage from the shell screencap command; /data/local/tmp is
+          # explicitly writable by adb shell and still gives us a binary adb pull.
+          DEVICE_PNG="/data/local/tmp/earam_cursor_test.png"
+          timeout 15s adb -s emulator-5554 shell rm -f "$DEVICE_PNG" || true
+          timeout 15s adb -s emulator-5554 shell screencap -p "$DEVICE_PNG"
+          timeout 15s adb -s emulator-5554 shell test -s "$DEVICE_PNG"
+          timeout 15s adb -s emulator-5554 pull "$DEVICE_PNG" "$OUT/alphaTab-cursor-test.png" >/dev/null
+          timeout 10s adb -s emulator-5554 shell rm -f "$DEVICE_PNG" || true
           timeout 15s adb -s emulator-5554 logcat -d -v threadtime > "$OUT/full.log" || true
           grep -E 'EARAM_ALPHA_CURSOR|EARAM_SCROLL|EARAM_CI_CURSOR|FATAL|AndroidRuntime' "$OUT/full.log" > "$OUT/filtered.log" || true
           test -s "$OUT/alphaTab-cursor-test.png"
