@@ -593,6 +593,7 @@ class MainActivity : ComponentActivity() {
         score.api.postRenderFinished.on {
             runOnUiThread {
                 try {
+                    android.util.Log.d("EARAM_CARET", "postRenderFinished: rebuilding beatHits before caret draw")
                     editor.rebuildBeatHitsAfterLayout()
                     editor.refreshVisualCursor()
                     editor.logRenderState()
@@ -1760,8 +1761,9 @@ class MainActivity : ComponentActivity() {
             for ((mi, bar) in bars.withIndex()) {
                 val master = song.masterBars.toList().getOrNull(mi) ?: continue
                 val masterBounds = lookup.findMasterBar(master) ?: continue
-                val barBounds = masterBounds.bars.toList().firstOrNull { it.bar === bar }
-                    ?: masterBounds.bars.toList().firstOrNull()
+                val masterBarCandidates = masterBounds.bars.toList()
+                val barBounds = masterBarCandidates.firstOrNull { it.bar === bar }
+                    ?: masterBarCandidates.getOrNull(0)
                     ?: continue
                 val system = masterBounds.staffSystemBounds?.index?.toInt() ?: mi
                 barMeta.add(
@@ -1855,7 +1857,13 @@ class MainActivity : ComponentActivity() {
             stringSpacing = systemSpacing.values.firstOrNull() ?: 10f
             android.util.Log.d(
                 "EARAM_CARET",
-                "BeatHits rebuilt: count=${beatHits.size} systems=${systemTop.size} spacing=${systemSpacing.values.joinToString()} scroll=${score.scrollX},${score.scrollY} scale=${score.settings.display.scale}"
+                "BeatHits rebuilt: count=" + beatHits.size +
+                    " virtual=" + beatHits.count { it.virtual } +
+                    " measures=" + beatHits.map { it.measure + 1 }.distinct().joinToString() +
+                    " systems=" + systemTop.size +
+                    " spacing=" + systemSpacing.values.joinToString() +
+                    " scroll=" + score.scrollX + "," + score.scrollY +
+                    " scale=" + score.settings.display.scale
             )
         }
 
@@ -3133,60 +3141,60 @@ class MainActivity : ComponentActivity() {
         }
 
         fun refreshVisualCursor() {
-            val beat = currentBeat() ?: run {
-                overlay.hideCursor()
-                return
-            }
             try {
-                val lookup = score.api.renderer.boundsLookup ?: run {
-                    overlay.hideCursor()
-                    return
-                }
-                val bounds = lookup.findBeat(beat) ?: run {
-                    overlay.hideCursor()
-                    return
-                }
-                val hit = beatHits.firstOrNull {
-                    it.measure == caret.measureIndex && it.beat == caret.beatIndex
-                }
+                val lookup = score.api.renderer.boundsLookup
+                val caretBar = caret.measureIndex
+                val caretBeat = caret.beatIndex
+                val caretString = caret.stringIndex
+                val hit = beatHits.firstOrNull { it.measure == caretBar && it.beat == caretBeat }
+                val fallbackBar = if (lookup != null) {
+                    val song = score.api.score
+                    val track = song?.tracks?.toList()?.getOrNull(currentTrackIndex)
+                    val staff = track?.staves?.firstOrNull()
+                    val bar = staff?.bars?.toList()?.getOrNull(caretBar)
+                    val master = song?.masterBars?.toList()?.getOrNull(caretBar)
+                    val masterBounds = if (master != null) lookup.findMasterBar(master) else null
+                    masterBounds?.bars?.toList()?.firstOrNull { it.bar === bar } ?: masterBounds?.bars?.toList()?.getOrNull(0)
+                } else null
                 if (hit != null) {
-                    val cursorX = if (hit.virtual) {
-                        (hit.rect.left + 24f - score.scrollX).toFloat()
-                    } else {
-                        ((hit.rect.left + hit.rect.right) * 0.5f - score.scrollX).toFloat()
-                    }
-                    val cursorY = (hit.tabTopY + caret.stringIndex * hit.stringSpacing - score.scrollY).toFloat()
-                    overlay.showBeatCaret(cursorX, cursorY, hit.stringSpacing * 0.45f)
+                    val cursorX = if (hit.virtual) hit.rect.left + 24f - score.scrollX else ((hit.rect.left + hit.rect.right) * 0.5f) - score.scrollX
+                    val cursorY = hit.tabTopY + caretString * hit.stringSpacing - score.scrollY
+                    android.util.Log.d("EARAM_CARET", "draw caret bar=" + (caretBar + 1) + " beat=" + (caretBeat + 1) + " string=" + caretString +
+                        " beatHits=" + beatHits.size + " hit=true virtual=" + hit.virtual + " cx=" + cursorX + " cy=" + cursorY +
+                        " rect=" + hit.rect + " scroll=" + score.scrollX + "," + score.scrollY + " scale=" + score.settings.display.scale)
+                    overlay.showBeatCaret(cursorX, cursorY, (hit.stringSpacing * 0.45f).coerceAtLeast(2f))
+                } else if (fallbackBar != null) {
+                    val barRect = fallbackBar.realBounds
+                    val spacing = (barRect.h.toFloat() * 0.075f).coerceIn(6f, 24f)
+                    val top = barRect.y.toFloat() + barRect.h.toFloat() * 0.58f
+                    val cursorX = barRect.x.toFloat() + 24f - score.scrollX
+                    val cursorY = top + caretString * spacing - score.scrollY
+                    android.util.Log.w("EARAM_CARET", "draw caret bar=" + (caretBar + 1) + " beat=" + (caretBeat + 1) + " string=" + caretString +
+                        " beatHits=" + beatHits.size + " hit=false fallback=BarBounds barRect=" + barRect.x + "," + barRect.y + "," + barRect.w + "," + barRect.h +
+                        " cx=" + cursorX + " cy=" + cursorY + " scroll=" + score.scrollX + "," + score.scrollY + " scale=" + score.settings.display.scale)
+                    overlay.showBeatCaret(cursorX, cursorY, (spacing * 0.45f).coerceAtLeast(2f))
                 } else {
+                    android.util.Log.w("EARAM_CARET", "caret NOT drawn: bar=" + (caretBar + 1) + " beat=" + (caretBeat + 1) + " string=" + caretString +
+                        " beatHits=" + beatHits.size + " hit=false fallbackBar=false")
                     overlay.hideCursor()
                 }
-
-                val targetString = alphaTabString(currentStringIndex)
-                val noteBounds = bounds.notes?.toList()
-                    ?.firstOrNull { it.note.string.toInt() == targetString }
-                if (noteBounds != null) {
-                    val nb = noteBounds.noteHeadBounds
-                    overlay.showNoteCursor(
-                        (nb.x - score.scrollX).toFloat(),
-                        (nb.y - score.scrollY).toFloat(),
-                        nb.w.toFloat(),
-                        nb.h.toFloat()
-                    )
+                val beat = currentBeat()
+                if (beat != null && lookup != null) {
+                    val bounds = lookup.findBeat(beat)
+                    if (bounds != null) {
+                        val targetString = alphaTabString(currentStringIndex)
+                        val noteBounds = bounds.notes?.toList()?.firstOrNull { it.note.string.toInt() == targetString }
+                        if (noteBounds != null) {
+                            val nb = noteBounds.noteHeadBounds
+                            overlay.showNoteCursor((nb.x - score.scrollX).toFloat(), (nb.y - score.scrollY).toFloat(), nb.w.toFloat(), nb.h.toFloat())
+                        }
+                    }
                 }
-
-                android.util.Log.d(
-                    "EARAM_CURSOR",
-                    "bar=" + (selectedBarIndex + 1) +
-                        " beat=" + (currentBeatIndex + 1) +
-                        " string=" + currentStringIndex +
-                        " onNotesX=" + bounds.onNotesX
-                )
             } catch (t: Throwable) {
-                android.util.Log.e("EARAM_CURSOR", "cursor calculation failed", t)
+                android.util.Log.e("EARAM_CARET", "caret calculation failed", t)
                 overlay.hideCursor()
             }
         }
-
         private fun updateCursor() {
             val beat = currentBeat() ?: return
             // Playback cursor is Earam-owned and updated only by playedBeatChanged.
