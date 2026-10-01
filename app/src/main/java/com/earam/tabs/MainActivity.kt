@@ -68,6 +68,122 @@ data class BeatHitBarMeta(
     val system: Int
 )
 
+private class DurationSelectorTextView(context: Context) : TextView(context) {
+    private val density: Float get() = resources.displayMetrics.density
+    private val scaledDensity: Float get() = resources.displayMetrics.scaledDensity
+
+    private var selectedDuration: Duration = Duration.Quarter
+    private var selectedDots: Int = 0
+
+    init {
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTextColor(0xFFF3F0E8.toInt())
+        isClickable = true
+        isFocusable = true
+        super.setText("Duration")
+    }
+
+    fun setDurationVisual(duration: Duration, dots: Int) {
+        selectedDuration = duration
+        selectedDots = dots.coerceIn(0, 2)
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = currentTextColor
+            textSize = 13f * scaledDensity
+            typeface = typeface
+            textAlign = Paint.Align.LEFT
+        }
+
+        val label = "Duration"
+        val gap = 8f * density
+        val iconWidth = 36f * density
+        val totalWidth = labelPaint.measureText(label) + gap + iconWidth
+        val left = (width - totalWidth).coerceAtLeast(10f * density) / 2f
+
+        val metrics = labelPaint.fontMetrics
+        val baseline = (height - metrics.ascent - metrics.descent) / 2f
+        canvas.drawText(label, left, baseline, labelPaint)
+
+        drawDurationIcon(
+            canvas = canvas,
+            left = left + labelPaint.measureText(label) + gap,
+            centerY = height / 2f,
+            width = iconWidth
+        )
+    }
+
+    private fun drawDurationIcon(canvas: Canvas, left: Float, centerY: Float, width: Float) {
+        val d = density
+        val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = currentTextColor
+            strokeWidth = 1.8f * d
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            style = Paint.Style.FILL
+        }
+
+        val noteHeadW = 12f * d
+        val noteHeadH = 8f * d
+        val headLeft = left + 3f * d
+        val headTop = centerY + 5f * d
+        val stemX = headLeft + noteHeadW - 1.2f * d
+        val stemTop = centerY - 11f * d
+        val stemBottom = centerY + 6f * d
+
+        canvas.save()
+        canvas.rotate(-18f, headLeft + noteHeadW / 2f, headTop + noteHeadH / 2f)
+
+        val hollow = selectedDuration == Duration.Whole || selectedDuration == Duration.Half
+        notePaint.style = if (hollow) Paint.Style.STROKE else Paint.Style.FILL
+        notePaint.strokeWidth = 1.7f * d
+        canvas.drawOval(
+            RectF(headLeft, headTop, headLeft + noteHeadW, headTop + noteHeadH),
+            notePaint
+        )
+        canvas.restore()
+
+        if (selectedDuration != Duration.Whole) {
+            notePaint.style = Paint.Style.STROKE
+            notePaint.strokeWidth = 1.8f * d
+            canvas.drawLine(stemX, headTop + 2f * d, stemX, stemTop, notePaint)
+
+            val beamCount = when (selectedDuration) {
+                Duration.Quarter, Duration.Half -> 0
+                Duration.Eighth -> 1
+                Duration.Sixteenth -> 2
+                Duration.ThirtySecond -> 3
+                Duration.SixtyFourth -> 4
+                else -> 0
+            }
+
+            if (beamCount > 0) {
+                notePaint.strokeWidth = 2f * d
+                for (i in 0 until beamCount) {
+                    val y = stemTop + i * 3.2f * d
+                    canvas.drawLine(stemX, y, stemX + 13f * d, y, notePaint)
+                }
+            }
+        }
+
+        if (selectedDots > 0) {
+            notePaint.style = Paint.Style.FILL
+            val dotX = when (selectedDuration) {
+                Duration.Whole -> headLeft + noteHeadW + 7f * d
+                else -> stemX + 15f * d
+            }
+            val dotY = centerY + 4f * d
+            canvas.drawCircle(dotX, dotY, 1.7f * d, notePaint)
+            if (selectedDots > 1) {
+                canvas.drawCircle(dotX + 5f * d, dotY, 1.7f * d, notePaint)
+            }
+        }
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private var projectName = "Music Home"
     private var instrument = "Guitar"
@@ -479,15 +595,10 @@ class MainActivity : ComponentActivity() {
 
         // ONE duration control only. Choosing a duration closes the selector;
         // the control then shows the selected rhythmic symbol as the current input/edit value.
-        val durationSelector = TextView(this).apply {
-            text = "Duration  ♩"
+        val durationSelector = DurationSelectorTextView(this).apply {
             contentDescription = "Duration selector"
-            setTextColor(0xFFF3F0E8.toInt())
-            textSize = 14f
-            gravity = Gravity.CENTER
             background = surface(0xFF25282C.toInt(), 9f)
-            isClickable = true
-            isFocusable = true
+            setDurationVisual(Duration.Quarter, 0)
             setOnClickListener { editor.showDurationDialog() }
         }
         editingStrip.addView(durationSelector, LinearLayout.LayoutParams(0, dp(42f), 1f).apply {
@@ -577,7 +688,8 @@ class MainActivity : ComponentActivity() {
 
         fun refreshSelectionInfo() {
             selection.text = editor.selectionInfoText()
-            durationSelector.text = "Duration  " + editor.currentDurationSymbol()
+            val selectedDuration = editor.currentBeatDuration()
+            durationSelector.setDurationVisual(selectedDuration.first, selectedDuration.second)
             setActive(durationSelector, true)
             track.text = "♫ " + (editor.currentTrackIndex + 1)
             voice.text = "V" + (editor.currentVoiceIndex + 1)
