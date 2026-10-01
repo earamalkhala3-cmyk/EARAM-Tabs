@@ -203,8 +203,9 @@ jobs:
           mkdir -p "$OUT"
           timeout 10s adb -s emulator-5554 logcat -c || true
           timeout 10s adb -s emulator-5554 shell am force-stop com.earam.tabs || true
-          timeout 15s adb -s emulator-5554 shell am start -a com.earam.tabs.CI_CURSOR_TEST -n com.earam.tabs/.MainActivity >/dev/null
+          timeout 15s adb -s emulator-5554 shell monkey -p com.earam.tabs -c android.intent.category.LAUNCHER --dbg-no-events 1 >/dev/null
           sleep 5
+          timeout 10s adb -s emulator-5554 shell am broadcast -a com.earam.tabs.CI_CURSOR_TEST -p com.earam.tabs >/dev/null
           timeout 20s adb -s emulator-5554 exec-out screencap -p > "$OUT/alphaTab-cursor-test.png"
           timeout 15s adb -s emulator-5554 logcat -d -v threadtime > "$OUT/full.log" || true
           grep -E 'EARAM_ALPHA_CURSOR|EARAM_SCROLL|EARAM_CI_CURSOR|FATAL|AndroidRuntime' "$OUT/full.log" > "$OUT/filtered.log" || true
