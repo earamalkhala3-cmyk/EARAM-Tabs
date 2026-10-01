@@ -15,6 +15,9 @@ import android.text.InputType
 import android.view.inputmethod.InputMethodManager
 import androidx.lifecycle.ViewModelProvider
 import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -209,6 +212,7 @@ class MainActivity : ComponentActivity() {
     private var soundFontLoading = false
     private var playerEngineReady = false
     private lateinit var session: EditorSessionViewModel
+    private var ciCursorReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -217,6 +221,19 @@ class MainActivity : ComponentActivity() {
         bpm = session.bpm
         timeSig = session.timeSignature
         openEditor()
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, incoming: Intent) {
+                if (incoming.action == "com.earam.tabs.CI_CURSOR_TEST") {
+                    window.decorView.postDelayed({ runCiCursorTest() }, 300L)
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            this, receiver, IntentFilter("com.earam.tabs.CI_CURSOR_TEST"),
+            ContextCompat.RECEIVER_EXPORTED
+        )
+        ciCursorReceiver = receiver
 
         if (intent?.action == "com.earam.tabs.CI_CURSOR_TEST") {
             window.decorView.postDelayed({ runCiCursorTest() }, 900L)
@@ -242,6 +259,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        ciCursorReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: Throwable) { }
+            ciCursorReceiver = null
+        }
         // Do not call api.stop() here: rotation destroys the Activity and stop() would
         // reset the exact playback position we are trying to preserve.
         try {
