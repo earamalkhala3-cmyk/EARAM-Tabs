@@ -555,8 +555,10 @@ class MainActivity : ComponentActivity() {
             settings.player.enableAnimatedBeatCursor = false
             settings.player.enableElementHighlighting = false
             settings.player.bufferTimeInMilliseconds = 1000.0
+            // Do not push renderer settings from inside the AlphaTabView constructor.
+            // The view must first be attached to the window; early native renderer setup
+            // was a startup-crash risk on Android 15.
             api.masterVolume = 0.70
-            api.updateSettings()
         }
 
         alphaTabView = score
@@ -690,6 +692,20 @@ class MainActivity : ComponentActivity() {
         // Always visible: compact fret-entry keypad (0–9).
         root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(40f)))
         setContentView(root)
+
+        // Initialize AlphaTab only after the complete view hierarchy is attached.
+        // Keep this isolated so a renderer initialization exception cannot prevent
+        // the Earam shell from opening.
+        window.decorView.post {
+            try {
+                score.api.updateSettings()
+                score.api.render()
+                android.util.Log.i("EARAM_STARTUP", "AlphaTab renderer initialized after view attachment")
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_STARTUP", "AlphaTab renderer initialization failed", t)
+                status.text = "Renderer unavailable • Earam opened safely"
+            }
+        }
         play.isEnabled = true
     }
 
