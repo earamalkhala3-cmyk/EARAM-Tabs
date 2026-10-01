@@ -3399,10 +3399,10 @@ class MainActivity : ComponentActivity() {
             else if (contentX - score.scrollX > score.width - marginX) targetX = (contentX - score.width + marginX).toInt()
             if (contentY - score.scrollY < marginY) targetY = (contentY - marginY).toInt()
             else if (contentY - score.scrollY > score.height - marginY) targetY = (contentY - score.height + marginY).toInt()
-            val maxX = (score.computeHorizontalScrollRange() - score.width).coerceAtLeast(0)
-            val maxY = (score.computeVerticalScrollRange() - score.height).coerceAtLeast(0)
-            targetX = targetX.coerceIn(0, maxX)
-            targetY = targetY.coerceIn(0, maxY)
+            // AlphaTabView inherits View scrolling but the protected range APIs are not
+            // callable here. Keep offsets non-negative; AlphaTab's renderer clamps its viewport.
+            targetX = targetX.coerceAtLeast(0)
+            targetY = targetY.coerceAtLeast(0)
             if (targetX != score.scrollX || targetY != score.scrollY) {
                 android.util.Log.d("EARAM_CARET", "auto-scroll caret to x=" + targetX + " y=" + targetY +
                     " from=" + score.scrollX + "," + score.scrollY + " content=" + contentX + "," + contentY)
