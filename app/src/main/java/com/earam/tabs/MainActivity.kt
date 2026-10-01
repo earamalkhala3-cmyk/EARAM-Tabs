@@ -767,7 +767,7 @@ class MainActivity : ComponentActivity() {
         val title = field("Song title", projectName)
         val tempo = field("Tempo (BPM)", bpm.toString(), InputType.TYPE_CLASS_NUMBER)
         val meter = field("Time signature (e.g. 4/4, 6/8, 7/8)", timeSig)
-        val measures = field("Starting measures", "200", InputType.TYPE_CLASS_NUMBER)
+        val measures = field("Starting measures", "32", InputType.TYPE_CLASS_NUMBER)
 
         box.addView(TextView(this).apply { text = "SCORE"; textSize = 11f; setTypeface(null, android.graphics.Typeface.BOLD) })
         box.addView(title, LinearLayout.LayoutParams(-1, dp(48f)))
@@ -850,7 +850,7 @@ class MainActivity : ComponentActivity() {
         tempoBpm: Int = 120,
         numerator: Int = 4,
         denominator: Int = 4,
-        measureCount: Int = 200,
+        measureCount: Int = 32,
         trackNames: List<String> = listOf("Guitar")
     ) {
         try {
