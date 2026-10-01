@@ -674,6 +674,10 @@ class MainActivity : ComponentActivity() {
 
         score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFEFB.toInt())
+            // Single source of truth for the editor caret: AlphaTab's native cursor.
+            beatCursorFillColor = 0xFFFFD400.toInt()
+            barCursorFillColor = 0x00000000
+            selectionFillColor = 0x00000000
             settings.display.layoutMode = LayoutMode.Page
             settings.display.staveProfile = StaveProfile.ScoreTab
             // Automatic page layout lets AlphaTab use the real rhythmic width of each
@@ -689,7 +693,10 @@ class MainActivity : ComponentActivity() {
             settings.player.enablePlayer = true
             settings.player.enableUserInteraction = true
             settings.player.enableCursor = true
-            settings.player.enableAnimatedBeatCursor = true
+            // The editor caret uses AlphaTab's official beat cursor geometry.
+            // Keep it static while editing so the cursor is never positioned by a
+            // second coordinate system or an overlay.
+            settings.player.enableAnimatedBeatCursor = false
             settings.player.enableElementHighlighting = false
             settings.player.bufferTimeInMilliseconds = 1000.0
             // Do not push renderer settings from inside the AlphaTabView constructor.
@@ -3293,27 +3300,85 @@ class MainActivity : ComponentActivity() {
 
         fun refreshVisualCursor() {
             try {
-                val lookup=score.api.renderer.boundsLookup
-                val song=score.api.score
-                val track=song?.tracks?.toList()?.getOrNull(currentTrackIndex)
-                val staff=track?.staves?.firstOrNull()
-                val bar=staff?.bars?.toList()?.getOrNull(caret.measureIndex)
-                val beat=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)
-                val bb=beat?.let{lookup?.findBeat(it)}
-                val barBounds=if(bar!=null&&lookup!=null)lookup.findMasterBar(bar.masterBar)?.bars?.toList()?.firstOrNull{it.bar===bar}else null
-                if(bb!=null&&barBounds!=null){
-                    val cx=bb.onNotesX.toFloat()
-                    val cy=bb.notes?.toList()?.firstOrNull{it.note.string.toInt()==alphaTabString(caret.stringIndex)}?.noteHeadBounds?.let{it.y.toFloat()+it.h.toFloat()/2f}
-                        ?: (barBounds.realBounds.y.toFloat()+barBounds.realBounds.h.toFloat()*0.58f+(caret.stringIndex-1)*(barBounds.realBounds.h.toFloat()*0.075f).coerceIn(6f,24f))
-                    val half=(4f*resources.displayMetrics.density).coerceAtLeast(3f)
-                    val l=cx-half;val t=cy-half;val r=cx+half;val b=cy+half
-                    lastCaretPosition=Triple(cx,cy,half);lastCaretRect=RectF(l,t,r,b)
-                    alphaTabCaret?.setBounds(l.toDouble(),t.toDouble(),(r-l).toDouble(),(b-t).toDouble())
+                val lookup = score.api.renderer.boundsLookup
+                val song = score.api.score
+                val track = song?.tracks?.toList()?.getOrNull(currentTrackIndex)
+                val staff = track?.staves?.firstOrNull()
+                val bar = staff?.bars?.toList()?.getOrNull(caret.measureIndex)
+                val beat = bar?.voices?.toList()?.getOrNull(currentVoiceIndex)
+                    ?.beats?.toList()?.getOrNull(caret.beatIndex)
+                val bb = beat?.let { lookup?.findBeat(it) }
+
+                if (beat != null && bb != null) {
+                    /*
+                     * IMPORTANT:
+                     * Do not position the editor caret by manually translating
+                     * BoundsLookup coordinates into an Android overlay.
+                     *
+                     * AlphaTab already owns the complete coordinate pipeline:
+                     * BeatBounds -> cursor handler -> cursorWrapper -> AndroidViewContainer.
+                     * The official handler uses BeatBounds.onNotesX and the visual
+                     * master-bar bounds in the exact coordinate space used by the
+                     * rendered score. This avoids the old ~120px X / ~200px Y drift.
+                     *
+                     * Seeking while paused also updates AlphaTab's built-in cursor,
+                     * so the editor caret and playback cursor share exactly one
+                     * geometry source.
+                     */
+                    val tick = beat.absolutePlaybackStart
+                    session.tickPosition = tick
+                    score.api.tickPosition = tick
+
+                    // The old selection-layer caret is deliberately disabled. It was
+                    // a second coordinate system and could drift away from the score.
+                    alphaTabCaret?.setBounds(-1000.0, -1000.0, 0.0, 0.0)
+
+                    val barBounds = bb.barBounds.masterBarBounds.visualBounds
+                    val x = bb.onNotesX
+                    val y = barBounds.y
+                    val w = barBounds.w
+                    val h = barBounds.h
+
+                    lastCaretPosition = Triple(x.toFloat(), y.toFloat(), 0f)
+                    lastCaretRect = RectF(
+                        x.toFloat(),
+                        y.toFloat(),
+                        x.toFloat() + 1f,
+                        y.toFloat() + h.toFloat()
+                    )
+
+                    android.util.Log.d(
+                        "EARAM_ALPHA_CURSOR",
+                        "official editor caret beat=" + (caret.beatIndex + 1) +
+                            " bar=" + (caret.measureIndex + 1) +
+                            " onNotesX=" + bb.onNotesX +
+                            " visualBar=" + barBounds.x + "," + barBounds.y + "," +
+                            barBounds.w + "," + barBounds.h +
+                            " tick=" + tick +
+                            " scroll=" + actualScrollOffsets()
+                    )
                     updateDebugOverlay()
-                    updateDebugBanner(barBounds.realBounds.x.toDouble(),barBounds.realBounds.y.toDouble(),barBounds.realBounds.w.toDouble(),barBounds.realBounds.h.toDouble(),bb.onNotesX.toDouble(),l,t,r,b)
-                    logCoordinateDiagnostic("caret-native")
-                }else{alphaTabCaret?.setBounds(-1000.0,-1000.0,0.0,0.0)}
-            }catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","native caret positioning failed",t)}
+                    updateDebugBanner(
+                        barBounds.x,
+                        barBounds.y,
+                        w,
+                        h,
+                        bb.onNotesX,
+                        x.toFloat(),
+                        y.toFloat(),
+                        x.toFloat() + 1f,
+                        y.toFloat() + h.toFloat()
+                    )
+                } else {
+                    alphaTabCaret?.setBounds(-1000.0, -1000.0, 0.0, 0.0)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e(
+                    "EARAM_ALPHA_CURSOR",
+                    "official AlphaTab cursor positioning failed",
+                    t
+                )
+            }
         }
         private fun updateDebugBanner(x:Double,y:Double,w:Double,h:Double,onNotesX:Double,l:Float,t:Float,r:Float,b:Float){
             if(!coordinateDebugEnabled)return
