@@ -643,6 +643,21 @@ class MainActivity : ComponentActivity() {
             })
         }
 
+        val deleteFret = TextView(this).apply {
+            text = "⌫"
+            setTextColor(0xFFF3F0E8.toInt())
+            textSize = 17f
+            gravity = Gravity.CENTER
+            background = surface(0xFF3A2B2B.toInt(), 7f)
+            isClickable = true
+            isFocusable = false
+            contentDescription = "Delete note on selected string"
+            setOnClickListener { editor.deleteCurrentNoteFromUi() }
+        }
+        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(40f), dp(34f)).apply {
+            leftMargin = dp(5f); rightMargin = dp(2f)
+        })
+
         score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFEFB.toInt())
             settings.display.layoutMode = LayoutMode.Page
