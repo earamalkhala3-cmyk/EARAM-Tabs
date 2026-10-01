@@ -414,6 +414,11 @@ class MainActivity : ComponentActivity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         titleView = title
+        title.setOnLongClickListener {
+            editor.setDebugModeFromUi(!editor.isDebugMode())
+            true
+        }
+        title.contentDescription = "File title • long press for coordinate debug"
 
         val overflow = iconButton("⋮", "Open Earam menu", 42f).apply {
             textSize = 24f
@@ -689,16 +694,24 @@ class MainActivity : ComponentActivity() {
 
         alphaTabView = score
         statusView = status
-        val scoreLayer = FrameLayout(this).apply { setBackgroundColor(0xFFFFFEFB.toInt()) }
+        val scoreLayer = FrameLayout(this).apply {
+            setBackgroundColor(0xFFFFFEFB.toInt())
+            clipChildren = false
+            clipToPadding = false
+        }
         val editorOverlay = TabEditOverlayView(this).apply {
             isEnabled = false
             isClickable = false
             isFocusable = false
+            elevation = dp(20f)
+            clipToOutline = false
         }
         scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
         scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
+        editorOverlay.bringToFront()
         editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
         noteEditor = editor
+        editorOverlay.setScrollProvider { editor.actualScrollOffsets() }
         editor.attach()
 
         fun refreshSelectionInfo() {
@@ -727,6 +740,7 @@ class MainActivity : ComponentActivity() {
                     editor.refreshVisualCursor()
                     editor.invalidateCaretOverlay("postRenderFinished")
                     editor.logRenderState()
+                    editor.logCoordinateDiagnostic("postRenderFinished")
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_RENDER", "post-render editor overlay failed", t)
                     // Rendering the score must never be allowed to terminate the Activity.
@@ -1421,83 +1435,67 @@ class MainActivity : ComponentActivity() {
     }
 
     private class TabEditOverlayView(context: Context) : View(context) {
-        private val caretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = 0xFFFFC107.toInt()
-        }
-        private val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2f * resources.displayMetrics.density
-            color = 0xFFFFC107.toInt()
-        }
+        private val caretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFFFFC107.toInt() }
+        private val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * resources.displayMetrics.density; color = 0xFFFFC107.toInt() }
+        private val debugBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * resources.displayMetrics.density; color = 0xFFFF0000.toInt() }
+        private val debugCaretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 4f * resources.displayMetrics.density; color = 0xFFFF00FF.toInt() }
+        private val debugTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; textSize = 10f * resources.displayMetrics.scaledDensity; color = 0xFFFF00FF.toInt() }
+        private val playbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f * resources.displayMetrics.density; color = 0xFFFF8A00.toInt() }
         private val caretRect = RectF()
         private val playbackRect = RectF()
         private val noteRect = RectF()
-        private val playbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 3f * resources.displayMetrics.density
-            color = 0xFFFF8A00.toInt()
-        }
+        private val debugBars = mutableListOf<RectF>()
+        private var debugLabel = ""
+        private var debugEnabled = false
         private var hasBeat = false
         private var hasPlayback = false
         private var hasNote = false
+        private var scrollProvider: (() -> Pair<Float, Float>)? = null
 
-        fun showBeatCaret(centerX: Float, centerY: Float, half: Float) {
-            if (!centerX.isFinite() || !centerY.isFinite() || !half.isFinite() || half <= 0f) {
-                hasBeat = false
-                invalidate()
-                return
-            }
+        fun setScrollProvider(provider: () -> Pair<Float, Float>) { scrollProvider = provider }
+        fun setDebugData(enabled: Boolean, bars: List<RectF>, label: String) {
+            debugEnabled = enabled; debugBars.clear(); debugBars.addAll(bars); debugLabel = label; invalidate()
+        }
+        fun showBeatCaretContent(centerX: Float, centerY: Float, half: Float) {
+            if (!centerX.isFinite() || !centerY.isFinite() || !half.isFinite() || half <= 0f) { hasBeat = false; invalidate(); return }
             val h = half.coerceAtLeast(1f)
-            caretRect.set(centerX - h, centerY - h, centerX + h, centerY + h)
-            hasBeat = true
-            invalidate()
+            caretRect.set(centerX - h, centerY - h, centerX + h, centerY + h); hasBeat = true; invalidate()
         }
-
-        fun showPlaybackCursor(centerX: Float, top: Float, bottom: Float) {
-            if (!centerX.isFinite() || !top.isFinite() || !bottom.isFinite() || bottom <= top) {
-                hasPlayback = false
-                invalidate()
-                return
-            }
+        fun showPlaybackCursorContent(centerX: Float, top: Float, bottom: Float) {
+            if (!centerX.isFinite() || !top.isFinite() || !bottom.isFinite() || bottom <= top) { hasPlayback = false; invalidate(); return }
             val half = maxOf(3f, 4f * resources.displayMetrics.density)
-            playbackRect.set(centerX - half, top, centerX + half, bottom)
-            hasPlayback = true
-            invalidate()
+            playbackRect.set(centerX - half, top, centerX + half, bottom); hasPlayback = true; invalidate()
         }
-
         fun showNoteCursor(left: Float, top: Float, width: Float, height: Float) {
-            if (!left.isFinite() || !top.isFinite() || !width.isFinite() || !height.isFinite()) {
-                hasNote = false
-                invalidate()
-                return
-            }
-            val w = width.coerceIn(14f, 60f)
-            val h = height.coerceIn(14f, 60f)
-            noteRect.set(left - 4f, top - 4f, left + w + 4f, top + h + 4f)
-            hasNote = true
-            invalidate()
+            if (!left.isFinite() || !top.isFinite() || !width.isFinite() || !height.isFinite()) { hasNote = false; invalidate(); return }
+            val w = width.coerceIn(14f, 60f); val h = height.coerceIn(14f, 60f)
+            noteRect.set(left - 4f, top - 4f, left + w + 4f, top + h + 4f); hasNote = true; invalidate()
         }
-
-        fun hideCursor() {
-            hasBeat = false
-            hasPlayback = false
-            hasNote = false
-            invalidate()
-        }
-
-        fun hidePlaybackCursor() {
-            hasPlayback = false
-            invalidate()
-        }
+        fun hideCursor() { hasBeat = false; hasPlayback = false; hasNote = false; invalidate() }
+        fun hidePlaybackCursor() { hasPlayback = false; invalidate() }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            if (hasPlayback) {
-                canvas.drawLine(playbackRect.centerX(), playbackRect.top, playbackRect.centerX(), playbackRect.bottom, playbackPaint)
+            val scroll = scrollProvider?.invoke() ?: (0f to 0f)
+            canvas.save()
+            // All rectangles are BoundsLookup content coordinates. Only the actual
+            // AlphaTab scroll container offset is applied here.
+            canvas.translate(-scroll.first, -scroll.second)
+            if (debugEnabled) {
+                for (bar in debugBars) canvas.drawRect(bar, debugBarPaint)
             }
+            if (hasPlayback) canvas.drawLine(playbackRect.centerX(), playbackRect.top, playbackRect.centerX(), playbackRect.bottom, playbackPaint)
             if (hasBeat) canvas.drawRoundRect(caretRect, 3f, 3f, caretPaint)
             if (hasNote) canvas.drawRoundRect(noteRect, 4f, 4f, notePaint)
+            if (debugEnabled) {
+                if (hasBeat) {
+                    canvas.drawRect(caretRect.left - 8f, caretRect.top - 8f, caretRect.right + 8f, caretRect.bottom + 8f, debugCaretPaint)
+                    canvas.drawText(debugLabel, caretRect.right + 10f, caretRect.top, debugTextPaint)
+                }
+                for ((i, bar) in debugBars.withIndex()) canvas.drawText("BAR " + (i + 1), bar.left + 3f, bar.top + 12f, debugTextPaint)
+            }
+            canvas.restore()
+            if (hasBeat || hasPlayback || debugEnabled) postInvalidateOnAnimation()
         }
     }
 
@@ -1900,6 +1898,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        private var coordinateDebugEnabled = false
         private val beatHits = mutableListOf<BeatHit>()
         private var stringSpacing: Float = 10f
         private var lastCaretPosition: Triple<Float, Float, Float>? = null
@@ -3292,12 +3291,13 @@ class MainActivity : ComponentActivity() {
                 // BarBounds is the real rendered measure, not the surrounding system.
                 // Therefore this marker can never span the six-measure page row.
                 val barBounds = bounds.barBounds.realBounds
-                val cursorX = (bounds.onNotesX - score.scrollX).toFloat()
-                overlay.showPlaybackCursor(
+                val cursorX = bounds.onNotesX.toFloat()
+                overlay.showPlaybackCursorContent(
                     cursorX,
-                    (barBounds.y - score.scrollY).toFloat(),
-                    (barBounds.y + barBounds.h - score.scrollY).toFloat()
+                    barBounds.y.toFloat(),
+                    (barBounds.y + barBounds.h).toFloat()
                 )
+                logCoordinateDiagnostic("playback")
             } catch (t: Throwable) {
                 android.util.Log.e("EARAM_PLAYBACK_CURSOR", "cursor calculation failed", t)
                 overlay.hidePlaybackCursor()
@@ -3337,6 +3337,83 @@ class MainActivity : ComponentActivity() {
             buildBeatHits()
         }
 
+        fun isDebugMode(): Boolean = coordinateDebugEnabled
+
+        fun setDebugModeFromUi(enabled: Boolean) {
+            coordinateDebugEnabled = enabled
+            buildBeatHits()
+            updateDebugOverlay()
+            updateStatus(if (enabled) "DEBUG ON • long-press title to disable" else "DEBUG OFF")
+            logCoordinateDiagnostic("debug-toggle")
+        }
+
+        fun actualScrollOffsets(): Pair<Float, Float> {
+            return try {
+                val scroller = score.api.uiFacade.getScrollContainer()
+                Pair(scroller.scrollLeft.toFloat(), scroller.scrollTop.toFloat())
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_SCROLL", "getScrollContainer failed; using View scroll", t)
+                Pair(score.scrollX.toFloat(), score.scrollY.toFloat())
+            }
+        }
+
+        fun logCoordinateDiagnostic(reason: String) {
+            try {
+                val scroller = score.api.uiFacade.getScrollContainer()
+                val scoreLoc = IntArray(2)
+                val overlayLoc = IntArray(2)
+                score.getLocationOnScreen(scoreLoc)
+                overlay.getLocationOnScreen(overlayLoc)
+                val parentChain = StringBuilder()
+                var v: View? = score
+                while (v != null) {
+                    parentChain.append(v.javaClass.simpleName)
+                        .append("[scrollX=").append(v.scrollX)
+                        .append(",scrollY=").append(v.scrollY)
+                        .append(",w=").append(v.width)
+                        .append(",h=").append(v.height).append("] <- ")
+                    v = v.parent as? View
+                }
+                android.util.Log.d("EARAM_SCROLL", "reason=" + reason +
+                    " actualScroller=" + scroller.javaClass.name +
+                    " actualScrollX=" + scroller.scrollLeft + " actualScrollY=" + scroller.scrollTop +
+                    " score.scrollX=" + score.scrollX + " score.scrollY=" + score.scrollY +
+                    " scoreLoc=" + scoreLoc[0] + "," + scoreLoc[1] +
+                    " overlayLoc=" + overlayLoc[0] + "," + overlayLoc[1] +
+                    " hierarchy=" + parentChain)
+                val lookup = score.api.renderer.boundsLookup ?: return
+                val song = score.api.score ?: return
+                val staff = song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull() ?: return
+                val bar = staff.bars.toList().getOrNull(caret.measureIndex)
+                val beat = bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)
+                val barBounds = if (bar != null) lookup.findMasterBar(bar.masterBar)?.bars?.toList()?.firstOrNull { it.bar === bar } else null
+                val beatBounds = beat?.let { lookup.findBeat(it) }
+                android.util.Log.d("EARAM_SCROLL", "rawBounds reason=" + reason +
+                    " bar=" + (caret.measureIndex + 1) + " beat=" + (caret.beatIndex + 1) +
+                    " barRect=" + barBounds?.realBounds +
+                    " beatRect=" + beatBounds?.realBounds +
+                    " beatOnNotesX=" + beatBounds?.onNotesX)
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_SCROLL", "coordinate diagnostic failed", t)
+            }
+        }
+
+        private fun updateDebugOverlay() {
+            val lookup = score.api.renderer.boundsLookup ?: return
+            val song = score.api.score ?: return
+            val staff = song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull() ?: return
+            val bars = staff.bars.toList().mapNotNull { bar ->
+                lookup.findMasterBar(bar.masterBar)?.bars?.toList()?.firstOrNull { it.bar === bar }?.realBounds?.let {
+                    RectF(it.x.toFloat(), it.y.toFloat(), (it.x + it.w).toFloat(), (it.y + it.h).toFloat())
+                }
+            }
+            val scroll = actualScrollOffsets()
+            val label = "bar=" + (caret.measureIndex + 1) + " beat=" + (caret.beatIndex + 1) +
+                " string=" + caret.stringIndex + " cx=" + (lastCaretPosition?.first ?: -1f) +
+                " cy=" + (lastCaretPosition?.second ?: -1f) + " scrollY=" + scroll.second
+            overlay.setDebugData(coordinateDebugEnabled, bars, label)
+        }
+
         fun refreshVisualCursor() {
             try {
                 android.util.Log.d("EARAM_CARET", "caret refresh: bar=" + (caret.measureIndex + 1) + " beat=" + (caret.beatIndex + 1) + " string=" + caret.stringIndex + " beatHits=" + beatHits.size)
@@ -3358,14 +3435,16 @@ class MainActivity : ComponentActivity() {
                     val contentX = if (hit.virtual) hit.rect.left + 24f else (hit.rect.left + hit.rect.right) * 0.5f
                     val contentY = hit.tabTopY + caretString * hit.stringSpacing
                     ensureCaretVisible(contentX, contentY)
-                    val cursorX = contentX - score.scrollX
-                    val cursorY = contentY - score.scrollY
+                    val cursorX = contentX
+                    val cursorY = contentY
                     android.util.Log.d("EARAM_CARET", "draw caret bar=" + (caretBar + 1) + " beat=" + (caretBeat + 1) + " string=" + caretString +
                         " hit=true virtual=" + hit.virtual + " cx=" + cursorX + " cy=" + cursorY +
                         " contentCx=" + contentX + " contentCy=" + contentY + " tabTopY=" + hit.tabTopY + " stringSpacing=" + hit.stringSpacing +
                         " rect=" + hit.rect + " scroll=" + score.scrollX + "," + score.scrollY + " scale=" + score.settings.display.scale)
                     lastCaretPosition = Triple(cursorX, cursorY, (hit.stringSpacing * 0.45f).coerceAtLeast(2f))
-                    overlay.showBeatCaret(cursorX, cursorY, lastCaretPosition!!.third)
+                    overlay.showBeatCaretContent(cursorX, cursorY, lastCaretPosition!!.third)
+                    updateDebugOverlay()
+                    logCoordinateDiagnostic("caret")
                 } else if (fallbackBar != null) {
                     val barRect = fallbackBar.realBounds
                     val spacing = (barRect.h.toFloat() * 0.075f).coerceIn(6f, 24f)
@@ -3376,7 +3455,9 @@ class MainActivity : ComponentActivity() {
                         " beatHits=" + beatHits.size + " hit=false fallback=BarBounds barRect=" + barRect.x + "," + barRect.y + "," + barRect.w + "," + barRect.h +
                         " cx=" + cursorX + " cy=" + cursorY + " scroll=" + score.scrollX + "," + score.scrollY + " scale=" + score.settings.display.scale)
                     lastCaretPosition = Triple(cursorX, cursorY, (spacing * 0.45f).coerceAtLeast(2f))
-                    overlay.showBeatCaret(cursorX, cursorY, lastCaretPosition!!.third)
+                    overlay.showBeatCaretContent(cursorX, cursorY, lastCaretPosition!!.third)
+                    updateDebugOverlay()
+                    logCoordinateDiagnostic("caret-fallback")
                 } else {
                     val last = lastCaretPosition
                     if (last != null) {
@@ -3395,7 +3476,7 @@ class MainActivity : ComponentActivity() {
                         val noteBounds = bounds.notes?.toList()?.firstOrNull { it.note.string.toInt() == targetString }
                         if (noteBounds != null) {
                             val nb = noteBounds.noteHeadBounds
-                            overlay.showNoteCursor((nb.x - score.scrollX).toFloat(), (nb.y - score.scrollY).toFloat(), nb.w.toFloat(), nb.h.toFloat())
+                            overlay.showNoteCursor(nb.x.toFloat(), nb.y.toFloat(), nb.w.toFloat(), nb.h.toFloat())
                         }
                     }
                 }
