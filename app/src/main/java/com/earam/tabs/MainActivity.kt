@@ -2126,8 +2126,10 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun hitTest(x: Float, y: Float): BeatHit? {
-            val contentX = x + score.scrollX.toFloat()
-            val contentY = y + score.scrollY.toFloat()
+            val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+            val scrollPx = actualScrollOffsets()
+            val contentX = (x + scrollPx.first) / d
+            val contentY = (y + scrollPx.second) / d
             return beatHits.firstOrNull { hit ->
                 contentX >= hit.rect.left && contentX <= hit.rect.right &&
                     contentY >= hit.tabTopY &&
@@ -2138,7 +2140,10 @@ class MainActivity : ComponentActivity() {
         private fun handleScoreTouch(x: Float, y: Float): Boolean {
             val hit = hitTest(x, y) ?: return false
             val maxString = maxStringIndex()
-            val uiString = (((y + score.scrollY.toFloat() - hit.tabTopY) / hit.stringSpacing)
+            val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+            val scrollPx = actualScrollOffsets()
+            val contentY = (y + scrollPx.second) / d
+            val uiString = (((contentY - hit.tabTopY) / hit.stringSpacing)
                 .roundToInt() + 1).coerceIn(1, maxString)
             caret = Caret(currentTrackIndex, hit.measure, if (hit.virtual) 0 else hit.beat, uiString)
             session.caret = caret
@@ -3383,15 +3388,18 @@ class MainActivity : ComponentActivity() {
                 val beat=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)
                 val bb=beat?.let{lookup?.findBeat(it)}
                 if(beat!=null&&bb!=null){
-                    val rawBar=bb.barBounds.masterBarBounds.visualBounds; val rawX=bb.onNotesX.toFloat()
+                    val rawBar=bb.barBounds.masterBarBounds.bars.toList().firstOrNull{it.bar===bb.beat.voice.bar}?.realBounds ?: bb.barBounds.masterBarBounds.visualBounds
+                    val rawX=bb.onNotesX.toFloat()
                     val hit=beatHits.firstOrNull{it.measure==caret.measureIndex&&it.beat==caret.beatIndex&&!it.virtual}
                     val rawTop=hit?.tabTopY ?: (rawBar.y.toFloat()+rawBar.h.toFloat()*.58f)
-                    val spacing=hit?.stringSpacing ?: stringSpacing; val rawY=rawTop+(caret.stringIndex-1).coerceAtLeast(0)*spacing
-                    val half=(spacing*.9f).coerceAtLeast(4f)/2f; val origin=alphaTabContentOriginInOverlay()
-                    val finalX=rawX+origin.first; val finalY=rawY+origin.second
+                    val spacing=hit?.stringSpacing ?: stringSpacing
+                    val rawY=rawTop+(caret.stringIndex-1).coerceAtLeast(0)*spacing
+                    val dm=activity.resources.displayMetrics; val d=dm.density.coerceAtLeast(0.01f)
+                    val half=((spacing*.9f).coerceAtLeast(4f)/2f)*d; val origin=alphaTabContentOriginInOverlay()
+                    val finalX=rawX*d+origin.first; val finalY=rawY*d+origin.second
                     overlay.showBeatCaretContent(finalX,finalY,half); lastCaretPosition=Triple(finalX,finalY,half); lastCaretRect=RectF(finalX-half,finalY-half,finalX+half,finalY+half)
-                    val dm=activity.resources.displayMetrics; val sc=actualScrollOffsets()
-                    android.util.Log.d("EARAM_COORD","caret RAW barBounds="+rawBar+" beatBounds="+bb.realBounds+" onNotesX="+rawX+" tabTopY="+rawTop+" stringY="+rawY+" | density="+dm.density+" scaledDensity="+dm.scaledDensity+" display.scale="+score.settings.display.scale+" viewScale="+score.scaleX+","+score.scaleY+" scroll="+sc.first+","+sc.second+" contentOrigin="+origin.first+","+origin.second+" finalPX="+finalX+","+finalY)
+                    val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets()
+                    android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" tabTopY(rawLayout)="+rawTop+" stringY(rawLayout)="+rawY+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
                     updateDebugOverlay()
                 } else overlay.hideCursor()
             }catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","overlay caret positioning failed",t)}
@@ -3402,7 +3410,7 @@ class MainActivity : ComponentActivity() {
             overlay.setDebugBanner("Bar1 raw x=$x y=$y w=$w h=$h\nBeat.onNotesX=$onNotesX caret=[$l,$t,$r,$b]\nAlphaTab scroll=(${scroll.first},${scroll.second})\nAlphaTabView screen=(${sl[0]},${sl[1]}) overlay screen=(${ol[0]},${ol[1]})")
         }
         fun logOfficialPlaybackCursor(playedBeat:Beat){
-            try{ val b=score.api.renderer.boundsLookup?.findBeat(playedBeat)?:return; val bar=b.barBounds.masterBarBounds.visualBounds; val o=alphaTabContentOriginInOverlay(); val rawX=b.onNotesX.toFloat(); val x=rawX+o.first; val top=bar.y.toFloat()+o.second; val bottom=(bar.y+bar.h).toFloat()+o.second; overlay.showPlaybackCursorContent(x,top,bottom); val dm=activity.resources.displayMetrics; val sc=actualScrollOffsets(); android.util.Log.d("EARAM_COORD","playback RAW barBounds="+bar+" beatBounds="+b.realBounds+" onNotesX="+rawX+" | density="+dm.density+" display.scale="+score.settings.display.scale+" viewScale="+score.scaleX+","+score.scaleY+" scroll="+sc.first+","+sc.second+" contentOrigin="+o.first+","+o.second+" finalPX="+x+","+top+".."+bottom) }catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","overlay playback cursor failed",t)}
+            try{ val b=score.api.renderer.boundsLookup?.findBeat(playedBeat)?:return; val bar=b.barBounds.masterBarBounds.bars.toList().firstOrNull{it.bar===b.beat.voice.bar}?.realBounds ?: b.barBounds.masterBarBounds.visualBounds; val o=alphaTabContentOriginInOverlay(); val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f); val rawX=b.onNotesX.toFloat(); val x=rawX*d+o.first; val top=bar.y.toFloat()*d+o.second; val bottom=(bar.y+bar.h).toFloat()*d+o.second; overlay.showPlaybackCursorContent(x,top,bottom); val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets(); android.util.Log.d("EARAM_COORD","playback BAR1 raw barBounds.realBounds="+bar+" beatRealBounds="+b.realBounds+" onNotesX(rawLayout)="+rawX+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+o.first+","+o.second+" | playbackFinalPx="+x+","+top+".."+bottom) }catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","overlay playback cursor failed",t)}
         }
         fun showPlaybackBeat(playedBeat:Beat)=logOfficialPlaybackCursor(playedBeat)
         fun hidePlaybackCursor(){
@@ -3415,7 +3423,8 @@ class MainActivity : ComponentActivity() {
         fun rebuildBeatHitsAfterLayout(){buildBeatHits()}
         fun isDebugMode():Boolean=coordinateDebugEnabled
         fun setDebugModeFromUi(enabled:Boolean){coordinateDebugEnabled=enabled;buildBeatHits();updateDebugOverlay();updateStatus(if(enabled)"DEBUG ON • long-press title to disable" else "DEBUG OFF");refreshVisualCursor();logCoordinateDiagnostic("debug-toggle")}
-        fun actualScrollOffsets():Pair<Float,Float>{return try{val s=score.api.uiFacade.getScrollContainer();Pair(s.scrollLeft.toFloat(),s.scrollTop.toFloat())}catch(t:Throwable){Pair(score.scrollX.toFloat(),score.scrollY.toFloat())}}
+        fun actualScrollOffsetsLayout():Pair<Float,Float>{return try{val s=score.api.uiFacade.getScrollContainer();Pair(s.scrollLeft.toFloat(),s.scrollTop.toFloat())}catch(t:Throwable){val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);Pair(score.scrollX.toFloat()/d,score.scrollY.toFloat()/d)}}
+        fun actualScrollOffsets():Pair<Float,Float>{val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);val raw=actualScrollOffsetsLayout();return Pair(raw.first*d,raw.second*d)}
         fun logCoordinateDiagnostic(reason:String){try{val s=score.api.uiFacade.getScrollContainer();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol);android.util.Log.d("EARAM_SCROLL","reason="+reason+" scroller="+s.javaClass.name+" actualScroll="+s.scrollLeft+","+s.scrollTop+" scoreScroll="+score.scrollX+","+score.scrollY+" scoreLoc="+sl[0]+","+sl[1]+" overlayLoc="+ol[0]+","+ol[1]);val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val bar=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(caret.measureIndex);val bb=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)?.let{lookup.findBeat(it)};val mb=bar?.let{lookup.findMasterBar(it.masterBar)?.bars?.toList()?.firstOrNull{b->b.bar===bar}};android.util.Log.d("EARAM_SCROLL","raw barRect="+mb?.realBounds+" beatRect="+bb?.realBounds+" onNotesX="+bb?.onNotesX+" nativeCaretRect="+lastCaretRect+" parent=AlphaTab.selectionWrapper")}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","coordinate diagnostic failed",t)}}
         private fun updateDebugOverlay(){val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val staff=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?:return;val bars=staff.bars.toList().mapNotNull{bar->lookup.findMasterBar(bar.masterBar)?.bars?.toList()?.firstOrNull{it.bar===bar}?.realBounds?.let{RectF(it.x.toFloat(),it.y.toFloat(),(it.x+it.w).toFloat(),(it.y+it.h).toFloat())}};val sc=actualScrollOffsets();overlay.setDebugData(coordinateDebugEnabled,bars,"bar="+(caret.measureIndex+1)+" beat="+(caret.beatIndex+1)+" string="+caret.stringIndex+" cx="+(lastCaretPosition?.first?:-1f)+" cy="+(lastCaretPosition?.second?:-1f)+" scrollY="+sc.second);lastCaretRect?.let{r->val bb=currentBeat()?.let{score.api.renderer.boundsLookup?.findBeat(it)};val br=bb?.barBounds?.realBounds;if(bb!=null&&br!=null)updateDebugBanner(br.x.toDouble(),br.y.toDouble(),br.w.toDouble(),br.h.toDouble(),bb.onNotesX.toDouble(),r.left,r.top,r.right,r.bottom)}}
         private fun ensureCaretVisible(contentX:Float,contentY:Float){try{val s=score.api.uiFacade.getScrollContainer();val mx=(s.width*.12).coerceAtLeast(24.0);val my=(s.height*.10).coerceAtLeast(24.0);var x=s.scrollLeft;var y=s.scrollTop;if(contentX-x<mx)x=(contentX-mx).coerceAtLeast(0.0)else if(contentX-x>s.width-mx)x=(contentX-s.width+mx).coerceAtLeast(0.0);if(contentY-y<my)y=(contentY-my).coerceAtLeast(0.0)else if(contentY-y>s.height-my)y=(contentY-s.height+my).coerceAtLeast(0.0);s.scrollLeft=x;s.scrollTop=y}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","official scroll failed",t)}}
