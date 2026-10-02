@@ -223,7 +223,7 @@ jobs:
           import sys
           path = sys.argv[1]
           with open(path, "rb") as f:
-              if f.read(8) != b"\\x89PNG\\r\\n\\x1a\\n":
+              if f.read(8) != b"\x89PNG\r\n\x1a\n":
                   raise SystemExit("invalid PNG signature")
               length = struct.unpack(">I", f.read(4))[0]
               chunk = f.read(4)
