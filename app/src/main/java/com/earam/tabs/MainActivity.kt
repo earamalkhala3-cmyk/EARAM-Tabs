@@ -1859,7 +1859,7 @@ class MainActivity : ComponentActivity() {
 
         private var alphaTabCaret: IContainer? = null
         private var lastCaretRect: RectF? = null
-        fun alphaTabContentOriginInOverlay(): Pair<Float, Float> { return try { val s=score.api.uiFacade.getScrollContainer(); val sl=IntArray(2); val ol=IntArray(2); s.getLocationOnScreen(sl); overlay.getLocationOnScreen(ol); Pair((sl[0]-ol[0]).toFloat(),(sl[1]-ol[1]).toFloat()) } catch(t:Throwable){ 0f to 0f } }
+        fun alphaTabContentOriginInOverlay(): Pair<Float, Float> { return try { val sl=IntArray(2); val ol=IntArray(2); score.getLocationOnScreen(sl); overlay.getLocationOnScreen(ol); Pair((sl[0]-ol[0]).toFloat(),(sl[1]-ol[1]).toFloat()) } catch(t:Throwable){ 0f to 0f } }
         fun attachAlphaTabCursorLayer() {
             // Deliberately do not attach AlphaTab's native cursor container here.
             // The native beat cursor is transparent; Earam draws the caret and
