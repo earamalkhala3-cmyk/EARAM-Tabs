@@ -158,7 +158,6 @@ jobs:
           echo no | avdmanager create avd --force --name earam_api35 --package "system-images;android-35;google_apis;x86_64"
           adb start-server
           nohup "$ANDROID_HOME/emulator/emulator" -avd earam_api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot-load -no-snapshot-save -wipe-data -accel on -gpu swiftshader_indirect >/tmp/earam-emulator.log 2>&1 &
-          EMU_PID=$!
           for _ in $(seq 1 180); do
             adb connect 127.0.0.1:5554 >/dev/null 2>&1 || true
             [ "$(adb -s emulator-5554 get-state 2>/dev/null || true)" = "device" ] && break
