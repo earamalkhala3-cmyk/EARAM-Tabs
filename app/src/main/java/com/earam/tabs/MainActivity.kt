@@ -674,8 +674,11 @@ class MainActivity : ComponentActivity() {
 
         score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFEFB.toInt())
-            // Single source of truth for the editor caret: AlphaTab's native cursor.
-            beatCursorFillColor = 0xFFFFD400.toInt()
+            // Earam owns the two editor markers in one Android overlay:
+            // playback = translucent orange line; caret = hollow yellow square.
+            // AlphaTab's native beat/bar cursor is fully transparent so it cannot
+            // introduce a second full-height yellow line.
+            beatCursorFillColor = 0x00000000
             barCursorFillColor = 0x00000000
             selectionFillColor = 0x00000000
             settings.display.layoutMode = LayoutMode.Page
@@ -1471,31 +1474,102 @@ class MainActivity : ComponentActivity() {
     }
 
     private class TabEditOverlayView(context: Context) : View(context) {
-        private val debugBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=2f*resources.displayMetrics.density; color=0xFFFF0000.toInt() }
+        private val density = resources.displayMetrics.density
+        private val debugBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=2f*density; color=0xFFFF0000.toInt() }
         private val debugTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.FILL; textSize=10f*resources.displayMetrics.scaledDensity; color=0xFFFF00FF.toInt() }
         private val bannerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.FILL; color=0xEE111318.toInt() }
         private val bannerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.FILL; textSize=9f*resources.displayMetrics.scaledDensity; color=0xFFFFE66D.toInt() }
+
+        // Both markers live in the same AlphaTab content coordinate system and are
+        // translated by the actual score scroll. This is the only overlay geometry.
+        private val playbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = 0x66FF8A00
+        }
+        private val caretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            color = 0xFFFFD400.toInt()
+            strokeWidth = 3f * density
+        }
+
         private val debugBars=mutableListOf<RectF>()
         private var debugBanner=""
         private var debugEnabled=false
         private var scrollProvider:(()->Pair<Float,Float>)?=null
+
+        private var caretCenterX = Float.NaN
+        private var caretCenterY = Float.NaN
+        private var caretHalf = 0f
+        private var playbackX = Float.NaN
+        private var playbackTop = 0f
+        private var playbackBottom = 0f
+
         fun setScrollProvider(provider:()->Pair<Float,Float>){scrollProvider=provider}
         fun setDebugData(enabled:Boolean,bars:List<RectF>,label:String){debugEnabled=enabled;debugBars.clear();debugBars.addAll(bars);invalidate()}
         fun setDebugBanner(text:String){debugBanner=text;invalidate()}
-        fun showBeatCaretContent(centerX:Float,centerY:Float,half:Float)=invalidate()
-        fun showPlaybackCursorContent(centerX:Float,top:Float,bottom:Float)=invalidate()
+
+        fun showBeatCaretContent(centerX:Float,centerY:Float,half:Float){
+            caretCenterX=centerX; caretCenterY=centerY; caretHalf=half
+            invalidate()
+        }
+        fun showPlaybackCursorContent(centerX:Float,top:Float,bottom:Float){
+            playbackX=centerX; playbackTop=top; playbackBottom=bottom
+            invalidate()
+        }
         fun showNoteCursor(left:Float,top:Float,width:Float,height:Float)=invalidate()
-        fun hideCursor()=invalidate()
-        fun hidePlaybackCursor()=invalidate()
+        fun hideCursor(){
+            caretCenterX=Float.NaN; caretCenterY=Float.NaN; caretHalf=0f
+            invalidate()
+        }
+        fun hidePlaybackCursor(){
+            playbackX=Float.NaN
+            invalidate()
+        }
+
         override fun onDraw(canvas:Canvas){
             super.onDraw(canvas)
-            if(!debugEnabled)return
+
             val scroll=scrollProvider?.invoke() ?: (0f to 0f)
-            canvas.save();canvas.translate(-scroll.first,-scroll.second)
-            for((i,bar) in debugBars.withIndex()){canvas.drawRect(bar,debugBarPaint);canvas.drawText("BAR "+(i+1),bar.left+3f,bar.top+12f,debugTextPaint)}
+            canvas.save()
+            canvas.translate(-scroll.first,-scroll.second)
+
+            // Playback: a thin ~40% alpha orange line, exactly the rendered
+            // master-bar height. It never paints over the fret numbers opaquely.
+            if (playbackX.isFinite() && playbackBottom > playbackTop) {
+                val lineHalf = (0.65f * density).coerceAtLeast(0.5f)
+                canvas.drawRect(
+                    playbackX - lineHalf,
+                    playbackTop,
+                    playbackX + lineHalf,
+                    playbackBottom,
+                    playbackPaint
+                )
+            }
+
+            // Caret: hollow yellow square, 0.9 * string spacing. The center sits
+            // exactly on the selected TAB string, so the outline does not fill over
+            // fret digits.
+            if (caretCenterX.isFinite() && caretHalf > 0f) {
+                canvas.drawRect(
+                    caretCenterX - caretHalf,
+                    caretCenterY - caretHalf,
+                    caretCenterX + caretHalf,
+                    caretCenterY + caretHalf,
+                    caretPaint
+                )
+            }
+
+            canvas.restore()
+
+            if(!debugEnabled)return
+            canvas.save()
+            for((i,bar) in debugBars.withIndex()){
+                canvas.drawRect(bar,debugBarPaint)
+                canvas.drawText("BAR "+(i+1),bar.left+3f,bar.top+12f,debugTextPaint)
+            }
             canvas.restore()
             if(debugBanner.isNotBlank()){
-                val pad=8f*resources.displayMetrics.density
+                val pad=8f*density
                 val lineH=13f*resources.displayMetrics.scaledDensity
                 val lines=debugBanner.split("\n")
                 val boxH=pad*2f+lineH*lines.size
@@ -1783,16 +1857,12 @@ class MainActivity : ComponentActivity() {
         private var alphaTabCaret: IContainer? = null
         private var lastCaretRect: RectF? = null
         fun attachAlphaTabCursorLayer() {
-            try {
-                // Use AlphaTab's official beat cursor container for the editor caret.
-                // No Android overlay coordinate conversion is used for the caret itself.
-                val cursors = score.api.uiFacade.createCursors()
-                    ?: throw IllegalStateException("AlphaTab cursor containers unavailable")
-                alphaTabCaret = cursors.beatCursor
-                android.util.Log.i("EARAM_ALPHA_CURSOR", "editor caret attached to AlphaTab beatCursor")
-            } catch (t: Throwable) {
-                android.util.Log.e("EARAM_ALPHA_CURSOR", "native caret attach failed", t)
-            }
+            // Deliberately do not attach AlphaTab's native cursor container here.
+            // The native beat cursor is transparent; Earam draws the caret and
+            // playback marker together in TabEditOverlayView so both use the same
+            // content-coordinate/scroll pipeline.
+            alphaTabCaret = null
+            android.util.Log.i("EARAM_ALPHA_CURSOR", "native AlphaTab cursor disabled; Earam overlay owns markers")
         }
         fun setCiTestCaret(){caret=Caret(0,0,0,2);session.caret=caret;currentVoiceIndex=0;armed=true;pendingFret="";updateCursor()}
         private var armed = false
@@ -3313,75 +3383,46 @@ class MainActivity : ComponentActivity() {
                 val bb = beat?.let { lookup?.findBeat(it) }
 
                 if (beat != null && bb != null) {
-                    /*
-                     * IMPORTANT:
-                     * Do not position the editor caret by manually translating
-                     * BoundsLookup coordinates into an Android overlay.
-                     *
-                     * AlphaTab already owns the complete coordinate pipeline:
-                     * BeatBounds -> cursor handler -> cursorWrapper -> AndroidViewContainer.
-                     * The official handler uses BeatBounds.onNotesX and the visual
-                     * master-bar bounds in the exact coordinate space used by the
-                     * rendered score. This avoids the old ~120px X / ~200px Y drift.
-                     *
-                     * Seeking while paused also updates AlphaTab's built-in cursor,
-                     * so the editor caret and playback cursor share exactly one
-                     * geometry source.
-                     */
                     val tick = beat.absolutePlaybackStart
                     session.tickPosition = tick
                     score.api.tickPosition = tick
 
-                    // Use the same AlphaTab BeatBounds geometry as the official cursor handler.
                     val barBounds = bb.barBounds.masterBarBounds.visualBounds
-                    val x = bb.onNotesX
-                    val y = barBounds.y
-                    val w = barBounds.w
-                    val h = barBounds.h
+                    val x = bb.onNotesX.toFloat()
 
-                    // Keep the editing caret visible while stopped. The beat cursor is
-                    // inside AlphaTab's cursorWrapper, so no Android-space translation is needed.
-                    alphaTabCaret?.setBounds(x, y, 2.0, h)
+                    // buildBeatHits derives the exact TAB top/string spacing for this
+                    // rendered system. The caret is a small hollow square on one string,
+                    // not a full-height line.
+                    val hit = beatHits.firstOrNull {
+                        it.measure == caret.measureIndex &&
+                            it.beat == caret.beatIndex &&
+                            !it.virtual
+                    }
+                    val tabTopY = hit?.tabTopY ?: (barBounds.y.toFloat() + barBounds.h.toFloat() * 0.58f)
+                    val spacing = hit?.stringSpacing ?: stringSpacing
+                    val stringCenterY = tabTopY + (caret.stringIndex - 1).coerceAtLeast(0) * spacing
+                    val half = (spacing * 0.9f).coerceAtLeast(4f) / 2f
 
-                    lastCaretPosition = Triple(x.toFloat(), y.toFloat(), 0f)
-                    lastCaretRect = RectF(
-                        x.toFloat(),
-                        y.toFloat(),
-                        x.toFloat() + 1f,
-                        y.toFloat() + h.toFloat()
-                    )
+                    overlay.showBeatCaretContent(x, stringCenterY, half)
+                    lastCaretPosition = Triple(x, stringCenterY, half)
+                    lastCaretRect = RectF(x - half, stringCenterY - half, x + half, stringCenterY + half)
 
                     android.util.Log.d(
                         "EARAM_ALPHA_CURSOR",
-                        "official editor caret beat=" + (caret.beatIndex + 1) +
-                            " bar=" + (caret.measureIndex + 1) +
-                            " onNotesX=" + bb.onNotesX +
-                            " visualBar=" + barBounds.x + "," + barBounds.y + "," +
-                            barBounds.w + "," + barBounds.h +
-                            " tick=" + tick +
-                            " scroll=" + actualScrollOffsets()
+                        "overlay caret bar=" + (caret.measureIndex + 1) +
+                            " beat=" + (caret.beatIndex + 1) +
+                            " string=" + caret.stringIndex +
+                            " x=" + x +
+                            " tabTopY=" + tabTopY +
+                            " spacing=" + spacing +
+                            " rect=" + lastCaretRect
                     )
                     updateDebugOverlay()
-                    updateDebugBanner(
-                        barBounds.x,
-                        barBounds.y,
-                        w,
-                        h,
-                        bb.onNotesX,
-                        x.toFloat(),
-                        y.toFloat(),
-                        x.toFloat() + 1f,
-                        y.toFloat() + h.toFloat()
-                    )
                 } else {
-                    alphaTabCaret?.setBounds(-1000.0, -1000.0, 0.0, 0.0)
+                    overlay.hideCursor()
                 }
             } catch (t: Throwable) {
-                android.util.Log.e(
-                    "EARAM_ALPHA_CURSOR",
-                    "official AlphaTab cursor positioning failed",
-                    t
-                )
+                android.util.Log.e("EARAM_ALPHA_CURSOR", "overlay caret positioning failed", t)
             }
         }
         private fun updateDebugBanner(x:Double,y:Double,w:Double,h:Double,onNotesX:Double,l:Float,t:Float,r:Float,b:Float){
@@ -3389,9 +3430,31 @@ class MainActivity : ComponentActivity() {
             val scroll=actualScrollOffsets();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol)
             overlay.setDebugBanner("Bar1 raw x=$x y=$y w=$w h=$h\nBeat.onNotesX=$onNotesX caret=[$l,$t,$r,$b]\nAlphaTab scroll=(${scroll.first},${scroll.second})\nAlphaTabView screen=(${sl[0]},${sl[1]}) overlay screen=(${ol[0]},${ol[1]})")
         }
-        fun logOfficialPlaybackCursor(playedBeat:Beat){try{val b=score.api.renderer.boundsLookup?.findBeat(playedBeat)?:return;android.util.Log.d("EARAM_ALPHA_CURSOR","OFFICIAL playback onNotesX="+b.onNotesX+" barBounds="+b.barBounds.realBounds+" scroll="+actualScrollOffsets())}catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","official cursor diagnostic failed",t)}}
+        fun logOfficialPlaybackCursor(playedBeat:Beat){
+            try {
+                val b = score.api.renderer.boundsLookup?.findBeat(playedBeat) ?: return
+                val bar = b.barBounds.masterBarBounds.visualBounds
+                overlay.showPlaybackCursorContent(
+                    b.onNotesX.toFloat(),
+                    bar.y.toFloat(),
+                    (bar.y + bar.h).toFloat()
+                )
+                android.util.Log.d(
+                    "EARAM_ALPHA_CURSOR",
+                    "playback overlay x=" + b.onNotesX +
+                        " top=" + bar.y + " bottom=" + (bar.y + bar.h) +
+                        " scroll=" + actualScrollOffsets()
+                )
+            } catch(t:Throwable) {
+                android.util.Log.e("EARAM_ALPHA_CURSOR","overlay playback cursor failed",t)
+            }
+        }
         fun showPlaybackBeat(playedBeat:Beat)=logOfficialPlaybackCursor(playedBeat)
-        fun hidePlaybackCursor()=Unit
+        fun hidePlaybackCursor(){
+            // Keep the yellow caret visible after playback; only the transient
+            // orange playback line is removed.
+            overlay.hidePlaybackCursor()
+        }
         fun invalidateCaretOverlay(reason:String){android.util.Log.d("EARAM_ALPHA_CURSOR","native caret refresh "+reason);refreshVisualCursor()}
         fun restoreCaretFromSession(){caret=session.caret;currentVoiceIndex=0;armed=true;pendingFret="";updateCursor();updateStatus()}
         fun rebuildBeatHitsAfterLayout(){buildBeatHits()}
