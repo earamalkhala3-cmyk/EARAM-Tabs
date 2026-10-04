@@ -3425,7 +3425,10 @@ class MainActivity : ComponentActivity() {
                     android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" tabTopY(rawLayout)="+rawTop+" stringY(rawLayout)="+rawY+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
                     updateDebugOverlay()
                 } else overlay.hideCursor()
-            }catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","overlay caret positioning failed",t)}
+            }catch(t:Throwable){
+                overlay.setDiagnosticBanner("EXCEPTION "+(t.message ?: t.javaClass.simpleName))
+                android.util.Log.e("EARAM_ALPHA_CURSOR","overlay caret positioning failed",t)
+            }
         }
         private fun updateDebugBanner(x:Double,y:Double,w:Double,h:Double,onNotesX:Double,l:Float,t:Float,r:Float,b:Float){
             if(!coordinateDebugEnabled)return
