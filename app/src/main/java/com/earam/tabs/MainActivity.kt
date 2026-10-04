@@ -819,7 +819,15 @@ class MainActivity : ComponentActivity() {
         // playback marker so the cursor advances beat-by-beat and is constrained to
         // the current measure instead of behaving like a six-measure system cursor.
         score.api.playedBeatChanged.on { playedBeat ->
-            runOnUiThread { editor.logOfficialPlaybackCursor(playedBeat) }
+            val tick = score.api.tickPosition
+            android.util.Log.d(
+                "EARAM_PLAYBACK",
+                "playedBeatChanged FIRED • tick=${tick} • beat=${playedBeat}"
+            )
+            runOnUiThread {
+                status.text = "PLAYED BEAT • tick=${tick.toLong()}"
+                editor.logOfficialPlaybackCursor(playedBeat)
+            }
         }
 
         score.api.playerFinished.on {
@@ -1579,6 +1587,12 @@ class MainActivity : ComponentActivity() {
                 canvas.drawRect(pad,pad,width.toFloat()-pad,pad+boxH,bannerPaint)
                 lines.forEachIndexed{i,line->canvas.drawText(line,pad+6f,pad+lineH*(i+1)-2f,bannerTextPaint)}
             }
+
+            // Keep the overlay synchronized with AlphaTab's scrolling content
+            // while either editor marker is visible.
+            if (playbackX.isFinite() || caretCenterX.isFinite()) {
+                postInvalidateOnAnimation()
+            }
         }
     }
 
@@ -1859,6 +1873,8 @@ class MainActivity : ComponentActivity() {
 
         private var alphaTabCaret: IContainer? = null
         private var lastCaretRect: RectF? = null
+        private var lastRawCaretX = Float.NaN
+        private var lastRawCaretY = Float.NaN
         fun alphaTabContentOriginInOverlay(): Pair<Float, Float> { return try { val sl=IntArray(2); val ol=IntArray(2); score.getLocationOnScreen(sl); overlay.getLocationOnScreen(ol); Pair((sl[0]-ol[0]).toFloat(),(sl[1]-ol[1]).toFloat()) } catch(t:Throwable){ 0f to 0f } }
         fun attachAlphaTabCursorLayer() {
             // Deliberately do not attach AlphaTab's native cursor container here.
@@ -3211,6 +3227,9 @@ class MainActivity : ComponentActivity() {
             armed = true
             pendingFret = ""
             updateCursor()
+            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
+                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
+            }
             updateStatus()
             onSelectionChanged?.invoke()
         }
@@ -3225,6 +3244,9 @@ class MainActivity : ComponentActivity() {
             armed = true
             pendingFret = ""
             updateCursor()
+            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
+                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
+            }
             updateStatus()
         }
 
@@ -3235,6 +3257,9 @@ class MainActivity : ComponentActivity() {
             armed = true
             pendingFret = ""
             updateCursor()
+            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
+                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
+            }
             updateStatus()
             onSelectionChanged?.invoke()
         }
@@ -3394,6 +3419,8 @@ class MainActivity : ComponentActivity() {
                     val rawTop=hit?.tabTopY ?: (rawBar.y.toFloat()+rawBar.h.toFloat()*.58f)
                     val spacing=hit?.stringSpacing ?: stringSpacing
                     val rawY=rawTop+(caret.stringIndex-1).coerceAtLeast(0)*spacing
+                    lastRawCaretX = rawX
+                    lastRawCaretY = rawY
                     val dm=activity.resources.displayMetrics; val d=dm.density.coerceAtLeast(0.01f)
                     val half=((spacing*.9f).coerceAtLeast(4f)/2f)*d; val origin=alphaTabContentOriginInOverlay()
                     val finalX=rawX*d+origin.first; val finalY=rawY*d+origin.second
