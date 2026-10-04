@@ -1488,6 +1488,13 @@ class MainActivity : ComponentActivity() {
         private val debugTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.FILL; textSize=10f*resources.displayMetrics.scaledDensity; color=0xFFFF00FF.toInt() }
         private val bannerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.FILL; color=0xEE111318.toInt() }
         private val bannerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.FILL; textSize=9f*resources.displayMetrics.scaledDensity; color=0xFFFFE66D.toInt() }
+        private val diagnosticMagentaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=3f*density; color=0xFFFF00FF.toInt() }
+        private val diagnosticCyanPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=3f*density; color=0xFF00FFFF.toInt() }
+        private val diagnosticYellowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=3f*density; color=0xFFFFFF00.toInt() }
+        private var diagnosticBanner = ""
+        private var diagnosticRawX=Float.NaN
+        private var diagnosticRawY=Float.NaN
+        private var diagnosticRawDensity=1f
 
         // Both markers live in the same AlphaTab content coordinate system and are
         // translated by the actual score scroll. This is the only overlay geometry.
@@ -1518,6 +1525,8 @@ class MainActivity : ComponentActivity() {
         fun setContentOriginProvider(provider:()->Pair<Float,Float>){contentOriginProvider=provider}
         fun setDebugData(enabled:Boolean,bars:List<RectF>,label:String){debugEnabled=enabled;debugBars.clear();debugBars.addAll(bars);invalidate()}
         fun setDebugBanner(text:String){debugBanner=text;invalidate()}
+        fun setDiagnosticBanner(text:String){diagnosticBanner=text;invalidate()}
+        fun setDiagnosticRaw(rawX:Float,rawY:Float,d:Float){diagnosticRawX=rawX;diagnosticRawY=rawY;diagnosticRawDensity=d;invalidate()}
 
         fun showBeatCaretContent(centerX:Float,centerY:Float,half:Float){
             caretCenterX=centerX; caretCenterY=centerY; caretHalf=half
@@ -1539,6 +1548,17 @@ class MainActivity : ComponentActivity() {
 
         override fun onDraw(canvas:Canvas){
             super.onDraw(canvas)
+
+            val fixed=60f*density
+            val fixedSize=30f*density
+            canvas.drawRect(fixed,fixed,fixed+fixedSize,fixed+fixedSize,diagnosticMagentaPaint)
+            if(diagnosticRawX.isFinite() && diagnosticRawY.isFinite()){
+                val half=15f*density
+                canvas.drawRect(diagnosticRawX-half,diagnosticRawY-half,diagnosticRawX+half,diagnosticRawY+half,diagnosticCyanPaint)
+                val yellowX=diagnosticRawX*diagnosticRawDensity
+                val yellowY=diagnosticRawY*diagnosticRawDensity
+                canvas.drawRect(yellowX-half,yellowY-half,yellowX+half,yellowY+half,diagnosticYellowPaint)
+            }
 
             val scroll=scrollProvider?.invoke() ?: (0f to 0f)
             canvas.save()
@@ -1580,10 +1600,11 @@ class MainActivity : ComponentActivity() {
                 canvas.drawText("BAR "+(i+1),bar.left+3f,bar.top+12f,debugTextPaint)
             }
             canvas.restore()
-            if(debugBanner.isNotBlank()){
+            if(debugBanner.isNotBlank() || diagnosticBanner.isNotBlank()){
                 val pad=8f*density
                 val lineH=13f*resources.displayMetrics.scaledDensity
-                val lines=debugBanner.split("\n")
+                val banner=if(diagnosticBanner.isBlank()) debugBanner else if(debugBanner.isBlank()) diagnosticBanner else debugBanner+"\n"+diagnosticBanner
+                val lines=banner.split("\n")
                 val boxH=pad*2f+lineH*lines.size
                 canvas.drawRect(pad,pad,width.toFloat()-pad,pad+boxH,bannerPaint)
                 lines.forEachIndexed{i,line->canvas.drawText(line,pad+6f,pad+lineH*(i+1)-2f,bannerTextPaint)}
@@ -3408,7 +3429,13 @@ class MainActivity : ComponentActivity() {
                 val bar=staff?.bars?.toList()?.getOrNull(caret.measureIndex)
                 val beat=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)
                 val bb=beat?.let{lookup?.findBeat(it)}
-                if(beat!=null&&bb!=null){
+                if(lookup==null){
+                    overlay.setDiagnosticBanner("lookup=null")
+                } else if(beat==null){
+                    overlay.setDiagnosticBanner("beat=null")
+                } else if(bb==null){
+                    overlay.setDiagnosticBanner("bb=null")
+                } else if(beat!=null&&bb!=null){
                     val rawBar=bb.barBounds.masterBarBounds.bars.toList().firstOrNull{it.bar===bb.beat.voice.bar}?.realBounds ?: bb.barBounds.masterBarBounds.visualBounds
                     val rawX=bb.onNotesX.toFloat()
                     val hit=beatHits.firstOrNull{it.measure==caret.measureIndex&&it.beat==caret.beatIndex&&!it.virtual}
@@ -3420,12 +3447,15 @@ class MainActivity : ComponentActivity() {
                     val dm=activity.resources.displayMetrics; val d=dm.density.coerceAtLeast(0.01f)
                     val half=((spacing*.9f).coerceAtLeast(4f)/2f)*d; val origin=alphaTabContentOriginInOverlay()
                     val finalX=rawX*d+origin.first; val finalY=rawY*d+origin.second
+                    overlay.setDiagnosticRaw(rawX,rawY,d)
                     overlay.showBeatCaretContent(finalX,finalY,half); lastCaretPosition=Triple(finalX,finalY,half); lastCaretRect=RectF(finalX-half,finalY-half,finalX+half,finalY+half)
                     val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets()
+                    overlay.setDiagnosticBanner("OK raw=("+rawX+","+rawY+") d="+d+" final=("+finalX+","+finalY+") scrollPx=("+scPx.first+","+scPx.second+") overlay="+overlay.width+"x"+overlay.height+" AlphaTabView="+score.width+"x"+score.height)
                     android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" tabTopY(rawLayout)="+rawTop+" stringY(rawLayout)="+rawY+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
                     updateDebugOverlay()
                 } else overlay.hideCursor()
             }catch(t:Throwable){
+                overlay.setDiagnosticBanner("EXCEPTION "+(t.message ?: t.javaClass.simpleName))
                 overlay.setDiagnosticBanner("EXCEPTION "+(t.message ?: t.javaClass.simpleName))
                 android.util.Log.e("EARAM_ALPHA_CURSOR","overlay caret positioning failed",t)
             }
