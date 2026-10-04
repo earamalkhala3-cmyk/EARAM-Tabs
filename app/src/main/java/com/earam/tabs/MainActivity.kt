@@ -1515,6 +1515,16 @@ class MainActivity : ComponentActivity() {
             color = 0xFFFFD400.toInt()
             strokeWidth = 3f * density
         }
+        // Guitar Pro-like editing guide: the musical caret is a thin line at the
+        // selected beat, independent from the playback cursor. The yellow square
+        // remains the Earam string-level handle.
+        private val editingGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = 0x806DA8FF.toInt()
+        }
+        private var editingGuideX = Float.NaN
+        private var editingGuideTop = Float.NaN
+        private var editingGuideBottom = Float.NaN
 
         private val debugBars=mutableListOf<RectF>()
         private var debugBanner=""
@@ -1540,6 +1550,12 @@ class MainActivity : ComponentActivity() {
             caretCenterX=centerX; caretCenterY=centerY; caretHalf=half
             invalidate()
         }
+        fun showGuitarProGuideContent(centerX:Float,top:Float,bottom:Float){
+            editingGuideX=centerX
+            editingGuideTop=top
+            editingGuideBottom=bottom
+            invalidate()
+        }
         fun showPlaybackCursorContent(centerX:Float,top:Float,bottom:Float){
             playbackX=centerX; playbackTop=top; playbackBottom=bottom
             invalidate()
@@ -1547,6 +1563,9 @@ class MainActivity : ComponentActivity() {
         fun showNoteCursor(left:Float,top:Float,width:Float,height:Float)=invalidate()
         fun hideCursor(){
             caretCenterX=Float.NaN; caretCenterY=Float.NaN; caretHalf=0f
+            editingGuideX=Float.NaN
+            editingGuideTop=Float.NaN
+            editingGuideBottom=Float.NaN
             invalidate()
         }
         fun hidePlaybackCursor(){
@@ -1573,7 +1592,7 @@ class MainActivity : ComponentActivity() {
             canvas.translate(-scroll.first,-scroll.second)
 
             // Playback: a thin ~40% alpha orange line, exactly the rendered
-            // master-bar height. It never paints over the fret numbers opaquely.
+            // master-bar height. It is independent from the editing caret.
             if (playbackX.isFinite() && playbackBottom > playbackTop) {
                 val lineHalf = (0.65f * density).coerceAtLeast(0.5f)
                 canvas.drawRect(
@@ -1585,9 +1604,25 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Caret: hollow yellow square, 0.9 * string spacing. The center sits
-            // exactly on the selected TAB string, so the outline does not fill over
-            // fret digits.
+            // Editing caret: Guitar Pro-like beat guide. It follows the selected
+            // musical beat through scrolling and page re-layout; it is not tied to
+            // playback timing.
+            if (editingGuideX.isFinite() &&
+                editingGuideTop.isFinite() &&
+                editingGuideBottom > editingGuideTop
+            ) {
+                val guideHalf = (0.8f * density).coerceAtLeast(0.7f)
+                canvas.drawRect(
+                    editingGuideX - guideHalf,
+                    editingGuideTop,
+                    editingGuideX + guideHalf,
+                    editingGuideBottom,
+                    editingGuidePaint
+                )
+            }
+
+            // Earam string-level handle: hollow yellow square, 0.9 * string
+            // spacing, centered on the selected TAB string.
             if (caretCenterX.isFinite() && caretHalf > 0f) {
                 canvas.drawRect(
                     caretCenterX - caretHalf,
@@ -3446,20 +3481,45 @@ class MainActivity : ComponentActivity() {
                 } else if(beat!=null&&bb!=null){
                     val rawBar=bb.barBounds.masterBarBounds.bars.toList().firstOrNull{it.bar===bb.beat.voice.bar}?.realBounds ?: bb.barBounds.masterBarBounds.visualBounds
                     val rawX=bb.onNotesX.toFloat()
+
+                    // Prefer the exact AlphaTab note bound for the selected string.
+                    // This removes the old estimated "system top + string spacing"
+                    // calculation whenever a real TAB note exists. onNotesX is the
+                    // official beat-center X used by AlphaTab's cursor.
+                    val selectedAlphaString = alphaTabString(caret.stringIndex).toDouble()
+                    val selectedNoteBounds = bb.notes?.toList()
+                        ?.firstOrNull { it.note.string.toDouble() == selectedAlphaString }
+                        ?.noteHeadBounds
                     val hit=beatHits.firstOrNull{it.measure==caret.measureIndex&&it.beat==caret.beatIndex&&!it.virtual}
-                    val rawTop=hit?.tabTopY ?: (rawBar.y.toFloat()+rawBar.h.toFloat()*.58f)
+                    val fallbackTop=hit?.tabTopY ?: (rawBar.y.toFloat()+rawBar.h.toFloat()*.58f)
                     val spacing=hit?.stringSpacing ?: stringSpacing
-                    val rawY=rawTop+(caret.stringIndex-1).coerceAtLeast(0)*spacing
+                    val rawY = if (selectedNoteBounds != null) {
+                        selectedNoteBounds.y.toFloat() + selectedNoteBounds.h.toFloat() * 0.5f
+                    } else {
+                        fallbackTop+(caret.stringIndex-1).coerceAtLeast(0)*spacing
+                    }
+
                     lastRawCaretX = rawX
                     lastRawCaretY = rawY
-                    val dm=activity.resources.displayMetrics; val d=dm.density.coerceAtLeast(0.01f)
-                    val half=((spacing*.9f).coerceAtLeast(4f)/2f)*d; val origin=alphaTabContentOriginInOverlay()
-                    val finalX=rawX*d+origin.first; val finalY=rawY*d+origin.second
+                    val dm=activity.resources.displayMetrics
+                    val d=dm.density.coerceAtLeast(0.01f)
+                    val half=((spacing*.9f).coerceAtLeast(4f)/2f)*d
+                    val origin=alphaTabContentOriginInOverlay()
+                    val finalX=rawX*d+origin.first
+                    val finalY=rawY*d+origin.second
+                    val guideTop=rawBar.y.toFloat()*d+origin.second
+                    val guideBottom=(rawBar.y+rawBar.h).toFloat()*d+origin.second
+
                     overlay.setDiagnosticRaw(rawX,rawY,d)
-                    overlay.showBeatCaretContent(finalX,finalY,half); lastCaretPosition=Triple(finalX,finalY,half); lastCaretRect=RectF(finalX-half,finalY-half,finalX+half,finalY+half)
-                    val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets()
+                    overlay.showGuitarProGuideContent(finalX,guideTop,guideBottom)
+                    overlay.showBeatCaretContent(finalX,finalY,half)
+                    lastCaretPosition=Triple(finalX,finalY,half)
+                    lastCaretRect=RectF(finalX-half,finalY-half,finalX+half,finalY+half)
+
+                    val scLayout=actualScrollOffsetsLayout()
+                    val scPx=actualScrollOffsets()
                     overlay.setDiagnosticBanner("OK raw=("+rawX+","+rawY+") d="+d+" final=("+finalX+","+finalY+") scrollPx=("+scPx.first+","+scPx.second+") overlay="+overlay.width+"x"+overlay.height+" AlphaTabView="+score.width+"x"+score.height)
-                    android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" tabTopY(rawLayout)="+rawTop+" stringY(rawLayout)="+rawY+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
+                    android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" selectedNoteBounds="+selectedNoteBounds+" tabY(rawLayout)="+rawY+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
                     updateDebugOverlay()
                 } else overlay.hideCursor()
             }catch(t:Throwable){
