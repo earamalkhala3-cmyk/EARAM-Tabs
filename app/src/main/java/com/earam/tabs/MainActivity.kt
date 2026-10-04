@@ -1571,6 +1571,7 @@ class MainActivity : ComponentActivity() {
             }
 
             canvas.restore()
+            if (playbackX.isFinite() || caretCenterX.isFinite()) postInvalidateOnAnimation()
 
             if(!debugEnabled)return
             canvas.save()
@@ -1588,11 +1589,6 @@ class MainActivity : ComponentActivity() {
                 lines.forEachIndexed{i,line->canvas.drawText(line,pad+6f,pad+lineH*(i+1)-2f,bannerTextPaint)}
             }
 
-            // Keep the overlay synchronized with AlphaTab's scrolling content
-            // while either editor marker is visible.
-            if (playbackX.isFinite() || caretCenterX.isFinite()) {
-                postInvalidateOnAnimation()
-            }
         }
     }
 
