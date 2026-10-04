@@ -1981,6 +1981,8 @@ class MainActivity : ComponentActivity() {
             // Both targets then drive the existing Edit/Note/Bar commands.
             var barLongPressTriggered = false
             var barLongPressRunnable: Runnable? = null
+            var barLongPressDownX = 0f
+            var barLongPressDownY = 0f
             score.setOnTouchListener { _, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
@@ -1989,6 +1991,8 @@ class MainActivity : ComponentActivity() {
                         barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
                         val downX = event.x
                         val downY = event.y
+                        barLongPressDownX = downX
+                        barLongPressDownY = downY
                         barLongPressRunnable = Runnable {
                             val hit = hitTest(downX, downY) ?: return@Runnable
                             barLongPressTriggered = true
@@ -2004,8 +2008,8 @@ class MainActivity : ComponentActivity() {
                         if (r != null) {
                             // Cancel the bar gesture if the finger moved significantly.
                             // This preserves normal scrolling and note tapping.
-                            val dx = event.x - (event.x)
-                            val dy = event.y - (event.y)
+                            val dx = event.x - barLongPressDownX
+                            val dy = event.y - barLongPressDownY
                             if (dx * dx + dy * dy > activity.dp(18f) * activity.dp(18f)) {
                                 activity.window.decorView.removeCallbacks(r)
                                 barLongPressRunnable = null
