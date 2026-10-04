@@ -3456,7 +3456,6 @@ class MainActivity : ComponentActivity() {
                 } else overlay.hideCursor()
             }catch(t:Throwable){
                 overlay.setDiagnosticBanner("EXCEPTION "+(t.message ?: t.javaClass.simpleName))
-                overlay.setDiagnosticBanner("EXCEPTION "+(t.message ?: t.javaClass.simpleName))
                 android.util.Log.e("EARAM_ALPHA_CURSOR","overlay caret positioning failed",t)
             }
         }
