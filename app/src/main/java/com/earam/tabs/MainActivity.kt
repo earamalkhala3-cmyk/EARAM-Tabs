@@ -11,6 +11,7 @@ import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.WindowInsets
 import android.text.InputType
 import android.view.inputmethod.InputMethodManager
 import androidx.lifecycle.ViewModelProvider
@@ -385,6 +386,11 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16f), dp(8f), dp(10f), dp(8f))
             setBackgroundColor(0xFF151719.toInt())
+            setOnApplyWindowInsetsListener { view, insets ->
+                val statusBarTop = insets.getInsets(WindowInsets.Type.statusBars()).top
+                view.setPadding(dp(16f), dp(8f) + statusBarTop, dp(10f), dp(8f))
+                insets
+            }
         }
 
         val brand = TextView(this).apply {
@@ -470,7 +476,8 @@ class MainActivity : ComponentActivity() {
                         "Score only" to { score.settings.display.staveProfile = StaveProfile.Score; score.api.updateSettings(); score.api.render() },
                         "Zoom 72%" to { score.settings.display.scale = 0.72; session.zoom = 0.72; score.api.updateSettings(); score.api.render() },
                         "Zoom 85%" to { score.settings.display.scale = 0.85; session.zoom = 0.85; score.api.updateSettings(); score.api.render() },
-                        "Zoom 100%" to { score.settings.display.scale = 1.0; session.zoom = 1.0; score.api.updateSettings(); score.api.render() }
+                        "Zoom 100%" to { score.settings.display.scale = 1.0; session.zoom = 1.0; score.api.updateSettings(); score.api.render() },
+                        "Debug coordinates" to { editor.setDebugModeFromUi(!editor.isDebugMode()) }
                     )) }
                 ))
             }
@@ -848,7 +855,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        root.addView(header, LinearLayout.LayoutParams(-1, dp(58f)))
+        root.addView(header, LinearLayout.LayoutParams(-1, -2))
+        header.requestApplyInsets()
         root.addView(status, LinearLayout.LayoutParams(-1, dp(24f)))
         root.addView(transport, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(context, LinearLayout.LayoutParams(-1, dp(40f)))
