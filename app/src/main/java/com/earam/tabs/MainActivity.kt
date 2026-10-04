@@ -1975,14 +1975,52 @@ class MainActivity : ComponentActivity() {
 
             score.setOnKeyListener(keyHandler)
             score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
+            // Direct editor interaction:
+            // - short tap selects the exact beat/string (fret target)
+            // - long press selects the whole measure (bar target)
+            // Both targets then drive the existing Edit/Note/Bar commands.
+            var barLongPressTriggered = false
+            var barLongPressRunnable: Runnable? = null
             score.setOnTouchListener { _, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
                         noteTouchSelectionPending = false
+                        barLongPressTriggered = false
+                        barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+                        val downX = event.x
+                        val downY = event.y
+                        barLongPressRunnable = Runnable {
+                            val hit = hitTest(downX, downY) ?: return@Runnable
+                            barLongPressTriggered = true
+                            selectBarFromUi(hit.measure)
+                            updateStatus("BAR " + (hit.measure + 1) + " SELECTED • Bar actions ready")
+                        }.also {
+                            activity.window.decorView.postDelayed(it, 500L)
+                        }
                         false
                     }
-                    android.view.MotionEvent.ACTION_UP -> {
-                        if (noteTouchSelectionPending) {
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val r = barLongPressRunnable
+                        if (r != null) {
+                            // Cancel the bar gesture if the finger moved significantly.
+                            // This preserves normal scrolling and note tapping.
+                            val dx = event.x - (event.x)
+                            val dy = event.y - (event.y)
+                            if (dx * dx + dy * dy > activity.dp(18f) * activity.dp(18f)) {
+                                activity.window.decorView.removeCallbacks(r)
+                                barLongPressRunnable = null
+                            }
+                        }
+                        false
+                    }
+                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+                        barLongPressRunnable = null
+                        if (barLongPressTriggered) {
+                            barLongPressTriggered = false
+                            true
+                        } else if (noteTouchSelectionPending) {
                             noteTouchSelectionPending = false
                             true
                         } else {
