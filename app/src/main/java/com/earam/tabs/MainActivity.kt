@@ -52,6 +52,8 @@ data class Caret(
     val stringIndex: Int
 )
 
+private enum class SelectionTarget { NOTE, BEAT, BAR }
+
 data class BeatHit(
     val measure: Int,
     val beat: Int,
@@ -1780,6 +1782,9 @@ class MainActivity : ComponentActivity() {
         var caret: Caret = session.caret
             private set
 
+        // The TAB is the editor surface. Commands always resolve against its current target.
+        private var selectionTarget: SelectionTarget = SelectionTarget.BEAT
+
         val currentBarIndex: Int get() = caret.measureIndex
         val selectedBarIndex: Int get() = caret.measureIndex
         val currentBeatIndex: Int get() = caret.beatIndex
@@ -1996,6 +2001,7 @@ class MainActivity : ComponentActivity() {
                         barLongPressRunnable = Runnable {
                             val hit = hitTest(downX, downY) ?: return@Runnable
                             barLongPressTriggered = true
+                            selectionTarget = SelectionTarget.BAR
                             selectBarFromUi(hit.measure)
                             updateStatus("BAR " + (hit.measure + 1) + " SELECTED • Bar actions ready")
                         }.also {
@@ -2050,6 +2056,7 @@ class MainActivity : ComponentActivity() {
                     currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
                     caret = Caret(currentTrackIndex, barIndex, beatIndex, currentStringIndex)
                     session.caret = caret
+                    selectionTarget = SelectionTarget.BEAT
                     armed = true
                     pendingFret = ""
 
@@ -2088,6 +2095,7 @@ class MainActivity : ComponentActivity() {
                     val uiString = (maxStringIndex() + 1 - note.string.toInt()).coerceIn(1, maxStringIndex())
                     caret = Caret(currentTrackIndex, barIndex, beatIndex, uiString)
                     session.caret = caret
+                    selectionTarget = SelectionTarget.NOTE
                     armed = true
                     pendingFret = ""
 
@@ -2256,15 +2264,63 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun handleScoreTouch(x: Float, y: Float): Boolean {
+            val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+            val scroll = actualScrollOffsetsLayout()
+            val contentX = x / d + scroll.first
+            val contentY = y / d + scroll.second
+
+            // First hit the actual rendered TAB note/fret. The visible note is the
+            // primary editor target, not an approximate screen-space caret.
+            try {
+                val lookup = score.api.renderer.boundsLookup
+                val song = score.api.score
+                val staff = song?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()
+                if (lookup != null && staff != null) {
+                    for ((mi, bar) in staff.bars.toList().withIndex()) {
+                        val voice = bar.voices.toList().getOrNull(currentVoiceIndex) ?: continue
+                        for ((bi, beat) in voice.beats.toList().withIndex()) {
+                            val bb = lookup.findBeat(beat) ?: continue
+                            for (nb in bb.notes?.toList().orEmpty()) {
+                                val r = nb.noteHeadBounds
+                                if (contentX >= r.x.toFloat() - 7f &&
+                                    contentX <= (r.x + r.w).toFloat() + 7f &&
+                                    contentY >= r.y.toFloat() - 5f &&
+                                    contentY <= (r.y + r.h).toFloat() + 5f) {
+                                    val uiString = (maxStringIndex() + 1 - nb.note.string.toInt())
+                                        .coerceIn(1, maxStringIndex())
+                                    caret = Caret(currentTrackIndex, mi, bi, uiString)
+                                    session.caret = caret
+                                    selectionTarget = SelectionTarget.NOTE
+                                    armed = true
+                                    pendingFret = ""
+                                    try {
+                                        score.api.stop()
+                                        score.api.tickPosition = beat.absolutePlaybackStart
+                                        session.tickPosition = score.api.tickPosition
+                                    } catch (_: Throwable) { }
+                                    updateCursor()
+                                    updateStatus("SELECTED NOTE • B"+(mi+1)+" • BEAT "+(bi+1)+" • STRING "+uiString+" • FRET "+nb.note.fret.toInt())
+                                    onSelectionChanged?.invoke()
+                                    score.requestFocus()
+                                    return true
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("EARAM_SELECTION", "direct TAB note hit-test failed", t)
+            }
+
+            // If no fret was hit, select the rendered Beat. Empty beats are valid
+            // editor targets and fret entry materializes the Note in that Beat.
             val hit = hitTest(x, y) ?: return false
             val maxString = maxStringIndex()
-            val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
-            val scrollPx = actualScrollOffsets()
-            val contentY = (y + scrollPx.second) / d
             val uiString = (((contentY - hit.tabTopY) / hit.stringSpacing)
                 .roundToInt() + 1).coerceIn(1, maxString)
             caret = Caret(currentTrackIndex, hit.measure, if (hit.virtual) 0 else hit.beat, uiString)
             session.caret = caret
+            selectionTarget = SelectionTarget.BEAT
             armed = true
             pendingFret = ""
             try {
@@ -3240,7 +3296,13 @@ class MainActivity : ComponentActivity() {
         fun moveStringFromUi(delta: Int) = moveString(delta)
         fun enterDigitFromUi(digit: Int) = acceptDigit(digit)
         fun writeFretFromUi(fret: Int) = writeFret(fret)
-        fun deleteCurrentNoteFromUi() = deleteCurrentNote()
+        fun deleteCurrentNoteFromUi() {
+            when (selectionTarget) {
+                SelectionTarget.BAR -> clearCurrentBarFromUi()
+                SelectionTarget.NOTE,
+                SelectionTarget.BEAT -> deleteCurrentNote()
+            }
+        }
 
         fun selectTrackFromUi(index: Int) {
             val tracks = score.api.score?.tracks?.toList().orEmpty()
@@ -3293,7 +3355,12 @@ class MainActivity : ComponentActivity() {
                 "  ·  V" + (currentVoiceIndex + 1) +
                 "  ·  b" + (currentBeatIndex + 1) +
                 "  ·  S" + currentStringIndex +
-                "  ·  F" + currentFretLabel()
+                "  ·  F" + currentFretLabel() +
+                "  ·  " + when (selectionTarget) {
+                    SelectionTarget.NOTE -> "NOTE"
+                    SelectionTarget.BEAT -> "BEAT"
+                    SelectionTarget.BAR -> "BAR"
+                }
         }
 
         private fun moveBeat(delta: Int) {
@@ -3326,6 +3393,7 @@ class MainActivity : ComponentActivity() {
 
             caret = Caret(currentTrackIndex, b, beat, currentStringIndex)
             session.caret = caret
+            selectionTarget = SelectionTarget.BEAT
             armed = true
             pendingFret = ""
             updateCursor()
@@ -3680,6 +3748,7 @@ class MainActivity : ComponentActivity() {
 
         fun selectBarFromUi(index: Int) {
             val bs = bars() ?: return
+            selectionTarget = SelectionTarget.BAR
             if (index !in bs.indices) return
             val beats = bs[index].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             val targetBeat = if (beats.isEmpty()) 0 else currentBeatIndex.coerceIn(0, beats.lastIndex)
