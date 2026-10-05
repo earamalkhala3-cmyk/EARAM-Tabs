@@ -1954,7 +1954,6 @@ class MainActivity : ComponentActivity() {
         private var pendingFret: String = ""
         private var pendingAtMs: Long = 0L
         private var inputGeneration: Long = 0L
-        private var noteTouchSelectionPending = false
 
         fun attach() {
             score.isFocusable = true
@@ -1980,68 +1979,27 @@ class MainActivity : ComponentActivity() {
 
             score.setOnKeyListener(keyHandler)
             score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
-            // Direct editor interaction:
-            // - short tap selects the exact beat/string (fret target)
-            // - long press selects the whole measure (bar target)
-            // Both targets then drive the existing Edit/Note/Bar commands.
-            var barLongPressTriggered = false
+            // IMPORTANT: do not intercept AlphaTab's touch stream here.
+            // AlphaTab owns hit-testing for TAB notes/beats. Its noteMouseDown and
+            // beatMouseDown events are the canonical editor selection surface.
+            // We only add a long-press command on top of beatMouseDown.
             var barLongPressRunnable: Runnable? = null
-            var barLongPressDownX = 0f
-            var barLongPressDownY = 0f
-            score.setOnTouchListener { _, event ->
-                when (event.action) {
-                    android.view.MotionEvent.ACTION_DOWN -> {
-                        noteTouchSelectionPending = false
-                        barLongPressTriggered = false
-                        barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
-                        val downX = event.x
-                        val downY = event.y
-                        barLongPressDownX = downX
-                        barLongPressDownY = downY
-                        barLongPressRunnable = Runnable {
-                            val hit = hitTest(downX, downY) ?: return@Runnable
-                            barLongPressTriggered = true
-                            selectionTarget = SelectionTarget.BAR
-                            selectBarFromUi(hit.measure)
-                            updateStatus("BAR " + (hit.measure + 1) + " SELECTED • Bar actions ready")
-                        }.also {
-                            activity.window.decorView.postDelayed(it, 500L)
-                        }
-                        false
-                    }
-                    android.view.MotionEvent.ACTION_MOVE -> {
-                        val r = barLongPressRunnable
-                        if (r != null) {
-                            // Cancel the bar gesture if the finger moved significantly.
-                            // This preserves normal scrolling and note tapping.
-                            val dx = event.x - barLongPressDownX
-                            val dy = event.y - barLongPressDownY
-                            if (dx * dx + dy * dy > activity.dp(18f) * activity.dp(18f)) {
-                                activity.window.decorView.removeCallbacks(r)
-                                barLongPressRunnable = null
-                            }
-                        }
-                        false
-                    }
-                    android.view.MotionEvent.ACTION_UP,
-                    android.view.MotionEvent.ACTION_CANCEL -> {
-                        barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
-                        barLongPressRunnable = null
-                        if (barLongPressTriggered) {
-                            barLongPressTriggered = false
-                            true
-                        } else if (noteTouchSelectionPending) {
-                            noteTouchSelectionPending = false
-                            true
-                        } else {
-                            handleScoreTouch(event.x, event.y)
-                        }
-                    }
-                    else -> false
-                }
-            }
+            var barLongPressBeat: alphaTab.model.Beat? = null
 
             score.api.beatMouseDown.on { beat ->
+                barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+                barLongPressBeat = beat
+                barLongPressRunnable = Runnable {
+                    val selected = barLongPressBeat ?: return@Runnable
+                    val bar = selected.voice.bar
+                    val staff = bar.staff
+                    val index = staff.bars.toList().indexOf(bar)
+                    if (index >= 0) {
+                        selectionTarget = SelectionTarget.BAR
+                        selectBarFromUi(index)
+                        updateStatus("TAB BAR SELECTED • BAR " + (index + 1))
+                    }
+                }.also { activity.window.decorView.postDelayed(it, 500L) }
                 try {
                     val song = score.api.score ?: return@on
                     val clickedTrack = beat.voice.bar.staff.track
@@ -2079,6 +2037,9 @@ class MainActivity : ComponentActivity() {
             }
 
             score.api.noteMouseDown.on { note ->
+                barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+                barLongPressRunnable = null
+                barLongPressBeat = null
                 try {
                     noteTouchSelectionPending = true
                     val song = score.api.score ?: return@on
