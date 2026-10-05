@@ -1996,39 +1996,82 @@ class MainActivity : ComponentActivity() {
 
             score.setOnKeyListener(keyHandler)
             score.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) updateStatus() }
-            // IMPORTANT: do not intercept AlphaTab's touch stream here.
-            // AlphaTab owns hit-testing for TAB notes/beats. Its noteMouseDown and
-            // beatMouseDown events are the canonical editor selection surface.
-            // We only add a long-press command on top of beatMouseDown.
+            // AlphaTab remains the owner of the normal touch stream. We only observe
+            // the same rendered TAB surface to implement a real long-press BAR action.
+            // The listener ALWAYS returns false, so AlphaTab keeps receiving the gesture.
             var barLongPressRunnable: Runnable? = null
-            var barLongPressBeat: alphaTab.model.Beat? = null
             var barLongPressActivated = false
+            var barDownX = 0f
+            var barDownY = 0f
 
             fun cancelBarLongPress() {
                 barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
                 barLongPressRunnable = null
-                barLongPressBeat = null
                 if (!barLongPressActivated) return
                 barLongPressActivated = false
             }
 
-            score.api.beatMouseDown.on { beat ->
-                cancelBarLongPress()
-                barLongPressActivated = false
-                barLongPressBeat = beat
-                barLongPressRunnable = Runnable {
-                    val selected = barLongPressBeat ?: return@Runnable
-                    val bar = selected.voice.bar
-                    val staff = bar.staff
-                    val index = staff.bars.toList().indexOf(bar)
-                    if (index >= 0) {
-                        barLongPressActivated = true
-                        selectionTarget = SelectionTarget.BAR
-                        selectBarFromUi(index)
-                        updateStatus("TAB BAR SELECTED • BAR " + (index + 1) + " • HOLD TARGET LOCKED")
-                    }
-                }.also { activity.window.decorView.postDelayed(it, 500L) }
+            score.setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        cancelBarLongPress()
+                        barLongPressActivated = false
+                        barDownX = event.x
+                        barDownY = event.y
 
+                        barLongPressRunnable = Runnable {
+                            val hit = hitTest(barDownX, barDownY)
+                            val index = hit?.measure ?: -1
+                            if (index >= 0) {
+                                barLongPressActivated = true
+                                selectionTarget = SelectionTarget.BAR
+                                selectBarFromUi(index)
+                                updateStatus("TAB BAR SELECTED • BAR " + (index + 1) + " • BAR ACTIONS READY")
+                            } else {
+                                android.util.Log.d(
+                                    "EARAM_BAR_SELECTION",
+                                    "long press did not hit rendered TAB • x=" + barDownX + " y=" + barDownY
+                                )
+                            }
+                        }.also { activity.window.decorView.postDelayed(it, 500L) }
+                    }
+
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val slop = android.view.ViewConfiguration.get(score.context).scaledTouchSlop
+                        if (kotlin.math.hypot(
+                                (event.x - barDownX).toDouble(),
+                                (event.y - barDownY).toDouble()
+                            ) > slop.toDouble()
+                        ) {
+                            if (!barLongPressActivated) cancelBarLongPress()
+                        }
+                    }
+
+                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        val wasBarSelection = barLongPressActivated
+                        if (!wasBarSelection) cancelBarLongPress()
+                        else {
+                            barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+                            barLongPressRunnable = null
+                            activity.window.decorView.post {
+                                if (selectionTarget == SelectionTarget.BAR) {
+                                    highlightSelectedBar()
+                                    updateStatus(
+                                        "TAB BAR SELECTED • BAR " + (selectedBarIndex + 1) +
+                                            " • BAR ACTIONS READY"
+                                    )
+                                }
+                            }
+                            barLongPressActivated = false
+                        }
+                    }
+                }
+                // Never consume the event. AlphaTab keeps native note/beat interaction.
+                false
+            }
+
+            score.api.beatMouseDown.on { beat ->
                 try {
                     val song = score.api.score ?: return@on
                     val clickedTrack = beat.voice.bar.staff.track
@@ -2047,7 +2090,6 @@ class MainActivity : ComponentActivity() {
                     armed = true
                     pendingFret = ""
 
-                    // A tapped AlphaTab Beat is the editor selection and playback origin.
                     try {
                         score.api.stop()
                         score.api.tickPosition = beat.absolutePlaybackStart
@@ -2062,24 +2104,6 @@ class MainActivity : ComponentActivity() {
                     onSelectionChanged?.invoke()
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_SELECTION", "beat selection failed", t)
-                }
-            }
-
-            // AlphaTab emits beatMouseUp even when the pointer is released elsewhere after
-            // a beat press. A quick tap cancels the bar timer; a true long-press preserves
-            // the BAR target and reapplies its official selection highlight after AlphaTab's
-            // own mouse-up handling has run.
-            score.api.beatMouseUp.on {
-                val wasBarSelection = barLongPressActivated
-                cancelBarLongPress()
-                if (wasBarSelection) {
-                    activity.window.decorView.post {
-                        if (selectionTarget == SelectionTarget.BAR) {
-                            highlightSelectedBar()
-                            updateStatus("TAB BAR SELECTED • BAR " + (selectedBarIndex + 1) + " • BAR ACTIONS READY")
-                        }
-                    }
-                    barLongPressActivated = true
                 }
             }
 
