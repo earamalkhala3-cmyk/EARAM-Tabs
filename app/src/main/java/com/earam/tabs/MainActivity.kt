@@ -2108,7 +2108,7 @@ class MainActivity : ComponentActivity() {
 
                     updateCursor()
                     score.requestFocus()
-                    updateStatus("SELECTED NOTE • B" + (currentBarIndex + 1) +
+                    updateStatus("TAB NOTE SELECTED • B" + (currentBarIndex + 1) +
                         " • BEAT " + (currentBeatIndex + 1) +
                         " • STRING " + currentStringIndex +
                         " • FRET " + note.fret.toInt())
@@ -2467,23 +2467,44 @@ class MainActivity : ComponentActivity() {
         }
 
         fun copyCurrentNoteFromUi() {
-            val note = currentBeat()?.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
-            if (note == null) { updateStatus("Nothing to copy on current string"); return }
+            val note = selectedNote()
+            if (note == null) { updateStatus("Select a fret on the TAB first"); return }
             copiedFret = note.fret.toInt()
-            updateStatus("Copied fret " + copiedFret)
+            updateStatus("Copied fret " + copiedFret + " • TAB selection")
         }
 
         fun pasteCurrentNoteFromUi() {
             val fret = copiedFret ?: run { updateStatus("Clipboard is empty"); return }
+            if (requireTabSelection() == null) return
             writeFret(fret)
-            updateStatus("Pasted fret " + fret)
+            updateStatus("Pasted fret " + fret + " • TAB selection")
         }
 
         private fun currentVoice(): alphaTab.model.Voice? =
             bars()?.getOrNull(currentBarIndex)?.voices?.toList()?.getOrNull(currentVoiceIndex)
 
-        private fun currentBeat(): alphaTab.model.Beat? =
-            currentVoice()?.beats?.toList()?.getOrNull(currentBeatIndex)
+        /** The TAB selection is the single source of truth for edit commands. */
+        private fun selectedBeat(): alphaTab.model.Beat? {
+            val bs = bars() ?: return null
+            val bar = bs.getOrNull(caret.measureIndex) ?: return null
+            val voice = bar.voices.toList().getOrNull(currentVoiceIndex) ?: return null
+            return voice.beats.toList().getOrNull(caret.beatIndex)
+        }
+
+        private fun selectedNote(): alphaTab.model.Note? {
+            val beat = selectedBeat() ?: return null
+            return beat.getNoteOnString(alphaTabString(caret.stringIndex).toDouble())
+        }
+
+        private fun requireTabSelection(): alphaTab.model.Beat? {
+            val beat = selectedBeat()
+            if (beat == null) {
+                updateStatus("Select a beat or fret on the TAB first")
+            }
+            return beat
+        }
+
+        private fun currentBeat(): alphaTab.model.Beat? = selectedBeat()
 
         fun showScoreInfoDialog() {
             val song = score.api.score ?: return
@@ -3188,8 +3209,8 @@ class MainActivity : ComponentActivity() {
             currentBeat()?.let { if (it.tupletNumerator >= 0 && it.tupletDenominator > 0) it.tupletDenominator.toInt() else -1 } ?: -1
 
         fun setCurrentDuration(duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1): Boolean {
-            val beat = currentBeat() ?: return false
-            val bar = bars()?.getOrNull(currentBarIndex) ?: return false
+            val beat = requireTabSelection() ?: return false
+            val bar = bars()?.getOrNull(caret.measureIndex) ?: return false
             if (!AlphaTabRhythmEngine.fits(bar, currentVoiceIndex, beat, duration, dots, tupletNumerator, tupletDenominator)) {
                 updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
                 return false
@@ -3767,12 +3788,12 @@ class MainActivity : ComponentActivity() {
                 } catch (_: Throwable) { }
             }
             updateCursor()
-            updateStatus("SELECTED BAR " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+            updateStatus("TAB BAR SELECTED • BAR " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
             onSelectionChanged?.invoke()
         }
 
         fun playCurrentBeatFromUi() {
-            val beat = currentBeat() ?: return
+            val beat = requireTabSelection() ?: return
             if (!score.api.isReadyForPlayback) {
                 updateStatus("Player is preparing…")
                 return
