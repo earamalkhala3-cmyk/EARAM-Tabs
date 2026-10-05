@@ -445,8 +445,8 @@ class MainActivity : ComponentActivity() {
                     "Edit" to { showPanel("EDIT", listOf(
                         "Undo  ↶" to { editor.undoFromUi() },
                         "Redo  ↷" to { editor.redoFromUi() },
-                        "Copy note" to { editor.copyCurrentNoteFromUi() },
-                        "Paste note" to { editor.pasteCurrentNoteFromUi() },
+                        "Copy" to { editor.copyCurrentSelectionFromUi() },
+                        "Paste" to { editor.pasteCurrentSelectionFromUi() },
                         "Delete note" to { editor.deleteCurrentNoteFromUi() }
                     )) },
                     "Track" to { showPanel("TRACK", listOf(
@@ -1779,6 +1779,27 @@ class MainActivity : ComponentActivity() {
             private set
         private var copiedFret: Int? = null
         private var copiedBar: Bar? = null
+        private data class ClipboardNote(
+            val string: Double, val fret: Double,
+            val isHammerPullOrigin: Boolean, val isPalmMute: Boolean,
+            val isLetRing: Boolean, val isGhost: Boolean, val isDead: Boolean,
+            val isStaccato: Boolean, val vibrato: alphaTab.model.VibratoType,
+            val isLeftHandTapped: Boolean
+        )
+        private data class ClipboardBeat(
+            val duration: Duration, val dots: Double,
+            val tupletNumerator: Double, val tupletDenominator: Double,
+            val isEmpty: Boolean, val notes: List<ClipboardNote>,
+            val slap: Boolean, val pop: Boolean, val tap: Boolean,
+            val deadSlapped: Boolean, val fadeIn: Boolean, val slashed: Boolean,
+            val showTimer: Boolean, val text: String?
+        )
+        private data class ClipboardBar(
+            val beats: List<ClipboardBeat>, val timeNumerator: Int, val timeDenominator: Int
+        )
+        private var selectionClipboardNote: ClipboardNote? = null
+        private var selectionClipboardBeat: ClipboardBeat? = null
+        private var selectionClipboardBar: ClipboardBar? = null
         var onSelectionChanged: (() -> Unit)? = null
 
         /**
@@ -1934,7 +1955,7 @@ class MainActivity : ComponentActivity() {
             score.settings.player.enableAnimatedBeatCursor = false
             android.util.Log.i("EARAM_ALPHA_CURSOR", "AlphaTab native playback cursor enabled; custom caret removed")
         }
-        fun setCiTestCaret(){caret=Caret(0,0,0,2);session.caret=caret;currentVoiceIndex=0;armed=true;pendingFret="";updateCursor()}
+        fun setCiTestCaret(){caret=Caret(0,0,0,2);session.caret=caret;currentVoiceIndex=0;armed=true;pendingFret=""}
         private var armed = false
         private var pendingFret: String = ""
         private var pendingAtMs: Long = 0L
@@ -1946,7 +1967,15 @@ class MainActivity : ComponentActivity() {
 
             val keyHandler: (View, Int, android.view.KeyEvent) -> Boolean = { _, keyCode, event ->
                 if (event.action != android.view.KeyEvent.ACTION_DOWN || event.repeatCount > 0) false
-                else when (keyCode) {
+                else if ((event.isCtrlPressed || event.isMetaPressed) && keyCode == android.view.KeyEvent.KEYCODE_C) {
+                    copyCurrentSelectionFromUi(); true
+                } else if ((event.isCtrlPressed || event.isMetaPressed) && keyCode == android.view.KeyEvent.KEYCODE_V) {
+                    pasteCurrentSelectionFromUi(); true
+                } else if ((event.isCtrlPressed || event.isMetaPressed) && keyCode == android.view.KeyEvent.KEYCODE_Z) {
+                    undoFromUi(); true
+                } else if ((event.isCtrlPressed || event.isMetaPressed) && keyCode == android.view.KeyEvent.KEYCODE_Y) {
+                    redoFromUi(); true
+                } else when (keyCode) {
                     android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { moveBeat(-1); true }
                     android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { moveBeat(1); true }
                     android.view.KeyEvent.KEYCODE_DPAD_UP -> { moveString(-1); true }
@@ -2411,19 +2440,158 @@ class MainActivity : ComponentActivity() {
             }.show()
         }
 
-        fun copyCurrentNoteFromUi() {
-            val note = selectedNote()
-            if (note == null) { updateStatus("Select a fret on the TAB first"); return }
-            copiedFret = note.fret.toInt()
-            updateStatus("Copied fret " + copiedFret + " • TAB selection")
+        private fun snapshotNoteForClipboard(note: Note): ClipboardNote = ClipboardNote(
+            note.string, note.fret, note.isHammerPullOrigin, note.isPalmMute,
+            note.isLetRing, note.isGhost, note.isDead, note.isStaccato,
+            note.vibrato, note.isLeftHandTapped
+        )
+
+        private fun snapshotBeatForClipboard(beat: Beat): ClipboardBeat = ClipboardBeat(
+            beat.duration, beat.dots, beat.tupletNumerator, beat.tupletDenominator,
+            beat.isEmpty, beat.notes.toList().map(::snapshotNoteForClipboard),
+            beat.slap, beat.pop, beat.tap, beat.deadSlapped, beat.fadeIn,
+            beat.slashed, beat.showTimer, beat.text
+        )
+
+        private fun applyClipboardBeat(target: Beat, source: ClipboardBeat) {
+            target.notes.toList().forEach { target.removeNote(it) }
+            target.duration = source.duration
+            target.dots = source.dots
+            target.tupletNumerator = source.tupletNumerator
+            target.tupletDenominator = source.tupletDenominator
+            target.slap = source.slap
+            target.pop = source.pop
+            target.tap = source.tap
+            target.deadSlapped = source.deadSlapped
+            target.fadeIn = source.fadeIn
+            target.slashed = source.slashed
+            target.showTimer = source.showTimer
+            target.text = source.text
+            source.notes.forEach { src ->
+                target.addNote(Note().apply {
+                    string = src.string
+                    fret = src.fret
+                    isHammerPullOrigin = src.isHammerPullOrigin
+                    isPalmMute = src.isPalmMute
+                    isLetRing = src.isLetRing
+                    isGhost = src.isGhost
+                    isDead = src.isDead
+                    isStaccato = src.isStaccato
+                    vibrato = src.vibrato
+                    isLeftHandTapped = src.isLeftHandTapped
+                })
+            }
+            target.isEmpty = source.isEmpty || source.notes.isEmpty()
+            target.notes.toList().forEach { it.finish(score.settings, null) }
+            target.finish(score.settings, null)
         }
 
-        fun pasteCurrentNoteFromUi() {
-            val fret = copiedFret ?: run { updateStatus("Clipboard is empty"); return }
-            if (requireTabSelection() == null) return
-            writeFret(fret)
-            updateStatus("Pasted fret " + fret + " • TAB selection")
+        private fun snapshotBarForClipboard(bar: Bar): ClipboardBar {
+            val voice = bar.voices.toList().getOrNull(currentVoiceIndex)
+            return ClipboardBar(
+                voice?.beats?.toList()?.map(::snapshotBeatForClipboard).orEmpty(),
+                bar.masterBar.timeSignatureNumerator.toInt(),
+                bar.masterBar.timeSignatureDenominator.toInt()
+            )
         }
+
+        fun copyCurrentSelectionFromUi() {
+            when (selectionTarget) {
+                SelectionTarget.NOTE -> {
+                    val note = selectedNote() ?: run { updateStatus("Select a fret on the TAB first"); return }
+                    selectionClipboardNote = snapshotNoteForClipboard(note)
+                    copiedFret = note.fret.toInt()
+                    updateStatus("Copied NOTE • F" + copiedFret + " • TAB")
+                }
+                SelectionTarget.BEAT -> {
+                    val beat = requireTabSelection() ?: return
+                    selectionClipboardBeat = snapshotBeatForClipboard(beat)
+                    updateStatus("Copied BEAT • B" + (currentBarIndex + 1) + " • " + (currentBeatIndex + 1))
+                }
+                SelectionTarget.BAR -> {
+                    val bar = bars()?.getOrNull(currentBarIndex) ?: return
+                    selectionClipboardBar = snapshotBarForClipboard(bar)
+                    copiedBar = bar
+                    updateStatus("Copied BAR " + (currentBarIndex + 1) + " • TAB")
+                }
+            }
+        }
+
+        fun pasteCurrentSelectionFromUi() {
+            when (selectionTarget) {
+                SelectionTarget.NOTE -> {
+                    val src = selectionClipboardNote
+                    if (src == null) {
+                        val fret = copiedFret ?: run { updateStatus("Clipboard is empty"); return }
+                        writeFret(fret)
+                        return
+                    }
+                    val beat = requireTabSelection() ?: return
+                    pushUndoSnapshot()
+                    val target = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
+                    if (target == null) {
+                        beat.addNote(Note().apply {
+                            string = alphaTabString(currentStringIndex).toDouble()
+                            fret = src.fret
+                            isHammerPullOrigin = src.isHammerPullOrigin
+                            isPalmMute = src.isPalmMute
+                            isLetRing = src.isLetRing
+                            isGhost = src.isGhost
+                            isDead = src.isDead
+                            isStaccato = src.isStaccato
+                            vibrato = src.vibrato
+                            isLeftHandTapped = src.isLeftHandTapped
+                        })
+                    } else {
+                        target.fret = src.fret
+                        target.isHammerPullOrigin = src.isHammerPullOrigin
+                        target.isPalmMute = src.isPalmMute
+                        target.isLetRing = src.isLetRing
+                        target.isGhost = src.isGhost
+                        target.isDead = src.isDead
+                        target.isStaccato = src.isStaccato
+                        target.vibrato = src.vibrato
+                        target.isLeftHandTapped = src.isLeftHandTapped
+                    }
+                    beat.isEmpty = false
+                    beat.finish(score.settings, null)
+                    score.api.score?.finish(score.settings)
+                    renderAndLog("paste-note")
+                    updateStatus("Pasted NOTE • F" + src.fret.toInt() + " • TAB")
+                    onSelectionChanged?.invoke()
+                }
+                SelectionTarget.BEAT -> {
+                    val src = selectionClipboardBeat ?: run { updateStatus("No beat copied"); return }
+                    val target = requireTabSelection() ?: return
+                    pushUndoSnapshot()
+                    applyClipboardBeat(target, src)
+                    score.api.score?.finish(score.settings)
+                    renderAndLog("paste-beat")
+                    updateStatus("Pasted BEAT • B" + (currentBarIndex + 1) + " • " + (currentBeatIndex + 1))
+                    onSelectionChanged?.invoke()
+                }
+                SelectionTarget.BAR -> {
+                    val src = selectionClipboardBar ?: run { updateStatus("No bar copied"); return }
+                    val targetBar = bars()?.getOrNull(currentBarIndex) ?: return
+                    val voice = targetBar.voices.toList().getOrNull(currentVoiceIndex)
+                        ?: run { updateStatus("Selected bar has no target voice"); return }
+                    pushUndoSnapshot()
+                    val targets = voice.beats.toList()
+                    src.beats.forEachIndexed { i, beatSrc ->
+                        val target = targets.getOrNull(i)
+                        if (target != null) applyClipboardBeat(target, beatSrc)
+                        else voice.addBeat(Beat().also { applyClipboardBeat(it, beatSrc) })
+                    }
+                    score.api.score?.finish(score.settings)
+                    renderAndLog("paste-bar")
+                    updateStatus("Pasted BAR • " + (currentBarIndex + 1))
+                    onSelectionChanged?.invoke()
+                }
+            }
+        }
+
+        fun copyCurrentNoteFromUi() = copyCurrentSelectionFromUi()
+        fun pasteCurrentNoteFromUi() = pasteCurrentSelectionFromUi()
 
         private fun currentVoice(): alphaTab.model.Voice? =
             bars()?.getOrNull(currentBarIndex)?.voices?.toList()?.getOrNull(currentVoiceIndex)
@@ -3616,7 +3784,7 @@ class MainActivity : ComponentActivity() {
             // Kept for command compatibility. AlphaTab owns the playback cursor.
         }
         fun invalidateCaretOverlay(reason:String){ /* custom caret removed */ }
-        fun restoreCaretFromSession(){caret=session.caret;currentVoiceIndex=0;armed=true;pendingFret="";updateCursor();updateStatus()}
+        fun restoreCaretFromSession(){caret=session.caret;currentVoiceIndex=0;armed=true;pendingFret="";updateStatus()}
         fun rebuildBeatHitsAfterLayout(){buildBeatHits()}
         fun isDebugMode():Boolean=coordinateDebugEnabled
         fun setDebugModeFromUi(enabled:Boolean){coordinateDebugEnabled=enabled;buildBeatHits();updateDebugOverlay();updateStatus(if(enabled)"DEBUG ON • long-press title to disable" else "DEBUG OFF");refreshVisualCursor();logCoordinateDiagnostic("debug-toggle")}
@@ -3625,7 +3793,7 @@ class MainActivity : ComponentActivity() {
         fun logCoordinateDiagnostic(reason:String){try{val s=score.api.uiFacade.getScrollContainer();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol);android.util.Log.d("EARAM_SCROLL","reason="+reason+" scroller="+s.javaClass.name+" actualScroll="+s.scrollLeft+","+s.scrollTop+" scoreScroll="+score.scrollX+","+score.scrollY+" scoreLoc="+sl[0]+","+sl[1]+" overlayLoc="+ol[0]+","+ol[1]);val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val bar=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(caret.measureIndex);val bb=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)?.let{lookup.findBeat(it)};val mb=bar?.let{lookup.findMasterBar(it.masterBar)?.bars?.toList()?.firstOrNull{b->b.bar===bar}};android.util.Log.d("EARAM_SCROLL","raw barRect="+mb?.realBounds+" beatRect="+bb?.realBounds+" onNotesX="+bb?.onNotesX+" nativeCaretRect="+lastCaretRect+" parent=AlphaTab.selectionWrapper")}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","coordinate diagnostic failed",t)}}
         private fun updateDebugOverlay(){val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val staff=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?:return;val bars=staff.bars.toList().mapNotNull{bar->lookup.findMasterBar(bar.masterBar)?.bars?.toList()?.firstOrNull{it.bar===bar}?.realBounds?.let{RectF(it.x.toFloat(),it.y.toFloat(),(it.x+it.w).toFloat(),(it.y+it.h).toFloat())}};val sc=actualScrollOffsets();overlay.setDebugData(coordinateDebugEnabled,bars,"bar="+(caret.measureIndex+1)+" beat="+(caret.beatIndex+1)+" string="+caret.stringIndex+" cx="+(lastCaretPosition?.first?:-1f)+" cy="+(lastCaretPosition?.second?:-1f)+" scrollY="+sc.second);lastCaretRect?.let{r->val bb=currentBeat()?.let{score.api.renderer.boundsLookup?.findBeat(it)};val br=bb?.barBounds?.realBounds;if(bb!=null&&br!=null)updateDebugBanner(br.x.toDouble(),br.y.toDouble(),br.w.toDouble(),br.h.toDouble(),bb.onNotesX.toDouble(),r.left,r.top,r.right,r.bottom)}}
         private fun ensureCaretVisible(contentX:Float,contentY:Float){try{val s=score.api.uiFacade.getScrollContainer();val mx=(s.width*.12).coerceAtLeast(24.0);val my=(s.height*.10).coerceAtLeast(24.0);var x=s.scrollLeft;var y=s.scrollTop;if(contentX-x<mx)x=(contentX-mx).coerceAtLeast(0.0)else if(contentX-x>s.width-mx)x=(contentX-s.width+mx).coerceAtLeast(0.0);if(contentY-y<my)y=(contentY-my).coerceAtLeast(0.0)else if(contentY-y>s.height-my)y=(contentY-s.height+my).coerceAtLeast(0.0);s.scrollLeft=x;s.scrollTop=y}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","official scroll failed",t)}}
-        private fun updateCursor(){refreshVisualCursor()}
+        private fun updateCursor(){ /* AlphaTab owns selection/cursor rendering. */ }
 
         fun showTrackSelectorDialog() {
             val tracks = score.api.score?.tracks?.toList().orEmpty()
