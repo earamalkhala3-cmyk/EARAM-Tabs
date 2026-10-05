@@ -2041,7 +2041,6 @@ class MainActivity : ComponentActivity() {
                 barLongPressRunnable = null
                 barLongPressBeat = null
                 try {
-                    noteTouchSelectionPending = true
                     val song = score.api.score ?: return@on
                     val clickedTrack = note.beat.voice.bar.staff.track
                     val clickedTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
