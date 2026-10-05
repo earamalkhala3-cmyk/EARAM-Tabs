@@ -555,42 +555,6 @@ class MainActivity : ComponentActivity() {
         transport.addView(speed, LinearLayout.LayoutParams(dp(54f), dp(34f)).apply { leftMargin = dp(10f); rightMargin = dp(10f) })
         transport.addView(forward, LinearLayout.LayoutParams(dp(42f), dp(42f)))
 
-        val context = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16f), 0, dp(16f), 0)
-            setBackgroundColor(0xFF292C30.toInt())
-        }
-        val selection = TextView(this).apply {
-            text = "Bar 1  ·  Beat 1  ·  String —  ·  Fret —"
-            setTextColor(0xFFD7D5CE.toInt())
-            textSize = 11f
-            gravity = Gravity.CENTER_VERTICAL
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        val track = TextView(this).apply {
-            text = "♫ 1"
-            setTextColor(0xFFFF8A00.toInt())
-            textSize = 12f
-            gravity = Gravity.CENTER
-            isClickable = true
-            contentDescription = "Select track"
-            setOnClickListener { editor.showTrackSelectorDialog() }
-        }
-        val voice = TextView(this).apply {
-            text = "V1"
-            setTextColor(0xFFB9BABD.toInt())
-            textSize = 11f
-            gravity = Gravity.CENTER
-            isClickable = true
-            contentDescription = "Select voice"
-            setOnClickListener { editor.showVoiceSelectorDialog() }
-        }
-        context.addView(track, LinearLayout.LayoutParams(dp(42f), dp(38f)))
-        context.addView(voice, LinearLayout.LayoutParams(dp(40f), dp(38f)))
-        context.addView(selection, LinearLayout.LayoutParams(0, dp(38f), 1f))
-
         val navigation = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -730,14 +694,9 @@ class MainActivity : ComponentActivity() {
         editor.attachAlphaTabCursorLayer()
 
         fun refreshSelectionInfo() {
-            selection.text = editor.selectionInfoText()
             val selectedDuration = editor.currentBeatDuration()
             durationSelector.setDurationVisual(selectedDuration.first, selectedDuration.second)
             setActive(durationSelector, true)
-            track.text = "♫ " + (editor.currentTrackIndex + 1)
-            voice.text = "V" + (editor.currentVoiceIndex + 1)
-            setActive(track, true)
-            setActive(voice, true)
             session.caret = Caret(
                 editor.currentTrackIndex,
                 editor.currentBarIndex,
@@ -844,7 +803,6 @@ class MainActivity : ComponentActivity() {
 
         root.addView(header, LinearLayout.LayoutParams(-1, -2))
         header.requestApplyInsets()
-        root.addView(status, LinearLayout.LayoutParams(-1, dp(24f)))
         root.addView(transport, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(context, LinearLayout.LayoutParams(-1, dp(40f)))
         root.addView(navigation, LinearLayout.LayoutParams(-1, dp(48f)))
@@ -3614,23 +3572,6 @@ class MainActivity : ComponentActivity() {
                 else -> "♪"
             }
             return if (beat.dots.toInt() > 0) base + "." else base
-        }
-
-        fun selectionInfoText(): String {
-            val track = score.api.score?.tracks?.toList()?.getOrNull(currentTrackIndex)
-            val label = track?.name?.ifBlank { track.shortName }?.ifBlank { "Track " + (currentTrackIndex + 1) }
-                ?: "Track " + (currentTrackIndex + 1)
-            return "♫" + (currentTrackIndex + 1) + " " + label +
-                "  ·  B" + (selectedBarIndex + 1) +
-                "  ·  V" + (currentVoiceIndex + 1) +
-                "  ·  b" + (currentBeatIndex + 1) +
-                "  ·  S" + currentStringIndex +
-                "  ·  F" + currentFretLabel() +
-                "  ·  " + when (selectionTarget) {
-                    SelectionTarget.NOTE -> "NOTE"
-                    SelectionTarget.BEAT -> "BEAT"
-                    SelectionTarget.BAR -> "BAR"
-                }
         }
 
         private fun moveBeat(delta: Int) {
