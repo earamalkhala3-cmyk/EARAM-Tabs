@@ -2020,8 +2020,10 @@ class MainActivity : ComponentActivity() {
                         barDownY = event.y
 
                         barLongPressRunnable = Runnable {
-                            val hit = hitTest(barDownX, barDownY)
-                            val index = hit?.measure ?: -1
+                            // BAR selection is resolved from the exact AlphaTab-rendered
+                            // MasterBar/Bar bounds at the moment the hold expires.
+                            // Do not infer a bar from a Beat hit or from the nearest beat.
+                            val index = hitRenderedBarAtPoint(barDownX, barDownY)
                             if (index >= 0) {
                                 barLongPressActivated = true
                                 selectionTarget = SelectionTarget.BAR
@@ -2030,7 +2032,8 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 android.util.Log.d(
                                     "EARAM_BAR_SELECTION",
-                                    "long press did not hit rendered TAB • x=" + barDownX + " y=" + barDownY
+                                    "long press rejected: point is outside every rendered bar • x=" +
+                                        barDownX + " y=" + barDownY
                                 )
                             }
                         }.also { activity.window.decorView.postDelayed(it, 500L) }
@@ -2279,6 +2282,64 @@ class MainActivity : ComponentActivity() {
             } catch (t: Throwable) {
                 beatHits.clear()
                 android.util.Log.e("EARAM_CARET", "buildBeatHits failed", t)
+            }
+        }
+
+        /**
+         * Exact measure hit-test for the long-press BAR action.
+         *
+         * The coordinates come from the Android AlphaTabView touch event. AlphaTab's
+         * renderer bounds are layout-space coordinates, so we convert the touch point
+         * into that same coordinate system using the real AlphaTab scroll container.
+         *
+         * There is intentionally NO nearest-bar/nearest-beat fallback: if the point is
+         * outside the rendered Bar rectangle, the long press is rejected.
+         */
+        private fun hitRenderedBarAtPoint(x: Float, y: Float): Int {
+            return try {
+                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                val scroll = actualScrollOffsetsLayout()
+                val contentX = x / d + scroll.first
+                val contentY = y / d + scroll.second
+
+                val song = score.api.score ?: return -1
+                val staff = song.tracks.toList()
+                    .getOrNull(currentTrackIndex)
+                    ?.staves
+                    ?.firstOrNull() ?: return -1
+                val lookup = score.api.renderer.boundsLookup ?: return -1
+
+                staff.bars.toList().forEachIndexed { index, bar ->
+                    val masterBounds = lookup.findMasterBar(bar.masterBar) ?: return@forEachIndexed
+                    val barBounds = masterBounds.bars.toList()
+                        .firstOrNull { it.bar === bar } ?: return@forEachIndexed
+
+                    val left = barBounds.realBounds.x.toDouble()
+                    val top = barBounds.realBounds.y.toDouble()
+                    val right = left + barBounds.realBounds.w.toDouble()
+                    val bottom = top + barBounds.realBounds.h.toDouble()
+
+                    if (contentX.toDouble() >= left &&
+                        contentX.toDouble() <= right &&
+                        contentY.toDouble() >= top &&
+                        contentY.toDouble() <= bottom
+                    ) {
+                        android.util.Log.d(
+                            "EARAM_BAR_SELECTION",
+                            "EXACT BAR HIT index=" + (index + 1) +
+                                " touchPx=" + x + "," + y +
+                                " content=" + contentX + "," + contentY +
+                                " bounds=" + left + "," + top + "," + right + "," + bottom +
+                                " density=" + d +
+                                " scrollLayout=" + scroll.first + "," + scroll.second
+                        )
+                        return index
+                    }
+                }
+                -1
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_BAR_SELECTION", "exact bar hit-test failed", t)
+                -1
             }
         }
 
