@@ -802,6 +802,7 @@ class MainActivity : ComponentActivity() {
         }
 
         root.addView(header, LinearLayout.LayoutParams(-1, -2))
+        root.addView(status, LinearLayout.LayoutParams(-1, dp(24f)))
         header.requestApplyInsets()
         root.addView(transport, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(context, LinearLayout.LayoutParams(-1, dp(40f)))
