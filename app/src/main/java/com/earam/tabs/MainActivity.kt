@@ -1745,6 +1745,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private data class ClipboardNote(
+        val string: Double, val fret: Double,
+        val isHammerPullOrigin: Boolean, val isPalmMute: Boolean,
+        val isLetRing: Boolean, val isGhost: Boolean, val isDead: Boolean,
+        val isStaccato: Boolean, val vibrato: alphaTab.model.VibratoType,
+        val isLeftHandTapped: Boolean
+    )
+
+    private data class ClipboardBeat(
+        val duration: Duration, val dots: Double,
+        val tupletNumerator: Double, val tupletDenominator: Double,
+        val isEmpty: Boolean, val notes: List<ClipboardNote>,
+        val slap: Boolean, val pop: Boolean, val tap: Boolean,
+        val deadSlapped: Boolean, val fadeIn: Boolean, val slashed: Boolean,
+        val showTimer: Boolean, val text: String?
+    )
+
+    private data class ClipboardBar(
+        val beats: List<ClipboardBeat>, val timeNumerator: Int, val timeDenominator: Int
+    )
+
     private class BeatSnapshot(
         val barIndex: Int,
         val voiceIndex: Int,
@@ -1779,24 +1800,6 @@ class MainActivity : ComponentActivity() {
             private set
         private var copiedFret: Int? = null
         private var copiedBar: Bar? = null
-        private data class ClipboardNote(
-            val string: Double, val fret: Double,
-            val isHammerPullOrigin: Boolean, val isPalmMute: Boolean,
-            val isLetRing: Boolean, val isGhost: Boolean, val isDead: Boolean,
-            val isStaccato: Boolean, val vibrato: alphaTab.model.VibratoType,
-            val isLeftHandTapped: Boolean
-        )
-        private data class ClipboardBeat(
-            val duration: Duration, val dots: Double,
-            val tupletNumerator: Double, val tupletDenominator: Double,
-            val isEmpty: Boolean, val notes: List<ClipboardNote>,
-            val slap: Boolean, val pop: Boolean, val tap: Boolean,
-            val deadSlapped: Boolean, val fadeIn: Boolean, val slashed: Boolean,
-            val showTimer: Boolean, val text: String?
-        )
-        private data class ClipboardBar(
-            val beats: List<ClipboardBeat>, val timeNumerator: Int, val timeDenominator: Int
-        )
         private var selectionClipboardNote: ClipboardNote? = null
         private var selectionClipboardBeat: ClipboardBeat? = null
         private var selectionClipboardBar: ClipboardBar? = null
