@@ -2002,9 +2002,19 @@ class MainActivity : ComponentActivity() {
             // We only add a long-press command on top of beatMouseDown.
             var barLongPressRunnable: Runnable? = null
             var barLongPressBeat: alphaTab.model.Beat? = null
+            var barLongPressActivated = false
+
+            fun cancelBarLongPress() {
+                barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+                barLongPressRunnable = null
+                barLongPressBeat = null
+                if (!barLongPressActivated) return
+                barLongPressActivated = false
+            }
 
             score.api.beatMouseDown.on { beat ->
-                barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+                cancelBarLongPress()
+                barLongPressActivated = false
                 barLongPressBeat = beat
                 barLongPressRunnable = Runnable {
                     val selected = barLongPressBeat ?: return@Runnable
@@ -2012,11 +2022,13 @@ class MainActivity : ComponentActivity() {
                     val staff = bar.staff
                     val index = staff.bars.toList().indexOf(bar)
                     if (index >= 0) {
+                        barLongPressActivated = true
                         selectionTarget = SelectionTarget.BAR
                         selectBarFromUi(index)
-                        updateStatus("TAB BAR SELECTED • BAR " + (index + 1))
+                        updateStatus("TAB BAR SELECTED • BAR " + (index + 1) + " • HOLD TARGET LOCKED")
                     }
                 }.also { activity.window.decorView.postDelayed(it, 500L) }
+
                 try {
                     val song = score.api.score ?: return@on
                     val clickedTrack = beat.voice.bar.staff.track
@@ -2053,10 +2065,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // AlphaTab emits beatMouseUp even when the pointer is released elsewhere after
+            // a beat press. A quick tap cancels the bar timer; a true long-press preserves
+            // the BAR target and reapplies its official selection highlight after AlphaTab's
+            // own mouse-up handling has run.
+            score.api.beatMouseUp.on {
+                val wasBarSelection = barLongPressActivated
+                cancelBarLongPress()
+                if (wasBarSelection) {
+                    activity.window.decorView.post {
+                        if (selectionTarget == SelectionTarget.BAR) {
+                            highlightSelectedBar()
+                            updateStatus("TAB BAR SELECTED • BAR " + (selectedBarIndex + 1) + " • BAR ACTIONS READY")
+                        }
+                    }
+                    barLongPressActivated = true
+                }
+            }
+
             score.api.noteMouseDown.on { note ->
-                barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
-                barLongPressRunnable = null
-                barLongPressBeat = null
+                // Do NOT cancel the long-press timer here. noteMouseDown and beatMouseDown
+                // can both fire for the same TAB number. Release is handled centrally above,
+                // so holding directly on a fret can still promote the containing bar.
                 try {
                     val song = score.api.score ?: return@on
                     val clickedTrack = note.beat.voice.bar.staff.track
@@ -3883,17 +3913,21 @@ class MainActivity : ComponentActivity() {
 
         fun selectBarFromUi(index: Int) {
             val bs = bars() ?: return
-            selectionTarget = SelectionTarget.BAR
             if (index !in bs.indices) return
+
             val beats = bs[index].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-            val targetBeat = if (beats.isEmpty()) 0 else currentBeatIndex.coerceIn(0, beats.lastIndex)
-            caret = caret.copy(measureIndex = index, beatIndex = targetBeat)
+            val selectedBeat = beats.firstOrNull()
+
+            // A BAR target is a real measure target, not just the current beat index.
+            // Always anchor it to beat 1 so every bar command resolves deterministically
+            // against this exact measure.
+            selectionTarget = SelectionTarget.BAR
+            caret = caret.copy(measureIndex = index, beatIndex = 0)
             session.caret = caret
             armed = true
             pendingFret = ""
-            // Selecting a measure also seeks playback to that measure.
-            // Play/Pause will therefore start from the selected measure.
-            val selectedBeat = beats.getOrNull(currentBeatIndex)
+
+            // Selecting a measure also seeks playback to the beginning of that measure.
             if (selectedBeat != null) {
                 try {
                     score.api.stop()
@@ -3901,9 +3935,33 @@ class MainActivity : ComponentActivity() {
                     session.tickPosition = score.api.tickPosition
                 } catch (_: Throwable) { }
             }
+
+            highlightSelectedBar()
             updateCursor()
-            updateStatus("TAB BAR SELECTED • BAR " + (selectedBarIndex + 1) + " • Beat " + (currentBeatIndex + 1))
+            updateStatus("TAB BAR SELECTED • BAR " + (selectedBarIndex + 1) + " • BAR ACTIONS READY")
             onSelectionChanged?.invoke()
+        }
+
+        private fun highlightSelectedBar() {
+            try {
+                val bar = bars()?.getOrNull(selectedBarIndex) ?: return
+                val beats = bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+                val first = beats.firstOrNull() ?: return
+                val last = beats.lastOrNull() ?: first
+                // Official AlphaTab selection API: highlight the real beat range that spans
+                // the whole selected measure. No coordinate overlay is involved.
+                score.api.highlightPlaybackRange(first, last)
+                android.util.Log.d(
+                    "EARAM_BAR_SELECTION",
+                    "BAR selected index=" + selectedBarIndex +
+                        " voice=" + currentVoiceIndex +
+                        " beats=" + beats.size +
+                        " first=" + first.absolutePlaybackStart +
+                        " last=" + last.absolutePlaybackStart
+                )
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_BAR_SELECTION", "bar highlight failed", t)
+            }
         }
 
         fun playCurrentBeatFromUi() {
