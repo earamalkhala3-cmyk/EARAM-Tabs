@@ -2918,12 +2918,14 @@ class MainActivity : ComponentActivity() {
         }
 
         fun duplicateCurrentBarToEndFromUi() {
-            pushUndoSnapshot()
             try {
                 val song = score.api.score ?: return
-                val sourceMaster = song.masterBars.toList().getOrNull(selectedBarIndex)
-                    ?: throw IllegalStateException("No current measure")
                 val sourceIndex = selectedBarIndex
+                val sourceMaster = song.masterBars.toList().getOrNull(sourceIndex)
+                    ?: throw IllegalStateException("No selected measure")
+
+                // Duplicate immediately AFTER the selected measure, not at song end.
+                // The selected BAR is the source of truth for this command.
                 val newMaster = MasterBar().apply {
                     timeSignatureNumerator = sourceMaster.timeSignatureNumerator
                     timeSignatureDenominator = sourceMaster.timeSignatureDenominator
@@ -2934,58 +2936,74 @@ class MainActivity : ComponentActivity() {
                     isRepeatStart = false
                     isDoubleBar = false
                 }
-                song.addMasterBar(newMaster)
+
+                pushUndoSnapshot()
+                song.masterBars.splice((sourceIndex + 1).toDouble(), 0.0, newMaster)
 
                 for (track in song.tracks.toList()) {
                     for (staff in track.staves.toList()) {
                         val sourceBar = staff.bars.toList().getOrNull(sourceIndex)
                             ?: continue
-                        staff.addBar(cloneBarForScore(sourceBar, newMaster))
+                        val clone = cloneBarForScore(sourceBar, newMaster)
+                        staff.bars.splice((sourceIndex + 1).toDouble(), 0.0, clone)
                     }
                 }
 
                 song.finish(score.settings)
                 caret = caret.copy(
-                    measureIndex = song.masterBars.toList().lastIndex,
+                    measureIndex = sourceIndex + 1,
                     beatIndex = 0,
                     stringIndex = 1
                 )
                 session.caret = caret
+                selectionTarget = SelectionTarget.BAR
                 armed = true
                 pendingFret = ""
                 renderAndLog("duplicate-bar")
+                highlightSelectedBar()
                 updateCursor()
                 onSelectionChanged?.invoke()
-                updateStatus("Duplicated bar " + (sourceIndex + 1) + " → bar " + (selectedBarIndex + 1))
+                updateStatus("Duplicated BAR " + (sourceIndex + 1) + " → BAR " + (selectedBarIndex + 1))
             } catch (t: Throwable) {
                 updateStatus("Duplicate bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
         }
 
         fun clearCurrentBarFromUi() {
-            pushUndoSnapshot()
             try {
                 val song = score.api.score ?: return
                 val index = selectedBarIndex
-                val track = song.tracks.toList().getOrNull(currentTrackIndex)
-                    ?: throw IllegalStateException("No current track")
-                var cleared = 0
-                for (staff in track.staves.toList()) {
-                    val bar = staff.bars.toList().getOrNull(index) ?: continue
-                    for (voice in bar.voices.toList()) {
-                        for (beat in voice.beats.toList()) {
-                            for (note in beat.notes.toList()) beat.removeNote(note)
-                            beat.isEmpty = true
-                            beat.finish(score.settings, null)
-                        }
-                    }
-                    cleared++
+                if (song.masterBars.toList().getOrNull(index) == null) {
+                    updateStatus("No selected measure")
+                    return
                 }
+
+                pushUndoSnapshot()
+                var cleared = 0
+                // A measure belongs to the score, so clear that measure across every track.
+                for (track in song.tracks.toList()) {
+                    for (staff in track.staves.toList()) {
+                        val bar = staff.bars.toList().getOrNull(index) ?: continue
+                        for (voice in bar.voices.toList()) {
+                            for (beat in voice.beats.toList()) {
+                                for (note in beat.notes.toList()) beat.removeNote(note)
+                                beat.isEmpty = true
+                                beat.finish(score.settings, null)
+                            }
+                        }
+                        cleared++
+                    }
+                }
+
                 song.finish(score.settings)
+                selectionTarget = SelectionTarget.BAR
+                caret = caret.copy(measureIndex = index, beatIndex = 0)
+                session.caret = caret
                 renderAndLog("clear-bar")
+                highlightSelectedBar()
                 updateCursor()
                 onSelectionChanged?.invoke()
-                updateStatus("Selected bar " + (index + 1) + " cleared • " + cleared + " staff(s)")
+                updateStatus("Cleared BAR " + (index + 1) + " • " + cleared + " staff(s)")
             } catch (t: Throwable) {
                 updateStatus("Clear bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
