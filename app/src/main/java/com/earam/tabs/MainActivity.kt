@@ -518,7 +518,6 @@ class MainActivity : ComponentActivity() {
             textSize = 16f
             setOnClickListener {
                 score.api.stop()
-                editor.hidePlaybackCursor()
                 setActive(play, false)
             }
         }
@@ -683,12 +682,10 @@ class MainActivity : ComponentActivity() {
 
         score = AlphaTabView(this, null).apply {
             setBackgroundColor(0xFFFFFEFB.toInt())
-            // Earam owns the two editor markers in one Android overlay:
-            // playback = translucent orange line; caret = hollow yellow square.
-            // AlphaTab's native beat/bar cursor is fully transparent so it cannot
-            // introduce a second full-height yellow line.
-            beatCursorFillColor = 0x00000000
-            barCursorFillColor = 0x00000000
+            // The score itself owns playback cursor rendering. There is no Earam caret
+            // overlay and no second coordinate system over the TAB.
+            // AlphaTab's beat cursor is the playback marker; the editor selection
+            // is represented by the selected Score Beat/Note in the model.
             selectionFillColor = 0x00000000
             settings.display.layoutMode = LayoutMode.Page
             settings.display.staveProfile = StaveProfile.ScoreTab
@@ -705,9 +702,8 @@ class MainActivity : ComponentActivity() {
             settings.player.enablePlayer = true
             settings.player.enableUserInteraction = true
             settings.player.enableCursor = true
-            // The editor caret uses AlphaTab's official beat cursor geometry.
-            // Keep it static while editing so the cursor is never positioned by a
-            // second coordinate system or an overlay.
+            // Let AlphaTab own playback cursor placement and scrolling. Editing selection
+            // is model-based and must not be painted by a separate caret overlay.
             settings.player.enableAnimatedBeatCursor = false
             settings.player.enableElementHighlighting = false
             settings.player.bufferTimeInMilliseconds = 1000.0
@@ -724,20 +720,12 @@ class MainActivity : ComponentActivity() {
             clipChildren = false
             clipToPadding = false
         }
-        val editorOverlay = TabEditOverlayView(this).apply {
-            isEnabled = false
-            isClickable = false
-            isFocusable = false
-            elevation = dp(20f).toFloat()
-            clipToOutline = false
-        }
+        // The TAB is the complete editing surface. No Android caret/marker overlay
+        // is placed above it; AlphaTab receives and resolves the actual touch target.
         scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
-        scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
-        editorOverlay.bringToFront()
+        val editorOverlay = TabEditOverlayView(this)
         editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
         noteEditor = editor
-        editorOverlay.setScrollProvider { editor.actualScrollOffsets() }
-        editorOverlay.setContentOriginProvider { editor.alphaTabContentOriginInOverlay() }
         editor.attach()
         editor.attachAlphaTabCursorLayer()
 
@@ -762,12 +750,9 @@ class MainActivity : ComponentActivity() {
         score.api.postRenderFinished.on {
             runOnUiThread {
                 try {
-                    android.util.Log.d("EARAM_CARET", "postRenderFinished: rebuilding beatHits before caret draw")
-                    editor.rebuildBeatHitsAfterLayout()
-                    editor.refreshVisualCursor()
-                    editor.invalidateCaretOverlay("postRenderFinished")
+                    // AlphaTab owns the rendered page and playback cursor. There is
+                    // intentionally no custom caret/coordinate redraw here.
                     editor.logRenderState()
-                    editor.logCoordinateDiagnostic("postRenderFinished")
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_RENDER", "post-render editor overlay failed", t)
                     // Rendering the score must never be allowed to terminate the Activity.
@@ -835,12 +820,12 @@ class MainActivity : ComponentActivity() {
             )
             runOnUiThread {
                 status.text = "PLAYED BEAT • tick=${tick.toLong()}"
-                editor.logOfficialPlaybackCursor(playedBeat)
+                // Playback cursor placement is handled by AlphaTab itself.
             }
         }
 
         score.api.playerFinished.on {
-            runOnUiThread { editor.hidePlaybackCursor() }
+            // AlphaTab removes/moves its own playback cursor when playback finishes.
         }
 
         score.api.playerStateChanged.on {
@@ -1942,12 +1927,12 @@ class MainActivity : ComponentActivity() {
         private var lastRawCaretY = Float.NaN
         fun alphaTabContentOriginInOverlay(): Pair<Float, Float> { return try { val sl=IntArray(2); val ol=IntArray(2); score.getLocationOnScreen(sl); overlay.getLocationOnScreen(ol); Pair((sl[0]-ol[0]).toFloat(),(sl[1]-ol[1]).toFloat()) } catch(t:Throwable){ 0f to 0f } }
         fun attachAlphaTabCursorLayer() {
-            // Deliberately do not attach AlphaTab's native cursor container here.
-            // The native beat cursor is transparent; Earam draws the caret and
-            // playback marker together in TabEditOverlayView so both use the same
-            // content-coordinate/scroll pipeline.
+            // AlphaTab is the sole owner of playback cursor geometry.
+            // There is deliberately no Earam caret layer.
             alphaTabCaret = null
-            android.util.Log.i("EARAM_ALPHA_CURSOR", "native AlphaTab cursor disabled; Earam overlay owns markers")
+            score.settings.player.enableCursor = true
+            score.settings.player.enableAnimatedBeatCursor = false
+            android.util.Log.i("EARAM_ALPHA_CURSOR", "AlphaTab native playback cursor enabled; custom caret removed")
         }
         fun setCiTestCaret(){caret=Caret(0,0,0,2);session.caret=caret;currentVoiceIndex=0;armed=true;pendingFret="";updateCursor()}
         private var armed = false
@@ -3628,11 +3613,9 @@ class MainActivity : ComponentActivity() {
         }
         fun showPlaybackBeat(playedBeat:Beat)=logOfficialPlaybackCursor(playedBeat)
         fun hidePlaybackCursor(){
-            // Keep the yellow caret visible after playback; only the transient
-            // orange playback line is removed.
-            overlay.hidePlaybackCursor()
+            // Kept for command compatibility. AlphaTab owns the playback cursor.
         }
-        fun invalidateCaretOverlay(reason:String){android.util.Log.d("EARAM_ALPHA_CURSOR","native caret refresh "+reason);refreshVisualCursor()}
+        fun invalidateCaretOverlay(reason:String){ /* custom caret removed */ }
         fun restoreCaretFromSession(){caret=session.caret;currentVoiceIndex=0;armed=true;pendingFret="";updateCursor();updateStatus()}
         fun rebuildBeatHitsAfterLayout(){buildBeatHits()}
         fun isDebugMode():Boolean=coordinateDebugEnabled
