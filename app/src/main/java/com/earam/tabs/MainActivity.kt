@@ -2693,6 +2693,9 @@ class MainActivity : ComponentActivity() {
                     copiedBar = bar
                     updateStatus("Copied BAR " + (currentBarIndex + 1) + " • TAB")
                 }
+                SelectionTarget.RANGE -> {
+                    updateStatus("NOTE RANGE SELECTED")
+                }
             }
         }
 
@@ -3646,6 +3649,34 @@ class MainActivity : ComponentActivity() {
         fun deleteCurrentNoteFromUi() {
             when (selectionTarget) {
                 SelectionTarget.BAR -> clearCurrentBarFromUi()
+                SelectionTarget.RANGE -> {
+                    val a = selectionAnchorBeat ?: return
+                    val b = selectionFocusBeat ?: return
+                    val lo = minOf(a.absolutePlaybackStart, b.absolutePlaybackStart)
+                    val hi = maxOf(a.absolutePlaybackStart, b.absolutePlaybackStart)
+                    val song = score.api.score ?: return
+                    pushUndoSnapshot()
+                    for (track in song.tracks.toList()) {
+                        for (staff in track.staves.toList()) {
+                            for (bar in staff.bars.toList()) {
+                                for (voice in bar.voices.toList()) {
+                                    for (beat in voice.beats.toList()) {
+                                        val t = beat.absolutePlaybackStart
+                                        if (t >= lo && t <= hi) {
+                                            beat.notes.toList().forEach { beat.removeNote(it) }
+                                            beat.isEmpty = true
+                                            beat.finish(score.settings, null)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    song.finish(score.settings)
+                    clearManualSelection()
+                    renderAndLog("delete-selection")
+                    onSelectionChanged?.invoke()
+                }
                 SelectionTarget.NOTE,
                 SelectionTarget.BEAT -> deleteCurrentNote()
             }
