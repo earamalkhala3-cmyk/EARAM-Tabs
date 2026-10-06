@@ -2126,12 +2126,25 @@ class MainActivity : ComponentActivity() {
                 try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
             }
 
+            // Range selection must follow BEATS, not only note hitboxes.
+            // noteMouseMove can stop firing as soon as the finger leaves the
+            // original fret/number hitbox. beatMouseMove continues across the
+            // rendered rhythmic cells, which is what a manual Guitar-Pro-style
+            // range selection needs.
+            score.api.beatMouseMove.on { beat ->
+                if (selectionDragActive) updateManualRangeSelection(beat)
+            }
+
             score.api.noteMouseMove.on { note ->
                 if (selectionDragActive) updateManualRangeSelection(note.beat)
             }
 
+            score.api.beatMouseUp.on {
+                if (selectionDragActive) finishManualRangeSelection()
+            }
+
             score.api.noteMouseUp.on {
-                finishManualRangeSelection()
+                if (selectionDragActive) finishManualRangeSelection()
             }
 
             score.api.beatMouseDown.on { beat ->
