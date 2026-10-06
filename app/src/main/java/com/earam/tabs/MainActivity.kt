@@ -2110,25 +2110,16 @@ class MainActivity : ComponentActivity() {
                             manualTouchDown = false
                             manualTouchMoved = false
                             cancelBarLongPress()
-                            val destinationBeat = hitRangeBeatAtPoint(event.x, event.y)
-                            if (destinationBeat != null) {
-                                var destinationMeasure = -1
-                                var destinationBeatIndex = -1
-                                val staff = score.api.score?.tracks?.toList()
+                            val destination = resolvePasteDestinationAtPoint(event.x, event.y)
+                            if (destination != null) {
+                                val destinationMeasure = destination.first
+                                val destinationBeat = destination.second
+                                val destinationBeatIndex = score.api.score?.tracks?.toList()
                                     ?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()
-                                if (staff != null) {
-                                    outer@ for ((mi, bar) in staff.bars.toList().withIndex()) {
-                                        val voice = bar.voices.toList().getOrNull(currentVoiceIndex) ?: continue
-                                        for ((bi, beat) in voice.beats.toList().withIndex()) {
-                                            if (beat === destinationBeat) {
-                                                destinationMeasure = mi
-                                                destinationBeatIndex = bi
-                                                break@outer
-                                            }
-                                        }
-                                    }
-                                }
-                                if (destinationMeasure >= 0 && destinationBeatIndex >= 0) {
+                                    ?.bars?.toList()?.getOrNull(destinationMeasure)
+                                    ?.voices?.toList()?.getOrNull(currentVoiceIndex)
+                                    ?.beats?.toList()?.indexOfFirst { it === destinationBeat } ?: -1
+                                if (destinationBeatIndex >= 0) {
                                     caret = Caret(currentTrackIndex, destinationMeasure, destinationBeatIndex, currentStringIndex)
                                     session.caret = caret
                                     pasteDestinationCaret = caret
@@ -2499,6 +2490,70 @@ class MainActivity : ComponentActivity() {
 
         // Manual range selection needs a forgiving finger target. Resolve against the
         // entire rendered Beat rectangle rather than only the six TAB string lines.
+        // Paste destination hit-test is intentionally BAR-first. A rendered TAB page
+        // can contain systems/bounds that are not reliable beat hit targets after scrolling.
+        // The measure itself is the authoritative destination; once its bar is known,
+        // choose the beat whose rendered bounds contain the tap, otherwise use beat 0.
+        private fun resolvePasteDestinationAtPoint(x: Float, y: Float): Pair<Int, Beat>? {
+            return try {
+                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                val scroll = actualScrollOffsetsLayout()
+                val contentX = x / d + scroll.first
+                val contentY = y / d + scroll.second
+                val song = score.api.score ?: return null
+                val staff = song.tracks.toList().getOrNull(currentTrackIndex)
+                    ?.staves?.firstOrNull() ?: return null
+                val lookup = score.api.renderer.boundsLookup ?: return null
+
+                var targetBarIndex = -1
+                var targetBar: alphaTab.model.Bar? = null
+                for ((mi, bar) in staff.bars.toList().withIndex()) {
+                    val mb = lookup.findMasterBar(bar.masterBar) ?: continue
+                    val bb = mb.bars.toList().firstOrNull { it.bar === bar } ?: continue
+                    val r = bb.realBounds
+                    if (contentX >= r.x.toDouble() &&
+                        contentX <= (r.x + r.w).toDouble() &&
+                        contentY >= r.y.toDouble() &&
+                        contentY <= (r.y + r.h).toDouble()) {
+                        targetBarIndex = mi
+                        targetBar = bar
+                        break
+                    }
+                }
+                val bar = targetBar ?: return null
+                val beats = bar.voices.toList().getOrNull(currentVoiceIndex)
+                    ?.beats?.toList().orEmpty()
+                if (beats.isEmpty()) return null
+
+                var targetBeat = beats.first()
+                for (beat in beats) {
+                    val b = lookup.findBeat(beat) ?: continue
+                    val r = b.realBounds
+                    if (contentX >= r.x.toDouble() &&
+                        contentX <= (r.x + r.w).toDouble() &&
+                        contentY >= r.y.toDouble() &&
+                        contentY <= (r.y + r.h).toDouble()) {
+                        targetBeat = beat
+                        break
+                    }
+                }
+
+                val beatIndex = beats.indexOfFirst { it === targetBeat }.coerceAtLeast(0)
+                android.util.Log.d(
+                    "EARAM_PASTE",
+                    "DESTINATION BAR HIT bar=" + (targetBarIndex + 1) +
+                        " beat=" + (beatIndex + 1) +
+                        " content=" + contentX + "," + contentY +
+                        " beatsInBar=" + beats.size +
+                        " scrollLayout=" + scroll.first + "," + scroll.second
+                )
+                Pair(targetBarIndex, targetBeat)
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_PASTE", "bar-first destination hit failed", t)
+                null
+            }
+        }
+
         private fun hitRangeBeatAtPoint(x: Float, y: Float): Beat? {
             return try {
                 val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
