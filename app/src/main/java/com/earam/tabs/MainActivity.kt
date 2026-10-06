@@ -1819,6 +1819,9 @@ class MainActivity : ComponentActivity() {
         // After copying a range, the NEXT real TAB tap is an explicit paste destination.
         // This prevents the source selection from being reused as the destination.
         private var awaitingPasteDestination = false
+        // True while the post-Copy destination tap gesture is being consumed.
+        // Prevents MOVE/UP from falling back into normal range-selection logic.
+        private var pasteDestinationTouchActive = false
         var onSelectionChanged: (() -> Unit)? = null
 
         /**
@@ -2103,6 +2106,10 @@ class MainActivity : ComponentActivity() {
                         // After Copy RANGE, the next tap is exclusively the paste destination.
                         // Do not let the normal selection handler consume it.
                         if (awaitingPasteDestination) {
+                            pasteDestinationTouchActive = true
+                            manualTouchDown = false
+                            manualTouchMoved = false
+                            cancelBarLongPress()
                             val destinationBeat = hitRangeBeatAtPoint(event.x, event.y)
                             if (destinationBeat != null) {
                                 var destinationMeasure = -1
@@ -2183,6 +2190,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     android.view.MotionEvent.ACTION_MOVE -> {
+                        if (pasteDestinationTouchActive) return@setOnTouchListener true
                         if (!manualTouchDown || barLongPressActivated) return@setOnTouchListener true
 
                         val slop = android.view.ViewConfiguration.get(score.context).scaledTouchSlop
@@ -2209,6 +2217,13 @@ class MainActivity : ComponentActivity() {
 
                     android.view.MotionEvent.ACTION_UP,
                     android.view.MotionEvent.ACTION_CANCEL -> {
+                        if (pasteDestinationTouchActive) {
+                            pasteDestinationTouchActive = false
+                            manualTouchDown = false
+                            manualTouchMoved = false
+                            cancelBarLongPress()
+                            return@setOnTouchListener true
+                        }
                         val wasBarSelection = barLongPressActivated
                         val wasMoved = manualTouchMoved
                         manualTouchDown = false
