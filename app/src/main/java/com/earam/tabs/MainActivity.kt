@@ -52,7 +52,7 @@ data class Caret(
     val stringIndex: Int
 )
 
-private enum class SelectionTarget { NOTE, BEAT, BAR }
+private enum class SelectionTarget { NOTE, BEAT, BAR, RANGE }
 
 data class BeatHit(
     val measure: Int,
@@ -1789,6 +1789,10 @@ class MainActivity : ComponentActivity() {
 
         // The TAB is the editor surface. Commands always resolve against its current target.
         private var selectionTarget: SelectionTarget = SelectionTarget.BEAT
+        private var selectionAnchorBeat: alphaTab.model.Beat? = null
+        private var selectionFocusBeat: alphaTab.model.Beat? = null
+        private var selectionDragActive = false
+        private var selectionDragMoved = false
 
         val currentBarIndex: Int get() = caret.measureIndex
         val selectedBarIndex: Int get() = caret.measureIndex
@@ -2073,6 +2077,63 @@ class MainActivity : ComponentActivity() {
                 false
             }
 
+            fun beginManualRangeSelection(beat: alphaTab.model.Beat) {
+                selectionAnchorBeat = beat
+                selectionFocusBeat = beat
+                selectionDragActive = true
+                selectionDragMoved = false
+                selectionTarget = SelectionTarget.BEAT
+            }
+
+            fun updateManualRangeSelection(beat: alphaTab.model.Beat) {
+                val anchor = selectionAnchorBeat ?: return
+                if (!selectionDragActive) return
+                selectionDragMoved = true
+                selectionFocusBeat = beat
+                selectionTarget = SelectionTarget.RANGE
+                try {
+                    score.api.highlightPlaybackRange(anchor, beat)
+                    updateStatus("NOTE SELECTION")
+                    onSelectionChanged?.invoke()
+                } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_SELECTION", "range highlight failed", t)
+                }
+            }
+
+            fun finishManualRangeSelection() {
+                if (!selectionDragActive) return
+                val anchor = selectionAnchorBeat
+                val focus = selectionFocusBeat
+                val moved = selectionDragMoved
+                selectionDragActive = false
+                selectionDragMoved = false
+                if (!moved || anchor == null || focus == null) {
+                    selectionAnchorBeat = null
+                    selectionFocusBeat = null
+                    return
+                }
+                selectionTarget = SelectionTarget.RANGE
+                updateStatus("NOTES SELECTED")
+                onSelectionChanged?.invoke()
+            }
+
+            fun clearManualSelection() {
+                selectionAnchorBeat = null
+                selectionFocusBeat = null
+                selectionDragActive = false
+                selectionDragMoved = false
+                if (selectionTarget == SelectionTarget.RANGE) selectionTarget = SelectionTarget.BEAT
+                try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
+            }
+
+            score.api.noteMouseMove.on { note ->
+                if (selectionDragActive) updateManualRangeSelection(note.beat)
+            }
+
+            score.api.noteMouseUp.on {
+                finishManualRangeSelection()
+            }
+
             score.api.beatMouseDown.on { beat ->
                 try {
                     val song = score.api.score ?: return@on
@@ -2128,6 +2189,7 @@ class MainActivity : ComponentActivity() {
                     val uiString = (maxStringIndex() + 1 - note.string.toInt()).coerceIn(1, maxStringIndex())
                     caret = Caret(currentTrackIndex, barIndex, beatIndex, uiString)
                     session.caret = caret
+                    beginManualRangeSelection(note.beat)
                     selectionTarget = SelectionTarget.NOTE
                     armed = true
                     pendingFret = ""
