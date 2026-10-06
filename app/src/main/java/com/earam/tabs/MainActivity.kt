@@ -2014,6 +2014,55 @@ class MainActivity : ComponentActivity() {
                 barLongPressActivated = false
             }
 
+            fun beginManualRangeSelection(beat: alphaTab.model.Beat) {
+                selectionAnchorBeat = beat
+                selectionFocusBeat = beat
+                selectionDragActive = true
+                selectionDragMoved = false
+                selectionTarget = SelectionTarget.BEAT
+            }
+
+            fun updateManualRangeSelection(beat: alphaTab.model.Beat) {
+                val anchor = selectionAnchorBeat ?: return
+                if (!selectionDragActive) return
+                selectionDragMoved = true
+                selectionFocusBeat = beat
+                selectionTarget = SelectionTarget.RANGE
+                try {
+                    score.api.highlightPlaybackRange(anchor, beat)
+                    updateStatus("NOTE SELECTION")
+                    onSelectionChanged?.invoke()
+                } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_SELECTION", "range highlight failed", t)
+                }
+            }
+
+            fun finishManualRangeSelection() {
+                if (!selectionDragActive) return
+                val anchor = selectionAnchorBeat
+                val focus = selectionFocusBeat
+                val moved = selectionDragMoved
+                selectionDragActive = false
+                selectionDragMoved = false
+                if (!moved || anchor == null || focus == null) {
+                    selectionAnchorBeat = null
+                    selectionFocusBeat = null
+                    return
+                }
+                selectionTarget = SelectionTarget.RANGE
+                updateStatus("NOTES SELECTED")
+                onSelectionChanged?.invoke()
+            }
+
+            fun clearManualSelection() {
+                selectionAnchorBeat = null
+                selectionFocusBeat = null
+                selectionDragActive = false
+                selectionDragMoved = false
+                if (selectionTarget == SelectionTarget.RANGE) selectionTarget = SelectionTarget.BEAT
+                try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
+            }
+
             // Android owns the drag sampling for manual selection.
             // AlphaTab's beatMouseMove is not sufficient on every Android touch path:
             // once the finger leaves the original hit target, move events can stop.
@@ -2118,55 +2167,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 false
-            }
-
-            fun beginManualRangeSelection(beat: alphaTab.model.Beat) {
-                selectionAnchorBeat = beat
-                selectionFocusBeat = beat
-                selectionDragActive = true
-                selectionDragMoved = false
-                selectionTarget = SelectionTarget.BEAT
-            }
-
-            fun updateManualRangeSelection(beat: alphaTab.model.Beat) {
-                val anchor = selectionAnchorBeat ?: return
-                if (!selectionDragActive) return
-                selectionDragMoved = true
-                selectionFocusBeat = beat
-                selectionTarget = SelectionTarget.RANGE
-                try {
-                    score.api.highlightPlaybackRange(anchor, beat)
-                    updateStatus("NOTE SELECTION")
-                    onSelectionChanged?.invoke()
-                } catch (t: Throwable) {
-                    android.util.Log.e("EARAM_SELECTION", "range highlight failed", t)
-                }
-            }
-
-            fun finishManualRangeSelection() {
-                if (!selectionDragActive) return
-                val anchor = selectionAnchorBeat
-                val focus = selectionFocusBeat
-                val moved = selectionDragMoved
-                selectionDragActive = false
-                selectionDragMoved = false
-                if (!moved || anchor == null || focus == null) {
-                    selectionAnchorBeat = null
-                    selectionFocusBeat = null
-                    return
-                }
-                selectionTarget = SelectionTarget.RANGE
-                updateStatus("NOTES SELECTED")
-                onSelectionChanged?.invoke()
-            }
-
-            fun clearManualSelection() {
-                selectionAnchorBeat = null
-                selectionFocusBeat = null
-                selectionDragActive = false
-                selectionDragMoved = false
-                if (selectionTarget == SelectionTarget.RANGE) selectionTarget = SelectionTarget.BEAT
-                try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
             }
 
             // Range selection must follow BEATS, not only note hitboxes.
