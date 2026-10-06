@@ -2014,6 +2014,15 @@ class MainActivity : ComponentActivity() {
                 barLongPressActivated = false
             }
 
+            // Android owns the drag sampling for manual selection.
+            // AlphaTab's beatMouseMove is not sufficient on every Android touch path:
+            // once the finger leaves the original hit target, move events can stop.
+            // We therefore sample ACTION_MOVE directly and resolve it against the
+            // real rendered Beat bounds, while still returning false so AlphaTab keeps
+            // its normal click/selection behavior.
+            var manualTouchDown = false
+            var manualTouchMoved = false
+
             score.setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     android.view.MotionEvent.ACTION_DOWN -> {
@@ -2021,43 +2030,78 @@ class MainActivity : ComponentActivity() {
                         barLongPressActivated = false
                         barDownX = event.x
                         barDownY = event.y
+                        manualTouchDown = true
+                        manualTouchMoved = false
+
+                        // Establish the exact note/beat under the finger immediately.
+                        val hit = handleScoreTouch(event.x, event.y)
+                        if (hit) {
+                            val anchor = currentBeat()
+                            if (anchor != null) {
+                                beginManualRangeSelection(anchor)
+                                selectionTarget = SelectionTarget.NOTE
+                            }
+                        }
 
                         barLongPressRunnable = Runnable {
-                            // BAR selection is resolved from the exact AlphaTab-rendered
-                            // MasterBar/Bar bounds at the moment the hold expires.
-                            // Do not infer a bar from a Beat hit or from the nearest beat.
                             val index = hitRenderedBarAtPoint(barDownX, barDownY)
                             if (index >= 0) {
                                 barLongPressActivated = true
+                                manualTouchDown = false
+                                manualTouchMoved = false
+                                selectionDragActive = false
+                                selectionAnchorBeat = null
+                                selectionFocusBeat = null
                                 selectionTarget = SelectionTarget.BAR
                                 selectBarFromUi(index)
                                 updateStatus("TAB BAR SELECTED • BAR " + (index + 1) + " • BAR ACTIONS READY")
-                            } else {
-                                android.util.Log.d(
-                                    "EARAM_BAR_SELECTION",
-                                    "long press rejected: point is outside every rendered bar • x=" +
-                                        barDownX + " y=" + barDownY
-                                )
                             }
                         }.also { activity.window.decorView.postDelayed(it, 500L) }
                     }
 
                     android.view.MotionEvent.ACTION_MOVE -> {
+                        if (!manualTouchDown || barLongPressActivated) {
+                            return@setOnTouchListener false
+                        }
+
                         val slop = android.view.ViewConfiguration.get(score.context).scaledTouchSlop
-                        if (kotlin.math.hypot(
-                                (event.x - barDownX).toDouble(),
-                                (event.y - barDownY).toDouble()
-                            ) > slop.toDouble()
-                        ) {
-                            if (!barLongPressActivated) cancelBarLongPress()
+                        val moved = kotlin.math.hypot(
+                            (event.x - barDownX).toDouble(),
+                            (event.y - barDownY).toDouble()
+                        ) > slop.toDouble()
+
+                        if (moved) {
+                            manualTouchMoved = true
+                            cancelBarLongPress()
+
+                            // Use the full rendered Beat rectangle. The normal caret hit-test
+                            // is deliberately narrower and only covers the TAB string band.
+                            val targetBeat = hitRangeBeatAtPoint(event.x, event.y)
+                            if (targetBeat != null) {
+                                if (!selectionDragActive) {
+                                    val anchor = currentBeat()
+                                    if (anchor != null) beginManualRangeSelection(anchor)
+                                }
+                                updateManualRangeSelection(targetBeat)
+                            }
                         }
                     }
 
                     android.view.MotionEvent.ACTION_UP,
                     android.view.MotionEvent.ACTION_CANCEL -> {
                         val wasBarSelection = barLongPressActivated
-                        if (!wasBarSelection) cancelBarLongPress()
-                        else {
+                        manualTouchDown = false
+
+                        if (!wasBarSelection) {
+                            cancelBarLongPress()
+                            if (manualTouchMoved) {
+                                finishManualRangeSelection()
+                            } else {
+                                selectionDragActive = false
+                                selectionAnchorBeat = null
+                                selectionFocusBeat = null
+                            }
+                        } else {
                             barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
                             barLongPressRunnable = null
                             activity.window.decorView.post {
@@ -2073,7 +2117,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                // Never consume the event. AlphaTab keeps native note/beat interaction.
                 false
             }
 
@@ -2426,6 +2469,34 @@ class MainActivity : ComponentActivity() {
                 contentX >= hit.rect.left && contentX <= hit.rect.right &&
                     contentY >= hit.tabTopY &&
                     contentY <= hit.tabTopY + 5f * hit.stringSpacing
+            }
+        }
+
+        // Manual range selection needs a forgiving finger target. Resolve against the
+        // entire rendered Beat rectangle rather than only the six TAB string lines.
+        private fun hitRangeBeatAtPoint(x: Float, y: Float): Beat? {
+            return try {
+                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                val scroll = actualScrollOffsetsLayout()
+                val contentX = x / d + scroll.first
+                val contentY = y / d + scroll.second
+
+                val hit = beatHits.firstOrNull { candidate ->
+                    !candidate.virtual &&
+                        contentX >= candidate.rect.left &&
+                        contentX <= candidate.rect.right &&
+                        contentY >= candidate.rect.top &&
+                        contentY <= candidate.rect.bottom
+                } ?: return null
+
+                bars()?.getOrNull(hit.measure)
+                    ?.voices?.toList()
+                    ?.getOrNull(currentVoiceIndex)
+                    ?.beats?.toList()
+                    ?.getOrNull(hit.beat)
+            } catch (t: Throwable) {
+                android.util.Log.w("EARAM_SELECTION", "range beat hit-test failed", t)
+                null
             }
         }
 
