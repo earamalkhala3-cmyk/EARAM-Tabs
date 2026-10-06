@@ -3666,10 +3666,80 @@ class MainActivity : ComponentActivity() {
                 if(b==bs.lastIndex) { if(!createNextMeasures(4)) return@repeat }
                 b++; beat=0
             }
-            caret=Caret(currentTrackIndex,b,beat,currentStringIndex); session.caret=caret; armed=true; pendingFret=""
+            caret=Caret(currentTrackIndex,b,beat,currentStringIndex); session.caret=caret; selectionTarget=SelectionTarget.BEAT; armed=true; pendingFret=""
             updateCursor()
             if(lastRawCaretX.isFinite()&&lastRawCaretY.isFinite()) ensureCaretVisible(lastRawCaretX,lastRawCaretY)
             updateStatus(); onSelectionChanged?.invoke()
+        }
+
+        private fun moveToEdge(end: Boolean) {
+            val bs = bars() ?: return
+            if (bs.isEmpty()) return
+            val targetBar = if (end) bs.lastIndex else 0
+            val beats = bs[targetBar].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+            caret = Caret(currentTrackIndex, targetBar, if (end) (beats.size - 1).coerceAtLeast(0) else 0, currentStringIndex)
+            session.caret = caret
+            armed = true
+            pendingFret = ""
+            updateCursor()
+            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
+                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
+            }
+            updateStatus()
+        }
+
+        /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
+        private fun moveString(delta: Int) {
+            caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
+            session.caret = caret
+            armed = true
+            pendingFret = ""
+            updateCursor()
+            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
+                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
+            }
+            updateStatus()
+            onSelectionChanged?.invoke()
+        }
+
+        private fun acceptDigit(digit: Int) {
+            if (digit !in 0..9) return
+            if (!armed) armed = true
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - pendingAtMs > 700L) pendingFret = ""
+            pendingAtMs = now
+            val generation = ++inputGeneration
+
+            if (pendingFret.isEmpty()) {
+                pendingFret = digit.toString()
+            } else {
+                val candidate = pendingFret + digit
+                val value = candidate.toIntOrNull()
+                if (value != null && value <= 24) {
+                    writeFret(value)
+                    pendingFret = ""
+                    return
+                }
+                val first = pendingFret.toIntOrNull()
+                if (first != null && first <= 9) writeFret(first)
+                pendingFret = digit.toString()
+                pendingAtMs = now
+            }
+
+            val value = pendingFret.toIntOrNull() ?: return
+            if (value == 0) {
+                writeFret(0)
+                pendingFret = ""
+            } else {
+                updateStatus("Fret $pendingFret…")
+                activity.window.decorView.postDelayed({
+                    val t = android.os.SystemClock.uptimeMillis()
+                    if (generation == inputGeneration && t - pendingAtMs >= 700L && pendingFret == value.toString()) {
+                        writeFret(value)
+                        pendingFret = ""
+                    }
+                }, 720L)
+            }
         }
 
         /** UI String 1 is the thin/high E; AlphaTab string 1 is the lowest/bottom string. */
