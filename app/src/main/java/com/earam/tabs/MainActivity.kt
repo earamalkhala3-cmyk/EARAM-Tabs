@@ -53,6 +53,7 @@ data class Caret(
 )
 
 private enum class SelectionTarget { NOTE, BEAT, BAR, RANGE }
+private enum class ClipboardKind { NOTE, BEAT, BAR, RANGE }
 
 data class BeatHit(
     val measure: Int,
@@ -1811,6 +1812,8 @@ class MainActivity : ComponentActivity() {
         // may move to the paste destination after Copy, so Paste must never resolve
         // the destination from the original selection.
         private var selectionClipboardRange: List<ClipboardBeat>? = null
+        // The copied payload is independent from the current selection.
+        private var clipboardKind: ClipboardKind? = null
         // Explicit paste destination: the last beat the user actually tapped after Copy.
         private var pasteDestinationCaret: Caret? = null
         // Strong destination anchor: the actual AlphaTab Beat tapped after Copy.
@@ -1853,11 +1856,14 @@ class MainActivity : ComponentActivity() {
             val string = stringIndex.coerceIn(1, maxStringIndex())
             caret = Caret(track, measure, beat, string)
             session.caret = caret
-            if (awaitingPasteDestination) {
+            if (awaitingPasteDestination && clipboardKind == ClipboardKind.RANGE) {
                 pasteDestinationCaret = caret
-                pasteDestinationBeat = null
                 awaitingPasteDestination = false
-                android.util.Log.d("EARAM_PASTE", "DESTINATION NAVIGATION bar=" + (measure + 1) + " beat=" + (beat + 1))
+                android.util.Log.d(
+                    "EARAM_PASTE",
+                    "DESTINATION NAVIGATION LOCKED bar=" + (measure + 1) +
+                        " beat=" + (beat + 1)
+                )
             }
             armed = true
             pendingFret = ""
@@ -2105,51 +2111,46 @@ class MainActivity : ComponentActivity() {
 
                         // After Copy RANGE, the next tap is exclusively the paste destination.
                         // Do not let the normal selection handler consume it.
-                        if (awaitingPasteDestination) {
+                        if (awaitingPasteDestination && clipboardKind == ClipboardKind.RANGE) {
                             pasteDestinationTouchActive = true
                             manualTouchDown = false
                             manualTouchMoved = false
                             cancelBarLongPress()
+
                             val destination = resolvePasteDestinationAtPoint(event.x, event.y)
                             if (destination != null) {
                                 val destinationMeasure = destination.first
-                                val destinationBeat = destination.second
-                                val destinationBeatIndex = score.api.score?.tracks?.toList()
-                                    ?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()
-                                    ?.bars?.toList()?.getOrNull(destinationMeasure)
-                                    ?.voices?.toList()?.getOrNull(currentVoiceIndex)
-                                    ?.beats?.toList()?.indexOfFirst { it === destinationBeat } ?: -1
-                                if (destinationBeatIndex >= 0) {
-                                    caret = Caret(currentTrackIndex, destinationMeasure, destinationBeatIndex, currentStringIndex)
-                                    session.caret = caret
-                                    pasteDestinationCaret = caret
-                                    pasteDestinationBeat = destinationBeat
-                                    awaitingPasteDestination = false
-                                    selectionTarget = SelectionTarget.BEAT
-                                    selectionDragActive = false
-                                    selectionDragMoved = false
-                                    selectionAnchorBeat = null
-                                    selectionFocusBeat = null
-                                    armed = true
-                                    pendingFret = ""
-                                    updateCursor()
-                                    android.util.Log.d(
-                                        "EARAM_PASTE",
-                                        "DESTINATION TAP LOCKED bar=" + (destinationMeasure + 1) +
-                                            " beat=" + (destinationBeatIndex + 1)
-                                    )
-                                    updateStatus(
-                                        "PASTE DESTINATION • BAR " + (destinationMeasure + 1) +
-                                            " • BEAT " + (destinationBeatIndex + 1)
-                                    )
-                                    score.requestFocus()
-                                } else {
-                                    updateStatus("Paste destination is not in current track")
-                                }
+                                val destinationBeatIndex = destination.second
+                                caret = Caret(
+                                    currentTrackIndex,
+                                    destinationMeasure,
+                                    destinationBeatIndex,
+                                    currentStringIndex
+                                )
+                                session.caret = caret
+                                pasteDestinationCaret = caret
+                                awaitingPasteDestination = false
+                                selectionTarget = SelectionTarget.BEAT
+                                selectionDragActive = false
+                                selectionDragMoved = false
+                                selectionAnchorBeat = null
+                                selectionFocusBeat = null
+                                armed = true
+                                pendingFret = ""
+                                updateCursor()
+                                android.util.Log.d(
+                                    "EARAM_PASTE",
+                                    "DESTINATION TAP LOCKED bar=" + (destinationMeasure + 1) +
+                                        " beat=" + (destinationBeatIndex + 1)
+                                )
+                                updateStatus(
+                                    "PASTE DESTINATION • BAR " + (destinationMeasure + 1) +
+                                        " • BEAT " + (destinationBeatIndex + 1)
+                                )
+                                score.requestFocus()
                             } else {
-                                updateStatus("Tap a TAB beat to set Paste destination")
+                                updateStatus("Tap the destination measure/beat before Paste")
                             }
-                            // Consume DOWN completely; this gesture is not selection.
                             return@setOnTouchListener true
                         }
 
@@ -2473,14 +2474,40 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        private fun ensureBarEditable(index: Int): Boolean {
+            val bs = bars() ?: return false
+            if (index !in bs.indices) return false
+            val bar = bs[index]
+            var changed = false
+            var voice = bar.voices.toList().getOrNull(currentVoiceIndex)
+            if (voice == null) {
+                voice = alphaTab.model.Voice()
+                bar.addVoice(voice)
+                changed = true
+            }
+            if (voice.beats.toList().isEmpty()) {
+                addEmptyBeatsForTimeSignature(
+                    voice,
+                    bar.masterBar.timeSignatureNumerator.toInt().coerceIn(1, 32),
+                    bar.masterBar.timeSignatureDenominator.toInt().coerceIn(1, 32)
+                )
+                changed = true
+            } else if (!AlphaTabRhythmEngine.fillVoiceToBarCapacity(bar, currentVoiceIndex)) {
+                return false
+            }
+            if (changed) {
+                score.api.score?.finish(score.settings)
+                renderAndLog("materialize-edit-target")
+                buildBeatHits()
+            }
+            return voice.beats.toList().isNotEmpty()
+        }
+
         private fun activateBarAsEditingTarget(index: Int): Boolean {
             val bs = bars() ?: return false
             if (index !in bs.indices) return false
-            val voice = bs[index].voices.toList().getOrNull(currentVoiceIndex)
-            val beats = voice?.beats?.toList().orEmpty()
-            if (beats.isEmpty()) return false
-            val beatIndex = caret.beatIndex.coerceIn(0, beats.lastIndex)
-            caret = caret.copy(measureIndex = index, beatIndex = beatIndex)
+            if (!ensureBarEditable(index)) return false
+            caret = caret.copy(measureIndex = index, beatIndex = 0)
             session.caret = caret
             armed = true
             pendingFret = ""
@@ -2490,8 +2517,7 @@ class MainActivity : ComponentActivity() {
             android.util.Log.d(
                 "EARAM_BAR_SELECTION",
                 "EDIT TARGET ACTIVE bar=" + (index + 1) +
-                    " beat=" + (beatIndex + 1) +
-                    " voice=" + (currentVoiceIndex + 1) +
+                    " beat=1 voice=" + (currentVoiceIndex + 1) +
                     " totalBars=" + bs.size
             )
             return true
@@ -2563,7 +2589,7 @@ class MainActivity : ComponentActivity() {
         // can contain systems/bounds that are not reliable beat hit targets after scrolling.
         // The measure itself is the authoritative destination; once its bar is known,
         // choose the beat whose rendered bounds contain the tap, otherwise use beat 0.
-        private fun resolvePasteDestinationAtPoint(x: Float, y: Float): Pair<Int, Beat>? {
+        private fun resolvePasteDestinationAtPoint(x: Float, y: Float): Pair<Int, Int>? {
             return try {
                 val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
                 val scroll = actualScrollOffsetsLayout()
@@ -2590,33 +2616,36 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val bar = targetBar ?: return null
-                val beats = bar.voices.toList().getOrNull(currentVoiceIndex)
+                var beats = bar.voices.toList().getOrNull(currentVoiceIndex)
                     ?.beats?.toList().orEmpty()
+                if (beats.isEmpty()) {
+                    if (!ensureBarEditable(targetBarIndex)) return null
+                    beats = bar.voices.toList().getOrNull(currentVoiceIndex)
+                        ?.beats?.toList().orEmpty()
+                }
                 if (beats.isEmpty()) return null
 
-                var targetBeat = beats.first()
-                for (beat in beats) {
+                var targetBeatIndex = 0
+                for ((bi, beat) in beats.withIndex()) {
                     val b = lookup.findBeat(beat) ?: continue
                     val r = b.realBounds
                     if (contentX >= r.x.toDouble() &&
                         contentX <= (r.x + r.w).toDouble() &&
                         contentY >= r.y.toDouble() &&
                         contentY <= (r.y + r.h).toDouble()) {
-                        targetBeat = beat
+                        targetBeatIndex = bi
                         break
                     }
                 }
-
-                val beatIndex = beats.indexOfFirst { it === targetBeat }.coerceAtLeast(0)
                 android.util.Log.d(
                     "EARAM_PASTE",
                     "DESTINATION BAR HIT bar=" + (targetBarIndex + 1) +
-                        " beat=" + (beatIndex + 1) +
+                        " beat=" + (targetBeatIndex + 1) +
                         " content=" + contentX + "," + contentY +
                         " beatsInBar=" + beats.size +
                         " scrollLayout=" + scroll.first + "," + scroll.second
                 )
-                Pair(targetBarIndex, targetBeat)
+                Pair(targetBarIndex, targetBeatIndex)
             } catch (t: Throwable) {
                 android.util.Log.e("EARAM_PASTE", "bar-first destination hit failed", t)
                 null
@@ -2967,6 +2996,13 @@ class MainActivity : ComponentActivity() {
                 copiedBar = null
             }
             if (kind != "range") selectionClipboardRange = null
+            clipboardKind = when (kind) {
+                "note" -> ClipboardKind.NOTE
+                "beat" -> ClipboardKind.BEAT
+                "bar" -> ClipboardKind.BAR
+                "range" -> ClipboardKind.RANGE
+                else -> null
+            }
         }
 
         fun copyCurrentSelectionFromUi() {
@@ -3010,178 +3046,181 @@ class MainActivity : ComponentActivity() {
         }
 
         fun pasteCurrentSelectionFromUi() {
-            // IMPORTANT: the destination is always the CURRENT caret. The copied
-            // range/bar is only source data. This prevents Paste from jumping back
-            // to the first/source measure after the user taps a new destination.
-            selectionClipboardRange?.let { srcRange ->
-                pasteRangeAtCurrentCaret(srcRange)
-                return
-            }
-
-            when (selectionTarget) {
-                SelectionTarget.NOTE -> {
-                    val src = selectionClipboardNote
-                    if (src == null) {
-                        val fret = copiedFret ?: run { updateStatus("Clipboard is empty"); return }
-                        writeFret(fret)
+            // Paste follows the copied payload, not selectionTarget.
+            when (clipboardKind) {
+                ClipboardKind.NOTE -> pasteCopiedNote()
+                ClipboardKind.BEAT -> pasteCopiedBeat()
+                ClipboardKind.BAR -> pasteCopiedBar()
+                ClipboardKind.RANGE -> {
+                    val srcRange = selectionClipboardRange
+                    if (srcRange == null || srcRange.isEmpty()) {
+                        updateStatus("Copied range is empty")
                         return
                     }
-                    val beat = requireTabSelection() ?: return
-                    pushUndoSnapshot()
-                    val target = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
-                    if (target == null) {
-                        beat.addNote(Note().apply {
-                            string = alphaTabString(currentStringIndex).toDouble()
-                            fret = src.fret
-                            isHammerPullOrigin = src.isHammerPullOrigin
-                            isPalmMute = src.isPalmMute
-                            isLetRing = src.isLetRing
-                            isGhost = src.isGhost
-                            isDead = src.isDead
-                            isStaccato = src.isStaccato
-                            vibrato = src.vibrato
-                            isLeftHandTapped = src.isLeftHandTapped
-                        })
-                    } else {
-                        target.fret = src.fret
-                        target.isHammerPullOrigin = src.isHammerPullOrigin
-                        target.isPalmMute = src.isPalmMute
-                        target.isLetRing = src.isLetRing
-                        target.isGhost = src.isGhost
-                        target.isDead = src.isDead
-                        target.isStaccato = src.isStaccato
-                        target.vibrato = src.vibrato
-                        target.isLeftHandTapped = src.isLeftHandTapped
-                    }
-                    beat.isEmpty = false
-                    beat.finish(score.settings, null)
-                    score.api.score?.finish(score.settings)
-                    renderAndLog("paste-note")
-                    updateStatus("Pasted NOTE • F" + src.fret.toInt() + " • TAB")
-                    onSelectionChanged?.invoke()
+                    pasteRangeAtCurrentCaret(srcRange)
                 }
-                SelectionTarget.BEAT -> {
-                    val src = selectionClipboardBeat ?: run { updateStatus("No beat copied"); return }
-                    val target = requireTabSelection() ?: return
-                    pushUndoSnapshot()
-                    applyClipboardBeat(target, src)
-                    score.api.score?.finish(score.settings)
-                    renderAndLog("paste-beat")
-                    updateStatus("Pasted BEAT • B" + (currentBarIndex + 1) + " • " + (currentBeatIndex + 1))
-                    onSelectionChanged?.invoke()
-                }
-                SelectionTarget.BAR -> {
-                    val src = selectionClipboardBar ?: run { updateStatus("No bar copied"); return }
-                    val targetBar = bars()?.getOrNull(currentBarIndex) ?: return
-                    val voice = targetBar.voices.toList().getOrNull(currentVoiceIndex)
-                        ?: run { updateStatus("Selected bar has no target voice"); return }
-                    pushUndoSnapshot()
-                    val targets = voice.beats.toList()
-                    src.beats.forEachIndexed { i, beatSrc ->
-                        val target = targets.getOrNull(i)
-                        if (target != null) applyClipboardBeat(target, beatSrc)
-                        else voice.addBeat(Beat().also { applyClipboardBeat(it, beatSrc) })
-                    }
-                    score.api.score?.finish(score.settings)
-                    renderAndLog("paste-bar")
-                    updateStatus("Pasted BAR • " + (currentBarIndex + 1))
-                    onSelectionChanged?.invoke()
-                }
-                SelectionTarget.RANGE -> {
-                    updateStatus("Paste for note ranges is not available yet")
-                }
+                null -> updateStatus("Clipboard is empty")
             }
+        }
+
+        private fun pasteCopiedNote() {
+            val src = selectionClipboardNote ?: run {
+                updateStatus("Clipboard is empty")
+                return
+            }
+            val beat = ensureRealBeatForCaret() ?: return
+            pushUndoSnapshot()
+            val target = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
+            if (target == null) {
+                beat.addNote(Note().apply {
+                    string = alphaTabString(currentStringIndex).toDouble()
+                    fret = src.fret
+                    isHammerPullOrigin = src.isHammerPullOrigin
+                    isPalmMute = src.isPalmMute
+                    isLetRing = src.isLetRing
+                    isGhost = src.isGhost
+                    isDead = src.isDead
+                    isStaccato = src.isStaccato
+                    vibrato = src.vibrato
+                    isLeftHandTapped = src.isLeftHandTapped
+                })
+            } else {
+                target.fret = src.fret
+                target.isHammerPullOrigin = src.isHammerPullOrigin
+                target.isPalmMute = src.isPalmMute
+                target.isLetRing = src.isLetRing
+                target.isGhost = src.isGhost
+                target.isDead = src.isDead
+                target.isStaccato = src.isStaccato
+                target.vibrato = src.vibrato
+                target.isLeftHandTapped = src.isLeftHandTapped
+            }
+            beat.isEmpty = false
+            beat.finish(score.settings, null)
+            score.api.score?.finish(score.settings)
+            renderAndLog("paste-note")
+            updateStatus(
+                "Pasted NOTE • BAR " + (currentBarIndex + 1) +
+                    " • BEAT " + (currentBeatIndex + 1) +
+                    " • F" + src.fret.toInt()
+            )
+            onSelectionChanged?.invoke()
+        }
+
+        private fun pasteCopiedBeat() {
+            val src = selectionClipboardBeat ?: run {
+                updateStatus("No beat copied")
+                return
+            }
+            val target = ensureRealBeatForCaret() ?: return
+            pushUndoSnapshot()
+            applyClipboardBeat(target, src)
+            score.api.score?.finish(score.settings)
+            renderAndLog("paste-beat")
+            updateStatus(
+                "Pasted BEAT • BAR " + (currentBarIndex + 1) +
+                    " • BEAT " + (currentBeatIndex + 1)
+            )
+            onSelectionChanged?.invoke()
+        }
+
+        private fun pasteCopiedBar() {
+            val src = selectionClipboardBar ?: run {
+                updateStatus("No bar copied")
+                return
+            }
+            val bs = bars() ?: return
+            val targetBarIndex = currentBarIndex
+            if (targetBarIndex !in bs.indices || !ensureBarEditable(targetBarIndex)) {
+                updateStatus("Invalid paste destination")
+                return
+            }
+            val targetBar = bs[targetBarIndex]
+            val voice = targetBar.voices.toList().getOrNull(currentVoiceIndex) ?: return
+            pushUndoSnapshot()
+            val targets = voice.beats.toList()
+            src.beats.forEachIndexed { i, beatSrc ->
+                val target = targets.getOrNull(i)
+                if (target != null) applyClipboardBeat(target, beatSrc)
+                else voice.addBeat(Beat().also { applyClipboardBeat(it, beatSrc) })
+            }
+            score.api.score?.finish(score.settings)
+            renderAndLog("paste-bar")
+            caret = caret.copy(measureIndex = targetBarIndex, beatIndex = 0)
+            session.caret = caret
+            updateCursor()
+            updateStatus("Pasted BAR • BAR " + (targetBarIndex + 1))
+            onSelectionChanged?.invoke()
         }
 
         private fun pasteRangeAtCurrentCaret(srcRange: List<ClipboardBeat>) {
             val bs = bars() ?: return
-            if (awaitingPasteDestination && pasteDestinationCaret == null) {
+            val destination = pasteDestinationCaret ?: if (awaitingPasteDestination) {
                 updateStatus("Tap the destination measure/beat before Paste")
                 return
-            }
-            // Resolve the destination from the actual Beat object captured by the
-            // destination tap. Never use the source selection or a stale Caret here.
-            val destinationBeat = pasteDestinationBeat
-            val destination = pasteDestinationCaret ?: caret
-            var barIndex: Int
-            var beatIndex: Int
-            if (destinationBeat != null) {
-                var found = false
-                barIndex = 0
-                beatIndex = 0
-                outer@ for ((mi, bar) in bs.withIndex()) {
-                    val beats = bar.voices.toList()
-                        .getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-                    for ((bi, beat) in beats.withIndex()) {
-                        if (beat === destinationBeat) {
-                            barIndex = mi
-                            beatIndex = bi
-                            found = true
-                            break@outer
-                        }
-                    }
-                }
-                if (!found) {
-                    updateStatus("Paste destination is no longer in the score")
-                    return
-                }
-            } else {
-                barIndex = destination.measureIndex
-                beatIndex = destination.beatIndex
-            }
-            android.util.Log.d(
-                "EARAM_PASTE",
-                "PASTE RANGE destination REAL BEAT bar=" + (barIndex + 1) +
-                    " beat=" + (beatIndex + 1) +
-                    " sourceBeats=" + srcRange.size
-            )
+            } else caret
+
+            var barIndex = destination.measureIndex
+            var beatIndex = destination.beatIndex
             if (barIndex !in bs.indices) {
                 updateStatus("Invalid paste destination")
                 return
             }
+            if (!ensureBarEditable(barIndex)) {
+                updateStatus("Target measure is not editable")
+                return
+            }
+
+            val startBar = barIndex
+            val startBeat = beatIndex
+            android.util.Log.d(
+                "EARAM_PASTE",
+                "PASTE RANGE START destination=BAR " + (startBar + 1) +
+                    " BEAT " + (startBeat + 1) +
+                    " sourceBeats=" + srcRange.size
+            )
 
             pushUndoSnapshot()
             var pasted = 0
             for (src in srcRange) {
-                var target: Beat? = null
                 while (barIndex < bs.size) {
-                    val beats = bs[barIndex].voices.toList()
-                        .getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+                    if (!ensureBarEditable(barIndex)) break
+                    val voice = bs[barIndex].voices.toList().getOrNull(currentVoiceIndex)
+                        ?: break
+                    val beats = voice.beats.toList()
                     if (beatIndex < beats.size) {
-                        target = beats[beatIndex]
+                        applyClipboardBeat(beats[beatIndex], src)
+                        pasted++
+                        beatIndex++
                         break
                     }
                     barIndex++
                     beatIndex = 0
                 }
-                if (target == null) break
-
-                applyClipboardBeat(target, src)
-                pasted++
-                beatIndex++
+                if (barIndex >= bs.size) break
             }
 
             if (pasted == 0) {
-                updateStatus("Paste destination is empty/invalid")
+                updateStatus("Nothing pasted")
                 return
             }
 
             score.api.score?.finish(score.settings)
             renderAndLog("paste-range")
-            // Keep the caret at the destination, not at the source range.
-            val finalBar = barIndex.coerceIn(0, bs.lastIndex)
-            val finalBeats = bs[finalBar].voices.toList()
-                .getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-            val finalBeat = (beatIndex - 1).coerceIn(0, (finalBeats.size - 1).coerceAtLeast(0))
-            // Leave the UI caret on the actual destination beat used for Paste.
-            caret = caret.copy(measureIndex = barIndex, beatIndex = if (destinationBeat != null) {
-                bs[barIndex].voices.toList().getOrNull(currentVoiceIndex)
-                    ?.beats?.toList()?.indexOfFirst { it === destinationBeat } ?: finalBeat
-            } else destination.beatIndex)
+            caret = caret.copy(
+                measureIndex = startBar,
+                beatIndex = startBeat
+            )
             session.caret = caret
+            pasteDestinationCaret = caret
+            awaitingPasteDestination = false
             updateCursor()
             onSelectionChanged?.invoke()
-            updateStatus("Pasted RANGE • BAR " + (destination.measureIndex + 1) + " • " + pasted + " BEATS")
+            updateStatus(
+                "Pasted RANGE • BAR " + (startBar + 1) +
+                    " • BEAT " + (startBeat + 1) +
+                    " • " + pasted + " BEATS"
+            )
         }
 
         fun copyCurrentNoteFromUi() = copyCurrentSelectionFromUi()
@@ -4526,6 +4565,7 @@ class MainActivity : ComponentActivity() {
         fun selectBarFromUi(index: Int) {
             val bs = bars() ?: return
             if (index !in bs.indices) return
+            if (!ensureBarEditable(index)) return
 
             val beats = bs[index].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             val selectedBeat = beats.firstOrNull()
@@ -4540,9 +4580,8 @@ class MainActivity : ComponentActivity() {
             pendingFret = ""
 
             // Selecting a measure also seeks playback to the beginning of that measure.
-            if (awaitingPasteDestination) {
+            if (awaitingPasteDestination && clipboardKind == ClipboardKind.RANGE) {
                 pasteDestinationCaret = caret
-                pasteDestinationBeat = selectedBeat
                 awaitingPasteDestination = false
                 android.util.Log.d("EARAM_PASTE", "DESTINATION BAR SELECT bar=" + (index + 1) + " beat=1")
             }
