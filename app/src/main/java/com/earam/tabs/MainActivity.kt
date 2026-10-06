@@ -1807,6 +1807,10 @@ class MainActivity : ComponentActivity() {
         private var selectionClipboardNote: ClipboardNote? = null
         private var selectionClipboardBeat: ClipboardBeat? = null
         private var selectionClipboardBar: ClipboardBar? = null
+        // A copied range is independent from the current selection/caret. The caret
+        // may move to the paste destination after Copy, so Paste must never resolve
+        // the destination from the original selection.
+        private var selectionClipboardRange: List<ClipboardBeat>? = null
         var onSelectionChanged: (() -> Unit)? = null
 
         /**
@@ -2698,32 +2702,80 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        private fun snapshotSelectedRange(): List<ClipboardBeat> {
+            val anchor = selectionAnchorBeat ?: return emptyList()
+            val focus = selectionFocusBeat ?: return emptyList()
+            val start = minOf(anchor.absolutePlaybackStart, focus.absolutePlaybackStart)
+            val end = maxOf(anchor.absolutePlaybackStart, focus.absolutePlaybackStart)
+            val voice = currentVoiceIndex
+            val result = mutableListOf<ClipboardBeat>()
+            val bs = bars().orEmpty()
+            for (bar in bs) {
+                val beats = bar.voices.toList().getOrNull(voice)?.beats?.toList().orEmpty()
+                for (beat in beats) {
+                    val tick = beat.absolutePlaybackStart
+                    if (tick >= start && tick <= end) {
+                        result.add(snapshotBeatForClipboard(beat))
+                    }
+                }
+            }
+            return result
+        }
+
+        private fun clearClipboardExcept(kind: String) {
+            if (kind != "note") selectionClipboardNote = null
+            if (kind != "beat") selectionClipboardBeat = null
+            if (kind != "bar") {
+                selectionClipboardBar = null
+                copiedBar = null
+            }
+            if (kind != "range") selectionClipboardRange = null
+        }
+
         fun copyCurrentSelectionFromUi() {
             when (selectionTarget) {
                 SelectionTarget.NOTE -> {
                     val note = selectedNote() ?: run { updateStatus("Select a fret on the TAB first"); return }
+                    clearClipboardExcept("note")
                     selectionClipboardNote = snapshotNoteForClipboard(note)
                     copiedFret = note.fret.toInt()
                     updateStatus("Copied NOTE • F" + copiedFret + " • TAB")
                 }
                 SelectionTarget.BEAT -> {
                     val beat = requireTabSelection() ?: return
+                    clearClipboardExcept("beat")
                     selectionClipboardBeat = snapshotBeatForClipboard(beat)
                     updateStatus("Copied BEAT • B" + (currentBarIndex + 1) + " • " + (currentBeatIndex + 1))
                 }
                 SelectionTarget.BAR -> {
                     val bar = bars()?.getOrNull(currentBarIndex) ?: return
+                    clearClipboardExcept("bar")
                     selectionClipboardBar = snapshotBarForClipboard(bar)
                     copiedBar = bar
                     updateStatus("Copied BAR " + (currentBarIndex + 1) + " • TAB")
                 }
                 SelectionTarget.RANGE -> {
-                    updateStatus("NOTE RANGE SELECTED")
+                    val range = snapshotSelectedRange()
+                    if (range.isEmpty()) {
+                        updateStatus("Nothing to copy in selected range")
+                        return
+                    }
+                    clearClipboardExcept("range")
+                    selectionClipboardRange = range
+                    updateStatus("Copied RANGE • " + range.size + " BEATS")
                 }
             }
         }
 
         fun pasteCurrentSelectionFromUi() {
+            // IMPORTANT: the destination is always the CURRENT caret. The copied
+            // range/bar is only source data. This prevents Paste from jumping back
+            // to the first/source measure after the user taps a new destination.
+            selectionClipboardRange?.let { srcRange ->
+                pasteRangeAtCurrentCaret(srcRange)
+                return
+            }
+
             when (selectionTarget) {
                 SelectionTarget.NOTE -> {
                     val src = selectionClipboardNote
@@ -2797,6 +2849,55 @@ class MainActivity : ComponentActivity() {
                     updateStatus("Paste for note ranges is not available yet")
                 }
             }
+        }
+
+        private fun pasteRangeAtCurrentCaret(srcRange: List<ClipboardBeat>) {
+            val bs = bars() ?: return
+            var barIndex = currentBarIndex
+            var beatIndex = currentBeatIndex
+            if (barIndex !in bs.indices) {
+                updateStatus("Invalid paste destination")
+                return
+            }
+
+            pushUndoSnapshot()
+            var pasted = 0
+            for (src in srcRange) {
+                var target: Beat? = null
+                while (barIndex < bs.size) {
+                    val beats = bs[barIndex].voices.toList()
+                        .getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+                    if (beatIndex < beats.size) {
+                        target = beats[beatIndex]
+                        break
+                    }
+                    barIndex++
+                    beatIndex = 0
+                }
+                if (target == null) break
+
+                applyClipboardBeat(target, src)
+                pasted++
+                beatIndex++
+            }
+
+            if (pasted == 0) {
+                updateStatus("Paste destination is empty/invalid")
+                return
+            }
+
+            score.api.score?.finish(score.settings)
+            renderAndLog("paste-range")
+            // Keep the caret at the destination, not at the source range.
+            val finalBar = barIndex.coerceIn(0, bs.lastIndex)
+            val finalBeats = bs[finalBar].voices.toList()
+                .getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+            val finalBeat = (beatIndex - 1).coerceIn(0, (finalBeats.size - 1).coerceAtLeast(0))
+            caret = caret.copy(measureIndex = finalBar, beatIndex = finalBeat)
+            session.caret = caret
+            updateCursor()
+            onSelectionChanged?.invoke()
+            updateStatus("Pasted RANGE • BAR " + (currentBarIndex + 1) + " • " + pasted + " BEATS")
         }
 
         fun copyCurrentNoteFromUi() = copyCurrentSelectionFromUi()
