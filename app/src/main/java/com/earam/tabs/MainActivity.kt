@@ -2149,20 +2149,45 @@ class MainActivity : ComponentActivity() {
                             return@setOnTouchListener true
                         }
 
+                        // Resolve the rendered measure FIRST. This is critical:
+                        // handleScoreTouch() has a forgiving nearest-beat fallback and
+                        // can otherwise keep the source measure as the caret destination.
+                        // Every visible measure is an independent editing target.
+                        val renderedBar = resolveRenderedBarAtPoint(event.x, event.y)
+                        val destinationBeforeHit = if (renderedBar >= 0) {
+                            val activated = activateBarAsEditingTarget(renderedBar)
+                            android.util.Log.d(
+                                "EARAM_PASTE",
+                                "TAP TARGET FIRST bar=" + (renderedBar + 1) +
+                                    " activated=" + activated +
+                                    " caretBeforeBeatHit=" + (caret.measureIndex + 1) + ":" + (caret.beatIndex + 1)
+                            )
+                            if (activated) renderedBar else -1
+                        } else -1
+
                         val hit = handleScoreTouch(event.x, event.y)
+
+                        // Never allow the forgiving hit-test to jump back to another
+                        // measure. If the touch was inside a rendered bar, that bar wins.
+                        if (destinationBeforeHit >= 0 && caret.measureIndex != destinationBeforeHit) {
+                            caret = caret.copy(
+                                measureIndex = destinationBeforeHit,
+                                beatIndex = 0
+                            )
+                            session.caret = caret
+                            updateCursor()
+                            android.util.Log.d(
+                                "EARAM_PASTE",
+                                "CORRECTED TAP TARGET bar=" + (destinationBeforeHit + 1) +
+                                    " caret=" + (caret.measureIndex + 1) + ":" + (caret.beatIndex + 1)
+                            )
+                        }
+
                         if (hit) {
                             val anchor = currentBeat()
                             if (anchor != null) {
                                 beginManualRangeSelection(anchor)
                                 selectionTarget = SelectionTarget.NOTE
-                            }
-                        } else {
-                            // A tap anywhere inside a rendered measure activates that
-                            // measure as the editing target. It is never treated as
-                            // background/secondary content.
-                            val renderedBar = resolveRenderedBarAtPoint(event.x, event.y)
-                            if (renderedBar >= 0) {
-                                activateBarAsEditingTarget(renderedBar)
                             }
                         }
 
