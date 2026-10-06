@@ -2100,6 +2100,47 @@ class MainActivity : ComponentActivity() {
                         manualTouchDown = true
                         manualTouchMoved = false
 
+                        // After Copy RANGE, the next tap is exclusively the paste destination.
+                        // Do not let the normal selection handler consume it.
+                        if (awaitingPasteDestination) {
+                            val destinationHit = hitRangeBeatAtPoint(event.x, event.y)
+                            if (destinationHit != null && !destinationHit.virtual && destinationHit.beatRef != null) {
+                                val destinationBeat = destinationHit.beatRef
+                                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                                val contentY = event.y / d + actualScrollOffsetsLayout().second
+                                val uiString = (((contentY - destinationHit.tabTopY) /
+                                    destinationHit.stringSpacing).roundToInt() + 1)
+                                    .coerceIn(1, maxStringIndex())
+                                caret = Caret(currentTrackIndex, destinationHit.measure, destinationHit.beat, uiString)
+                                session.caret = caret
+                                pasteDestinationCaret = caret
+                                pasteDestinationBeat = destinationBeat
+                                awaitingPasteDestination = false
+                                selectionTarget = SelectionTarget.BEAT
+                                selectionDragActive = false
+                                selectionDragMoved = false
+                                selectionAnchorBeat = null
+                                selectionFocusBeat = null
+                                armed = true
+                                pendingFret = ""
+                                updateCursor()
+                                android.util.Log.d(
+                                    "EARAM_PASTE",
+                                    "DESTINATION TAP LOCKED bar=" + (destinationHit.measure + 1) +
+                                        " beat=" + (destinationHit.beat + 1)
+                                )
+                                updateStatus(
+                                    "PASTE DESTINATION • BAR " + (destinationHit.measure + 1) +
+                                        " • BEAT " + (destinationHit.beat + 1)
+                                )
+                                score.requestFocus()
+                            } else {
+                                updateStatus("Tap a TAB beat to set Paste destination")
+                            }
+                            // Consume DOWN completely; this gesture is not selection.
+                            return@setOnTouchListener true
+                        }
+
                         val hit = handleScoreTouch(event.x, event.y)
                         if (hit) {
                             val anchor = currentBeat()
