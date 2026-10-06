@@ -2,7 +2,16 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 
 android { namespace = "com.earam.tabs"; compileSdk = 36
     buildFeatures { buildConfig = true }
-    defaultConfig { applicationId = "com.earam.tabs"; minSdk = 26; targetSdk = 35; versionCode = 6; versionName = "0.1.6"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    defaultConfig {
+        applicationId = "com.earam.tabs"
+        minSdk = 26
+        targetSdk = 35
+        val runNumberProvider = providers.environmentVariable("GITHUB_RUN_NUMBER")
+        val runNumberText = runNumberProvider.getOrNull()
+        val runNumber = runNumberText?.toIntOrNull() ?: 0
+        versionCode = 100000 + runNumber
+        versionName = if (runNumber > 0) "0.1.$runNumber" else "0.1.7-dev"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
         getByName("debug") {
