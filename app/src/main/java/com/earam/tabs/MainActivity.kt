@@ -60,6 +60,7 @@ data class BeatHit(
     val rect: RectF,
     val tabTopY: Float,
     val stringSpacing: Float,
+    val beatRef: Beat? = null,
     val virtual: Boolean = false
 )
 
@@ -650,7 +651,7 @@ class MainActivity : ComponentActivity() {
             // overlay and no second coordinate system over the TAB.
             // AlphaTab's beat cursor is the playback marker; the editor selection
             // is represented by the selected Score Beat/Note in the model.
-            selectionFillColor = 0x00000000
+            selectionFillColor = 0x66FF9800
             settings.display.layoutMode = LayoutMode.Page
             settings.display.staveProfile = StaveProfile.ScoreTab
             // Automatic page layout lets AlphaTab use the real rhythmic width of each
@@ -2050,6 +2051,7 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 selectionTarget = SelectionTarget.RANGE
+                try { score.api.highlightPlaybackRange(anchor, focus) } catch (_: Throwable) { }
                 updateStatus("NOTES SELECTED")
                 onSelectionChanged?.invoke()
             }
@@ -2123,7 +2125,7 @@ class MainActivity : ComponentActivity() {
                             val targetBeat = hitRangeBeatAtPoint(event.x, event.y)
                             if (targetBeat != null) {
                                 if (!selectionDragActive) {
-                                    val anchor = currentBeat()
+                                    val anchor = selectionAnchorBeat ?: currentBeat()
                                     if (anchor != null) beginManualRangeSelection(anchor)
                                 }
                                 updateManualRangeSelection(targetBeat)
@@ -2294,6 +2296,7 @@ class MainActivity : ComponentActivity() {
                             RectF(meta.x, meta.y, meta.x + meta.w, meta.y + meta.h),
                             top,
                             spacing,
+                            beatRef = null,
                             virtual = true
                         )
                     )
@@ -2313,6 +2316,7 @@ class MainActivity : ComponentActivity() {
                             ),
                             top,
                             spacing,
+                            beatRef = beat,
                             virtual = false
                         )
                     )
@@ -2422,11 +2426,14 @@ class MainActivity : ComponentActivity() {
                         contentY <= candidate.rect.bottom
                 } ?: return null
 
-                bars()?.getOrNull(hit.measure)
-                    ?.voices?.toList()
-                    ?.getOrNull(currentVoiceIndex)
-                    ?.beats?.toList()
-                    ?.getOrNull(hit.beat)
+                android.util.Log.v(
+                    "EARAM_SELECTION",
+                    "MOVE x=" + x + " y=" + y +
+                        " content=" + contentX + "," + contentY +
+                        " bar=" + (hit.measure + 1) +
+                        " beat=" + (hit.beat + 1)
+                )
+                hit.beatRef
             } catch (t: Throwable) {
                 android.util.Log.w("EARAM_SELECTION", "range beat hit-test failed", t)
                 null
