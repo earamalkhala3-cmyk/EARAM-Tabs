@@ -2153,33 +2153,56 @@ class MainActivity : ComponentActivity() {
                         // handleScoreTouch() has a forgiving nearest-beat fallback and
                         // can otherwise keep the source measure as the caret destination.
                         // Every visible measure is an independent editing target.
-                        val renderedBar = resolveRenderedBarAtPoint(event.x, event.y)
-                        val destinationBeforeHit = if (renderedBar >= 0) {
-                            val activated = activateBarAsEditingTarget(renderedBar)
+                        // Use our beat-hit map as the first authority for the tapped
+                        // measure. It is built from the same AlphaTab Score and follows
+                        // scrolling, so it cannot accidentally resolve to the source bar.
+                        val touchHit = beatHits.asSequence()
+                            .filter { !it.virtual && it.beatRef != null }
+                            .minByOrNull { hit ->
+                                val cx = hit.rect.centerX()
+                                val cy = hit.rect.centerY()
+                                val d = kotlin.math.hypot(
+                                    event.x / activity.resources.displayMetrics.density + actualScrollOffsetsLayout().first - cx,
+                                    event.y / activity.resources.displayMetrics.density + actualScrollOffsetsLayout().second - cy
+                                )
+                                d
+                            }
+
+                        val destinationBeforeHit = touchHit?.let { hit ->
+                            val activated = activateBarAsEditingTarget(hit.measure)
                             android.util.Log.d(
                                 "EARAM_PASTE",
-                                "TAP TARGET FIRST bar=" + (renderedBar + 1) +
-                                    " activated=" + activated +
-                                    " caretBeforeBeatHit=" + (caret.measureIndex + 1) + ":" + (caret.beatIndex + 1)
+                                "TAP BEAT-MAP TARGET bar=" + (hit.measure + 1) +
+                                    " beat=" + (hit.beat + 1) +
+                                    " activated=" + activated
                             )
-                            if (activated) renderedBar else -1
-                        } else -1
+                            if (activated) hit.measure else -1
+                        } ?: run {
+                            val renderedBar = resolveRenderedBarAtPoint(event.x, event.y)
+                            if (renderedBar >= 0) {
+                                val activated = activateBarAsEditingTarget(renderedBar)
+                                android.util.Log.d(
+                                    "EARAM_PASTE",
+                                    "TAP RENDERED-BAR TARGET bar=" + (renderedBar + 1) +
+                                        " activated=" + activated
+                                )
+                                if (activated) renderedBar else -1
+                            } else -1
+                        }
 
                         val hit = handleScoreTouch(event.x, event.y)
 
-                        // Never allow the forgiving hit-test to jump back to another
-                        // measure. If the touch was inside a rendered bar, that bar wins.
+                        // The tapped beat-map/rendered bar is authoritative. The
+                        // generic hit-test is never allowed to send the caret back
+                        // to the source measure.
                         if (destinationBeforeHit >= 0 && caret.measureIndex != destinationBeforeHit) {
-                            caret = caret.copy(
-                                measureIndex = destinationBeforeHit,
-                                beatIndex = 0
-                            )
+                            caret = caret.copy(measureIndex = destinationBeforeHit, beatIndex = 0)
                             session.caret = caret
                             updateCursor()
                             android.util.Log.d(
                                 "EARAM_PASTE",
                                 "CORRECTED TAP TARGET bar=" + (destinationBeforeHit + 1) +
-                                    " caret=" + (caret.measureIndex + 1) + ":" + (caret.beatIndex + 1)
+                                    " after generic hit-test"
                             )
                         }
 
