@@ -1856,14 +1856,9 @@ class MainActivity : ComponentActivity() {
             val string = stringIndex.coerceIn(1, maxStringIndex())
             caret = Caret(track, measure, beat, string)
             session.caret = caret
-            if (awaitingPasteDestination && clipboardKind == ClipboardKind.RANGE) {
-                pasteDestinationCaret = caret
-                awaitingPasteDestination = false
-                android.util.Log.d(
-                    "EARAM_PASTE",
-                    "DESTINATION NAVIGATION LOCKED bar=" + (measure + 1) +
-                        " beat=" + (beat + 1)
-                )
+            // Navigation always owns the paste destination through the live caret.
+            if (clipboardKind == ClipboardKind.RANGE) {
+                pasteDestinationCaret = null
             }
             armed = true
             pendingFret = ""
@@ -3035,12 +3030,12 @@ class MainActivity : ComponentActivity() {
                     }
                     clearClipboardExcept("range")
                     selectionClipboardRange = range
-                    // Do not keep the source caret as an implicit destination.
-                    // The user must choose the destination explicitly after Copy.
+                    // Copy never locks the destination to the source.
+                    // The next normal tap/navigation changes the real editor caret,
+                    // and Paste always uses that current caret.
                     pasteDestinationCaret = null
-                    pasteDestinationBeat = null
-                    awaitingPasteDestination = true
-                    updateStatus("Copied RANGE • " + range.size + " BEATS • TAP DESTINATION")
+                    awaitingPasteDestination = false
+                    updateStatus("Copied RANGE • " + range.size + " BEATS • SELECT DESTINATION THEN PASTE")
                 }
             }
         }
@@ -3155,11 +3150,9 @@ class MainActivity : ComponentActivity() {
 
         private fun pasteRangeAtCurrentCaret(srcRange: List<ClipboardBeat>) {
             val bs = bars() ?: return
-            val destination = pasteDestinationCaret ?: if (awaitingPasteDestination) {
-                updateStatus("Tap the destination measure/beat before Paste")
-                return
-            } else caret
-
+            // The editor caret is the only paste destination.
+            // Never use a stale Beat/object or a remembered source location.
+            val destination = caret
             var barIndex = destination.measureIndex
             var beatIndex = destination.beatIndex
             if (barIndex !in bs.indices) {
@@ -3212,7 +3205,7 @@ class MainActivity : ComponentActivity() {
                 beatIndex = startBeat
             )
             session.caret = caret
-            pasteDestinationCaret = caret
+            pasteDestinationCaret = null
             awaitingPasteDestination = false
             updateCursor()
             onSelectionChanged?.invoke()
