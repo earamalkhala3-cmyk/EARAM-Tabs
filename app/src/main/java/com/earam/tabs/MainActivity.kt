@@ -1811,6 +1811,8 @@ class MainActivity : ComponentActivity() {
         // may move to the paste destination after Copy, so Paste must never resolve
         // the destination from the original selection.
         private var selectionClipboardRange: List<ClipboardBeat>? = null
+        // Explicit paste destination: the last beat the user actually tapped after Copy.
+        private var pasteDestinationCaret: Caret? = null
         var onSelectionChanged: (() -> Unit)? = null
 
         /**
@@ -2480,6 +2482,8 @@ class MainActivity : ComponentActivity() {
                                         session.tickPosition = score.api.tickPosition
                                     } catch (_: Throwable) { }
                                     updateCursor()
+                                    pasteDestinationCaret = caret
+                                    android.util.Log.d("EARAM_PASTE", "DESTINATION TAP NOTE bar=" + (mi + 1) + " beat=" + (bi + 1) + " string=" + uiString)
                                     updateStatus("SELECTED NOTE • B"+(mi+1)+" • BEAT "+(bi+1)+" • STRING "+uiString+" • FRET "+nb.note.fret.toInt())
                                     onSelectionChanged?.invoke()
                                     score.requestFocus()
@@ -2495,7 +2499,26 @@ class MainActivity : ComponentActivity() {
 
             // If no fret was hit, select the rendered Beat. Empty beats are valid
             // editor targets and fret entry materializes the Note in that Beat.
-            val hit = hitTest(x, y) ?: return false
+            val hit = hitTest(x, y) ?: run {
+                val d2 = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                val scroll2 = actualScrollOffsetsLayout()
+                val cx = x / d2 + scroll2.first
+                val cy = y / d2 + scroll2.second
+                beatHits.asSequence()
+                    .filter { !it.virtual && it.beatRef != null }
+                    .minByOrNull { candidate ->
+                        val bx = candidate.rect.centerX().toDouble()
+                        val by = candidate.rect.centerY().toDouble()
+                        val dx = cx.toDouble() - bx
+                        val dy = cy.toDouble() - by
+                        dx * dx + dy * dy
+                    }?.takeIf { candidate ->
+                        val bx = candidate.rect.centerX()
+                        val by = candidate.rect.centerY()
+                        val maxDistance = maxOf(candidate.rect.width(), candidate.rect.height()) * 1.35f
+                        kotlin.math.hypot(cx - bx, cy - by) <= maxDistance
+                    }
+            } ?: return false
             val maxString = maxStringIndex()
             val uiString = (((contentY - hit.tabTopY) / hit.stringSpacing)
                 .roundToInt() + 1).coerceIn(1, maxString)
@@ -2516,6 +2539,10 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (_: Throwable) { }
             updateCursor()
+            if (!hit.virtual) {
+                pasteDestinationCaret = caret
+                android.util.Log.d("EARAM_PASTE", "DESTINATION TAP BEAT bar=" + (hit.measure + 1) + " beat=" + (hit.beat + 1) + " string=" + uiString)
+            }
             updateStatus()
             onSelectionChanged?.invoke()
             score.requestFocus()
@@ -2853,8 +2880,10 @@ class MainActivity : ComponentActivity() {
 
         private fun pasteRangeAtCurrentCaret(srcRange: List<ClipboardBeat>) {
             val bs = bars() ?: return
-            var barIndex = currentBarIndex
-            var beatIndex = currentBeatIndex
+            val destination = pasteDestinationCaret ?: caret
+            var barIndex = destination.measureIndex
+            var beatIndex = destination.beatIndex
+            android.util.Log.d("EARAM_PASTE", "PASTE RANGE destination bar=" + (barIndex + 1) + " beat=" + (beatIndex + 1) + " sourceBeats=" + srcRange.size)
             if (barIndex !in bs.indices) {
                 updateStatus("Invalid paste destination")
                 return
@@ -2895,9 +2924,11 @@ class MainActivity : ComponentActivity() {
             val finalBeat = (beatIndex - 1).coerceIn(0, (finalBeats.size - 1).coerceAtLeast(0))
             caret = caret.copy(measureIndex = finalBar, beatIndex = finalBeat)
             session.caret = caret
+            caret = caret.copy(measureIndex = destination.measureIndex, beatIndex = destination.beatIndex)
+            session.caret = caret
             updateCursor()
             onSelectionChanged?.invoke()
-            updateStatus("Pasted RANGE • BAR " + (currentBarIndex + 1) + " • " + pasted + " BEATS")
+            updateStatus("Pasted RANGE • BAR " + (destination.measureIndex + 1) + " • " + pasted + " BEATS")
         }
 
         fun copyCurrentNoteFromUi() = copyCurrentSelectionFromUi()
