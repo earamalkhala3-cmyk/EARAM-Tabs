@@ -1607,43 +1607,22 @@ class MainActivity : ComponentActivity() {
         var quarterTicks: Long = 1L
             private set
         fun syncFromScore(score: Score) {
-            val simple = score.tracks.toList()
-                .flatMap { it.staves.toList() }
-                .flatMap { it.bars.toList() }
-                .flatMap { it.voices.toList() }
-                .flatMap { it.beats.toList() }
-                .firstOrNull {
-                    it.dots <= 0.0 &&
-                        it.tupletNumerator < 0.0 &&
-                        it.tupletDenominator < 0.0
-                } ?: return
+            val simple = score.tracks.toList().flatMap { it.staves.toList() }.flatMap { it.bars.toList() }.flatMap { it.voices.toList() }.flatMap { it.beats.toList() }
+                .firstOrNull { it.dots <= 0.0 && it.tupletNumerator < 0.0 && it.tupletDenominator < 0.0 } ?: return
             val multiplier = when (simple.duration) {
-                Duration.DoubleWhole -> 8.0
-                Duration.QuadrupleWhole -> 16.0
-                Duration.Whole -> 4.0
-                Duration.Half -> 2.0
-                Duration.Quarter -> 1.0
-                Duration.Eighth -> 0.5
-                Duration.Sixteenth -> 0.25
-                Duration.ThirtySecond -> 0.125
-                Duration.SixtyFourth -> 0.0625
-                Duration.OneHundredTwentyEighth -> 0.03125
-                Duration.TwoHundredFiftySixth -> 0.015625
+                Duration.DoubleWhole -> 8.0; Duration.QuadrupleWhole -> 16.0; Duration.Whole -> 4.0
+                Duration.Half -> 2.0; Duration.Quarter -> 1.0; Duration.Eighth -> 0.5
+                Duration.Sixteenth -> 0.25; Duration.ThirtySecond -> 0.125; Duration.SixtyFourth -> 0.0625
+                Duration.OneHundredTwentyEighth -> 0.03125; Duration.TwoHundredFiftySixth -> 0.015625
             }
             quarterTicks = kotlin.math.round(simple.displayDuration / multiplier).toLong().coerceAtLeast(1L)
         }
         fun durationTicks(duration: Duration): Long = when (duration) {
-            Duration.QuadrupleWhole -> quarterTicks * 16
-            Duration.DoubleWhole -> quarterTicks * 8
-            Duration.Whole -> quarterTicks * 4
-            Duration.Half -> quarterTicks * 2
-            Duration.Quarter -> quarterTicks
-            Duration.Eighth -> quarterTicks / 2
-            Duration.Sixteenth -> quarterTicks / 4
-            Duration.ThirtySecond -> quarterTicks / 8
-            Duration.SixtyFourth -> quarterTicks / 16
-            Duration.OneHundredTwentyEighth -> quarterTicks / 32
-            Duration.TwoHundredFiftySixth -> quarterTicks / 64
+            Duration.QuadrupleWhole -> quarterTicks * 16; Duration.DoubleWhole -> quarterTicks * 8
+            Duration.Whole -> quarterTicks * 4; Duration.Half -> quarterTicks * 2; Duration.Quarter -> quarterTicks
+            Duration.Eighth -> (quarterTicks / 2).coerceAtLeast(1L); Duration.Sixteenth -> (quarterTicks / 4).coerceAtLeast(1L)
+            Duration.ThirtySecond -> (quarterTicks / 8).coerceAtLeast(1L); Duration.SixtyFourth -> (quarterTicks / 16).coerceAtLeast(1L)
+            Duration.OneHundredTwentyEighth -> (quarterTicks / 32).coerceAtLeast(1L); Duration.TwoHundredFiftySixth -> (quarterTicks / 64).coerceAtLeast(1L)
         }
         fun beatTicks(beat: Beat): Long {
             var ticks = durationTicks(beat.duration)
@@ -1651,15 +1630,14 @@ class MainActivity : ComponentActivity() {
             if (beat.tupletNumerator >= 0 && beat.tupletDenominator > 0) ticks = (ticks * beat.tupletDenominator.toLong()) / beat.tupletNumerator.toLong()
             return ticks.coerceAtLeast(1L)
         }
-        fun barCapacityTicks(bar: Bar): Long {
-            return barCapacityTicksForMaster(bar.masterBar)
-        }
+        fun barCapacityTicks(bar: Bar): Long = barCapacityTicksForMaster(bar.masterBar)
         fun barCapacityTicksForMaster(m: MasterBar): Long {
-            return (m.timeSignatureNumerator.toLong().coerceAtLeast(1L) * quarterTicks * 4L) / m.timeSignatureDenominator.toLong().coerceAtLeast(1L)
+            val numerator = m.timeSignatureNumerator.toLong().coerceAtLeast(1L)
+            val denominator = m.timeSignatureDenominator.toLong().coerceAtLeast(1L)
+            return (numerator * quarterTicks * 4L) / denominator
         }
         fun barUsedTicks(bar: Bar, voiceIndex: Int = 0, excluding: Beat? = null): Long =
-            bar.voices.toList().getOrNull(voiceIndex)?.beats?.toList()
-                ?.filter { it !== excluding }?.sumOf { beatTicks(it) } ?: 0L
+            bar.voices.toList().getOrNull(voiceIndex)?.beats?.toList()?.filter { it !== excluding }?.sumOf { beatTicks(it) } ?: 0L
         fun remainingTicks(bar: Bar, voiceIndex: Int = 0, excluding: Beat? = null): Long =
             (barCapacityTicks(bar) - barUsedTicks(bar, voiceIndex, excluding)).coerceAtLeast(0L)
         fun candidateTicks(duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Long {
@@ -1671,36 +1649,99 @@ class MainActivity : ComponentActivity() {
         fun fits(bar: Bar, voiceIndex: Int, beat: Beat, duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Boolean =
             candidateTicks(duration, dots, tupletNumerator, tupletDenominator) <= remainingTicks(bar, voiceIndex, beat)
         fun apply(beat: Beat, duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1) {
-            beat.duration = duration; beat.dots = dots.coerceIn(0, 2).toDouble(); beat.tupletNumerator = tupletNumerator.toDouble(); beat.tupletDenominator = tupletDenominator.toDouble()
+            beat.duration = duration; beat.dots = dots.coerceIn(0, 2).toDouble()
+            beat.tupletNumerator = tupletNumerator.toDouble(); beat.tupletDenominator = tupletDenominator.toDouble()
         }
+        data class Quintuple(val first: Duration, val second: Int, val third: Int, val fourth: Int, val fifth: Long)
         fun largestEmptyBeatSpec(ticks: Long): Quintuple? {
+            if (ticks <= 0L) return null
             val candidates = listOf(
-                Quintuple(Duration.Whole, 0, -1, -1, quarterTicks * 4),
-                Quintuple(Duration.Half, 1, -1, -1, quarterTicks * 3),
-                Quintuple(Duration.DoubleWhole, 0, -1, -1, quarterTicks * 8),
-                Quintuple(Duration.Half, 0, -1, -1, quarterTicks * 2),
-                Quintuple(Duration.Quarter, 1, -1, -1, quarterTicks * 3 / 2),
-                Quintuple(Duration.Quarter, 0, -1, -1, quarterTicks),
-                Quintuple(Duration.Eighth, 1, -1, -1, quarterTicks * 3 / 4),
-                Quintuple(Duration.Eighth, 0, -1, -1, quarterTicks / 2),
-                Quintuple(Duration.Sixteenth, 1, -1, -1, quarterTicks * 3 / 8),
-                Quintuple(Duration.Sixteenth, 0, -1, -1, quarterTicks / 4),
-                Quintuple(Duration.ThirtySecond, 0, -1, -1, quarterTicks / 8),
-                Quintuple(Duration.SixtyFourth, 0, -1, -1, quarterTicks / 16),
-                Quintuple(Duration.Eighth, 0, 3, 2, quarterTicks / 3),
-                Quintuple(Duration.Sixteenth, 0, 3, 2, quarterTicks / 6),
-                Quintuple(Duration.ThirtySecond, 0, 3, 2, quarterTicks / 12)
-            ).sortedByDescending { it.fifth }
+                Quintuple(Duration.DoubleWhole,0,-1,-1,quarterTicks*8), Quintuple(Duration.Whole,0,-1,-1,quarterTicks*4),
+                Quintuple(Duration.Half,1,-1,-1,quarterTicks*3), Quintuple(Duration.Half,0,-1,-1,quarterTicks*2),
+                Quintuple(Duration.Quarter,1,-1,-1,quarterTicks*3/2), Quintuple(Duration.Quarter,0,-1,-1,quarterTicks),
+                Quintuple(Duration.Eighth,1,-1,-1,quarterTicks*3/4), Quintuple(Duration.Eighth,0,-1,-1,quarterTicks/2),
+                Quintuple(Duration.Sixteenth,1,-1,-1,quarterTicks*3/8), Quintuple(Duration.Sixteenth,0,-1,-1,quarterTicks/4),
+                Quintuple(Duration.ThirtySecond,0,-1,-1,quarterTicks/8), Quintuple(Duration.SixtyFourth,0,-1,-1,quarterTicks/16),
+                Quintuple(Duration.Eighth,0,3,2,quarterTicks/3), Quintuple(Duration.Sixteenth,0,3,2,quarterTicks/6),
+                Quintuple(Duration.ThirtySecond,0,3,2,quarterTicks/12)
+            ).filter { it.fifth > 0L }.sortedByDescending { it.fifth }
             return candidates.firstOrNull { it.fifth <= ticks }
         }
-
-        data class Quintuple(
-            val first: Duration, val second: Int, val third: Int, val fourth: Int, val fifth: Long
-        )
-        fun nextBeat(bar: Bar, beat: Beat): Beat? {
-            val beats = bar.voices.firstOrNull()?.beats?.toList() ?: return null
-            val i = beats.indexOf(beat)
-            return if (i >= 0 && i + 1 < beats.size) beats[i + 1] else null
+        private fun newEmptyBeat(spec: Quintuple): Beat = Beat().apply {
+            duration = spec.first; dots = spec.second.toDouble(); tupletNumerator = spec.third.toDouble()
+            tupletDenominator = spec.fourth.toDouble(); isEmpty = true
+        }
+        fun fillVoiceToBarCapacity(bar: Bar, voiceIndex: Int = 0): Boolean {
+            val voice = bar.voices.toList().getOrNull(voiceIndex) ?: return false
+            val capacity = barCapacityTicks(bar); var used = barUsedTicks(bar, voiceIndex)
+            while (used < capacity) {
+                val spec = largestEmptyBeatSpec(capacity - used) ?: return false
+                val rest = newEmptyBeat(spec); voice.addBeat(rest); used += beatTicks(rest)
+            }
+            while (used > capacity) {
+                val beats = voice.beats.toList(); val last = beats.lastOrNull() ?: break
+                if (!last.isEmpty || last.notes.toList().isNotEmpty()) return false
+                val excess = used - capacity; val lastTicks = beatTicks(last)
+                if (lastTicks <= excess) {
+                    voice.beats.splice(beats.lastIndex.toDouble(), 1.0); used -= lastTicks
+                } else {
+                    val target = lastTicks - excess; val spec = largestEmptyBeatSpec(target) ?: return false
+                    apply(last, spec.first, spec.second, spec.third, spec.fourth); last.isEmpty = true
+                    used = used - lastTicks + beatTicks(last)
+                }
+            }
+            return used == capacity
+        }
+        fun changeBeatDuration(bar: Bar, voiceIndex: Int, beat: Beat, duration: Duration, dots: Int, tupletNumerator: Int, tupletDenominator: Int): Boolean {
+            val voice = bar.voices.toList().getOrNull(voiceIndex) ?: return false
+            val beats = voice.beats.toList(); val index = beats.indexOf(beat); if (index < 0) return false
+            val oldTicks = beatTicks(beat); val newTicks = candidateTicks(duration,dots,tupletNumerator,tupletDenominator)
+            val capacity = barCapacityTicks(bar); val usedWithoutCurrent = barUsedTicks(bar,voiceIndex,beat)
+            if (usedWithoutCurrent + newTicks > capacity) return false
+            if (newTicks < oldTicks) {
+                apply(beat,duration,dots,tupletNumerator,tupletDenominator)
+                var remainder = oldTicks-newTicks; var after = beat
+                while (remainder > 0L) {
+                    val spec = largestEmptyBeatSpec(remainder) ?: return false
+                    val rest = newEmptyBeat(spec); voice.insertBeat(after,rest); after=rest; remainder-=beatTicks(rest)
+                }
+                return true
+            }
+            if (newTicks > oldTicks) {
+                val needed = newTicks-oldTicks; var available=0L; var scanIndex=index+1
+                while (available < needed) {
+                    val current=voice.beats.toList().getOrNull(scanIndex) ?: return false
+                    if (!current.isEmpty || current.notes.toList().isNotEmpty()) return false
+                    available += beatTicks(current); scanIndex++
+                }
+                var remaining=needed; var removeIndex=index+1
+                while (remaining > 0L) {
+                    val current=voice.beats.toList().getOrNull(removeIndex) ?: return false
+                    val currentTicks=beatTicks(current)
+                    if (currentTicks <= remaining) { voice.beats.splice(removeIndex.toDouble(),1.0); remaining-=currentTicks }
+                    else {
+                        val restTicks=currentTicks-remaining; val spec=largestEmptyBeatSpec(restTicks) ?: return false
+                        apply(current,spec.first,spec.second,spec.third,spec.fourth); current.isEmpty=true; remaining=0L
+                    }
+                }
+                apply(beat,duration,dots,tupletNumerator,tupletDenominator); return true
+            }
+            apply(beat,duration,dots,tupletNumerator,tupletDenominator); return true
+        }
+        fun prepareNextRestGrid(bar: Bar, voiceIndex: Int, beat: Beat): Boolean {
+            val voice=bar.voices.toList().getOrNull(voiceIndex) ?: return false
+            val beats=voice.beats.toList(); val index=beats.indexOf(beat)
+            if (index < 0 || index+1 >= beats.size) return false
+            val next=beats[index+1]; if (!next.isEmpty || next.notes.toList().isNotEmpty()) return false
+            val desired=candidateTicks(beat.duration,beat.dots.toInt(),if(beat.tupletNumerator>=0) beat.tupletNumerator.toInt() else -1,if(beat.tupletDenominator>0) beat.tupletDenominator.toInt() else -1)
+            val nextTicks=beatTicks(next); if (nextTicks <= desired) return false
+            val remainder=nextTicks-desired; val spec=largestEmptyBeatSpec(remainder) ?: return false
+            apply(next,beat.duration,beat.dots.toInt(),beat.tupletNumerator.toInt(),beat.tupletDenominator.toInt())
+            voice.insertBeat(next,newEmptyBeat(spec)); return true
+        }
+        fun nextBeat(bar: Bar, beat: Beat, voiceIndex: Int = 0): Beat? {
+            val beats=bar.voices.toList().getOrNull(voiceIndex)?.beats?.toList() ?: return null
+            val i=beats.indexOf(beat); return if (i>=0 && i+1<beats.size) beats[i+1] else null
         }
     }
 
@@ -2810,9 +2851,18 @@ class MainActivity : ComponentActivity() {
                         val n = num.text.toString().toInt().coerceIn(1, 32)
                         val d = den.text.toString().toInt()
                         if (d !in listOf(1,2,4,8,16,32)) throw IllegalArgumentException("Denominator must be 1, 2, 4, 8, 16 or 32")
+                        val oldNumerator = master.timeSignatureNumerator
+                        val oldDenominator = master.timeSignatureDenominator
+                        val oldCommon = master.timeSignatureCommon
                         master.timeSignatureNumerator = n.toDouble()
                         master.timeSignatureDenominator = d.toDouble()
                         master.timeSignatureCommon = n == 4 && d == 4
+                        if (!syncBarRhythmToTimeSignature(selectedBarIndex)) {
+                            master.timeSignatureNumerator = oldNumerator
+                            master.timeSignatureDenominator = oldDenominator
+                            master.timeSignatureCommon = oldCommon
+                            throw IllegalArgumentException("Time signature is smaller than the existing musical content")
+                        }
                         master.keySignature = KeySignature.values()[keySpinner.selectedItemPosition]
                         master.keySignatureType = if (modeSpinner.selectedItemPosition == 1) KeySignatureType.Minor else KeySignatureType.Major
                         val tempoValue = tempo.text.toString().toDoubleOrNull()
@@ -2827,6 +2877,17 @@ class MainActivity : ComponentActivity() {
                         updateStatus("Timeline edit failed • " + (t.message ?: t.javaClass.simpleName))
                     }
                 }.show()
+        }
+
+        private fun syncBarRhythmToTimeSignature(barIndex: Int): Boolean {
+            val song=score.api.score ?: return false
+            for(track in song.tracks.toList()) for(staff in track.staves.toList()) {
+                val bar=staff.bars.toList().getOrNull(barIndex) ?: continue
+                for(voiceIndex in bar.voices.toList().indices) {
+                    if(!AlphaTabRhythmEngine.fillVoiceToBarCapacity(bar,voiceIndex)) return false
+                }
+            }
+            return true
         }
 
         private fun cloneBarForScore(source: Bar, master: MasterBar): Bar {
@@ -3419,18 +3480,17 @@ class MainActivity : ComponentActivity() {
         fun setCurrentDuration(duration: Duration, dots: Int = 0, tupletNumerator: Int = -1, tupletDenominator: Int = -1): Boolean {
             val beat = requireTabSelection() ?: return false
             val bar = bars()?.getOrNull(caret.measureIndex) ?: return false
-            if (!AlphaTabRhythmEngine.fits(bar, currentVoiceIndex, beat, duration, dots, tupletNumerator, tupletDenominator)) {
+            pushUndoSnapshot()
+            if (!AlphaTabRhythmEngine.changeBeatDuration(bar,currentVoiceIndex,beat,duration,dots,tupletNumerator,tupletDenominator)) {
                 updateStatus("Duration does not fit • " + bar.masterBar.timeSignatureNumerator.toInt() + "/" + bar.masterBar.timeSignatureDenominator.toInt())
                 return false
             }
-            pushUndoSnapshot()
-            AlphaTabRhythmEngine.apply(beat, duration, dots, tupletNumerator, tupletDenominator)
             if (beat.notes.toList().isEmpty()) beat.isEmpty = true
-            score.api.score?.finish(score.settings)
-            renderAndLog("duration")
-            updateCursor()
-            updateStatus("Duration " + duration.name)
-            return true
+            if (!AlphaTabRhythmEngine.fillVoiceToBarCapacity(bar,currentVoiceIndex)) {
+                updateStatus("Cannot complete measure • rhythm exceeds bar capacity"); return false
+            }
+            score.api.score?.finish(score.settings); renderAndLog("duration"); updateCursor()
+            updateStatus("Duration " + duration.name); return true
         }
 
         private fun createNextMeasures(count: Int = 4): Boolean {
@@ -3496,28 +3556,25 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun advanceAfterEntry() {
-            val bs = bars() ?: return
-            val bar = bs.getOrNull(currentBarIndex) ?: return
-            val beat = currentBeat() ?: return
-            if (AlphaTabRhythmEngine.nextBeat(bar, beat) != null) {
-                caret = caret.copy(beatIndex = caret.beatIndex + 1)
-                session.caret = caret
-                updateCursor()
-                updateStatus()
-                return
+            val bs=bars() ?: return
+            val bar=bs.getOrNull(currentBarIndex) ?: return
+            val beat=currentBeat() ?: return
+            if(AlphaTabRhythmEngine.nextBeat(bar,beat,currentVoiceIndex)!=null) {
+                caret=caret.copy(beatIndex=caret.beatIndex+1); session.caret=caret; updateCursor(); updateStatus(); return
             }
-
-            // The current measure is complete. Crossing its last beat always moves
-            // to beat 1 of the next measure. If this was the trailing measure,
-            // append four more Empty-Beat measures first.
-            if (currentBarIndex == bs.lastIndex) {
-                if (!createNextMeasures(4)) return
+            val used=AlphaTabRhythmEngine.barUsedTicks(bar,currentVoiceIndex)
+            val capacity=AlphaTabRhythmEngine.barCapacityTicks(bar)
+            if(used<capacity) {
+                if(!AlphaTabRhythmEngine.fillVoiceToBarCapacity(bar,currentVoiceIndex)) return
+                val count=bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.size ?: return
+                if(caret.beatIndex+1<count) {
+                    caret=caret.copy(beatIndex=caret.beatIndex+1); session.caret=caret; updateCursor(); updateStatus(); return
+                }
             }
-            val nextMeasure = currentBarIndex + 1
-            caret = caret.copy(measureIndex = nextMeasure, beatIndex = 0)
-            session.caret = caret
-            updateCursor()
-            updateStatus("Measure " + (currentBarIndex + 1) + " • Beat 1")
+            if(currentBarIndex==bs.lastIndex) { if(!createNextMeasures(4)) return }
+            val nextMeasure=currentBarIndex+1
+            caret=caret.copy(measureIndex=nextMeasure,beatIndex=0); session.caret=caret; updateCursor()
+            updateStatus("Measure " + nextMeasure + " • Beat 1")
         }
 
         /** Arrow navigation never creates a measure. It only moves inside existing Score beats. */
@@ -3576,114 +3633,43 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun moveBeat(delta: Int) {
-            val bs = bars() ?: return
+            val bs=bars() ?: return
             if (bs.isEmpty()) return
-            var b = currentBarIndex.coerceIn(0, bs.lastIndex)
-            var beat = currentBeatIndex
-            val step = if (delta < 0) -1 else 1
-
+            var b=currentBarIndex.coerceIn(0,bs.lastIndex); var beat=currentBeatIndex
+            val step=if(delta<0) -1 else 1
             repeat(kotlin.math.abs(delta)) {
-                val count = bs[b].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.size ?: 0
-                if (count <= 0) return@repeat
-                var candidate = beat + step
-
-                if (candidate < 0) {
-                    if (b == 0) return@repeat
-                    b--
-                    candidate = (bs[b].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.size ?: 1) - 1
-                } else if (candidate >= count) {
-                    if (b == bs.lastIndex) {
-                        // Reaching the trailing measure expands the score by four
-                        // Empty-Beat measures before the move continues.
-                        if (!createNextMeasures(4)) return@repeat
+                val bar=bs.getOrNull(b) ?: return@repeat
+                val voice=bar.voices.toList().getOrNull(currentVoiceIndex) ?: return@repeat
+                val beats=voice.beats.toList()
+                if (step<0) {
+                    val candidate=beat-1
+                    if(candidate>=0) beat=candidate
+                    else {
+                        if(b==0) return@repeat
+                        b--
+                        val prev=bs[b].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+                        if(prev.isEmpty()) return@repeat
+                        beat=prev.lastIndex
                     }
-                    b++
-                    candidate = 0
+                    return@repeat
                 }
-                beat = candidate.coerceAtLeast(0)
-            }
-
-            caret = Caret(currentTrackIndex, b, beat, currentStringIndex)
-            session.caret = caret
-            selectionTarget = SelectionTarget.BEAT
-            armed = true
-            pendingFret = ""
-            updateCursor()
-            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
-                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
-            }
-            updateStatus()
-            onSelectionChanged?.invoke()
-        }
-
-        private fun moveToEdge(end: Boolean) {
-            val bs = bars() ?: return
-            if (bs.isEmpty()) return
-            val targetBar = if (end) bs.lastIndex else 0
-            val beats = bs[targetBar].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-            caret = Caret(currentTrackIndex, targetBar, if (end) (beats.size - 1).coerceAtLeast(0) else 0, currentStringIndex)
-            session.caret = caret
-            armed = true
-            pendingFret = ""
-            updateCursor()
-            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
-                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
-            }
-            updateStatus()
-        }
-
-        /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
-        private fun moveString(delta: Int) {
-            caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
-            session.caret = caret
-            armed = true
-            pendingFret = ""
-            updateCursor()
-            if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
-                ensureCaretVisible(lastRawCaretX, lastRawCaretY)
-            }
-            updateStatus()
-            onSelectionChanged?.invoke()
-        }
-
-        private fun acceptDigit(digit: Int) {
-            if (digit !in 0..9) return
-            if (!armed) armed = true
-            val now = android.os.SystemClock.uptimeMillis()
-            if (now - pendingAtMs > 700L) pendingFret = ""
-            pendingAtMs = now
-            val generation = ++inputGeneration
-
-            if (pendingFret.isEmpty()) {
-                pendingFret = digit.toString()
-            } else {
-                val candidate = pendingFret + digit
-                val value = candidate.toIntOrNull()
-                if (value != null && value <= 24) {
-                    writeFret(value)
-                    pendingFret = ""
-                    return
+                val candidate=beat+1
+                if(candidate<beats.size) { beat=candidate; return@repeat }
+                val used=AlphaTabRhythmEngine.barUsedTicks(bar,currentVoiceIndex)
+                val capacity=AlphaTabRhythmEngine.barCapacityTicks(bar)
+                if(used<capacity) {
+                    if(!AlphaTabRhythmEngine.fillVoiceToBarCapacity(bar,currentVoiceIndex)) return@repeat
+                    val refreshed=bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+                    if(candidate<refreshed.size) { beat=candidate; return@repeat }
+                    return@repeat
                 }
-                val first = pendingFret.toIntOrNull()
-                if (first != null && first <= 9) writeFret(first)
-                pendingFret = digit.toString()
-                pendingAtMs = now
+                if(b==bs.lastIndex) { if(!createNextMeasures(4)) return@repeat }
+                b++; beat=0
             }
-
-            val value = pendingFret.toIntOrNull() ?: return
-            if (value == 0) {
-                writeFret(0)
-                pendingFret = ""
-            } else {
-                updateStatus("Fret $pendingFret…")
-                activity.window.decorView.postDelayed({
-                    val t = android.os.SystemClock.uptimeMillis()
-                    if (generation == inputGeneration && t - pendingAtMs >= 700L && pendingFret == value.toString()) {
-                        writeFret(value)
-                        pendingFret = ""
-                    }
-                }, 720L)
-            }
+            caret=Caret(currentTrackIndex,b,beat,currentStringIndex); session.caret=caret; armed=true; pendingFret=""
+            updateCursor()
+            if(lastRawCaretX.isFinite()&&lastRawCaretY.isFinite()) ensureCaretVisible(lastRawCaretX,lastRawCaretY)
+            updateStatus(); onSelectionChanged?.invoke()
         }
 
         /** UI String 1 is the thin/high E; AlphaTab string 1 is the lowest/bottom string. */
@@ -3696,6 +3682,8 @@ class MainActivity : ComponentActivity() {
             try {
                 val beat = ensureRealBeatForCaret() ?: return
                 writeFretInternal(beat, fret)
+                val bar = bars()?.getOrNull(caret.measureIndex)
+                if (bar != null) AlphaTabRhythmEngine.prepareNextRestGrid(bar, currentVoiceIndex, beat)
                 renderAndLog("fret=" + fret)
                 onSelectionChanged?.invoke()
                 // Stay on the same Beat after entering a fret. This is required for chords:
