@@ -53,6 +53,12 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
+      - name: Clean repository build outputs
+        run: |
+          set -euo pipefail
+          gradle clean --no-daemon --stacktrace
+          rm -rf .gradle app/build core/build web/dist
+
       - name: Unit tests
         run: gradle :core:test --no-daemon --stacktrace
 
@@ -64,7 +70,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          gradle :app:clean :app:assembleRelease -Pandroid.injected.build.api=36 -Pandroid.injected.testOnly=false --no-daemon --stacktrace
+          gradle clean :app:assembleRelease -Pandroid.injected.build.api=36 -Pandroid.injected.testOnly=false --no-daemon --stacktrace
 
       - name: Select exactly one APK
         run: |
@@ -116,7 +122,14 @@ jobs:
           BADGING="$("$AAPT2" dump badging "$APK_PATH")"
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.earam.tabs'" <<< "$BADGING"
-          grep -q "versionName='0.1.6'" <<< "$BADGING"
+          VERSION_CODE="$(sed -n "s/.*versionCode='\\([0-9][0-9]*\\)'.*/\\1/p" <<< "$BADGING")"
+          VERSION_NAME="$(sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p" <<< "$BADGING")"
+          test -n "$VERSION_CODE"
+          test -n "$VERSION_NAME"
+          test "$VERSION_CODE" -ge 100000
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          grep -q "versionName='$VERSION_NAME'" <<< "$BADGING"
           if grep -q "testOnly='true'" <<< "$BADGING"; then
             echo "ERROR: testOnly APK"
             exit 1
@@ -302,13 +315,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="v0.1.6"
+          TAG="v${VERSION_NAME}"
           SHA_FILE="$APK_PATH.sha256"
           sha256sum "$APK_PATH" > "$SHA_FILE"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --clobber
           else
-            gh release create "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --title "Earam 0.1.6" --notes "Earam Android release 0.1.6."
+            gh release create "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --title "Earam ${VERSION_NAME}" --notes "Earam Android release ${VERSION_NAME}. GitHub Actions run #${{ github.run_number }}."
           fi
 
       - name: Final SHA-256
