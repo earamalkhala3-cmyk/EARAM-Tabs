@@ -3078,12 +3078,13 @@ class MainActivity : ComponentActivity() {
                     }
                     clearClipboardExcept("range")
                     selectionClipboardRange = range
-                    // Copy never locks the destination to the source.
-                    // The next normal tap/navigation changes the real editor caret,
-                    // and Paste always uses that current caret.
+                    // RANGE copy enters an explicit destination-selection state.
+                    // The next TAB tap is resolved against the rendered bar/beat map,
+                    // so the source selection can never be reused as the paste target.
                     pasteDestinationCaret = null
-                    awaitingPasteDestination = false
-                    updateStatus("Copied RANGE • " + range.size + " BEATS • SELECT DESTINATION THEN PASTE")
+                    pasteDestinationBeat = null
+                    awaitingPasteDestination = true
+                    updateStatus("Copied RANGE • " + range.size + " BEATS • TAP DESTINATION THEN PASTE")
                 }
             }
         }
