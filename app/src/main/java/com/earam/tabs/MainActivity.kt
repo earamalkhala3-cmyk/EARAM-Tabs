@@ -2160,6 +2160,14 @@ class MainActivity : ComponentActivity() {
                                 beginManualRangeSelection(anchor)
                                 selectionTarget = SelectionTarget.NOTE
                             }
+                        } else {
+                            // A tap anywhere inside a rendered measure activates that
+                            // measure as the editing target. It is never treated as
+                            // background/secondary content.
+                            val renderedBar = resolveRenderedBarAtPoint(event.x, event.y)
+                            if (renderedBar >= 0) {
+                                activateBarAsEditingTarget(renderedBar)
+                            }
                         }
 
                         barLongPressRunnable = Runnable {
@@ -2428,6 +2436,67 @@ class MainActivity : ComponentActivity() {
          * There is intentionally NO nearest-bar/nearest-beat fallback: if the point is
          * outside the rendered Bar rectangle, the long press is rejected.
          */
+        // Every rendered measure is an independent editing target. This resolver
+        // deliberately works from the Score/AlphaTab bar bounds, not from the current
+        // caret or from beatHits, so no measure can become a "secondary" target.
+        private fun resolveRenderedBarAtPoint(x: Float, y: Float): Int {
+            return try {
+                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                val scroll = actualScrollOffsetsLayout()
+                val contentX = x / d + scroll.first
+                val contentY = y / d + scroll.second
+                val staff = score.api.score?.tracks?.toList()
+                    ?.getOrNull(currentTrackIndex)?.staves?.firstOrNull() ?: return -1
+                val lookup = score.api.renderer.boundsLookup ?: return -1
+                for ((index, bar) in staff.bars.toList().withIndex()) {
+                    val mb = lookup.findMasterBar(bar.masterBar) ?: continue
+                    val bounds = mb.bars.toList().firstOrNull { it.bar === bar } ?: continue
+                    val r = bounds.realBounds
+                    if (contentX >= r.x.toDouble() &&
+                        contentX <= (r.x + r.w).toDouble() &&
+                        contentY >= r.y.toDouble() &&
+                        contentY <= (r.y + r.h).toDouble()) {
+                        android.util.Log.d(
+                            "EARAM_BAR_SELECTION",
+                            "RENDERED BAR TARGET index=" + (index + 1) +
+                                " content=" + contentX + "," + contentY +
+                                " bounds=" + r +
+                                " totalBars=" + staff.bars.toList().size
+                        )
+                        return index
+                    }
+                }
+                -1
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_BAR_SELECTION", "rendered bar resolver failed", t)
+                -1
+            }
+        }
+
+        private fun activateBarAsEditingTarget(index: Int): Boolean {
+            val bs = bars() ?: return false
+            if (index !in bs.indices) return false
+            val voice = bs[index].voices.toList().getOrNull(currentVoiceIndex)
+            val beats = voice?.beats?.toList().orEmpty()
+            if (beats.isEmpty()) return false
+            val beatIndex = caret.beatIndex.coerceIn(0, beats.lastIndex)
+            caret = caret.copy(measureIndex = index, beatIndex = beatIndex)
+            session.caret = caret
+            armed = true
+            pendingFret = ""
+            selectionTarget = SelectionTarget.BEAT
+            updateCursor()
+            onSelectionChanged?.invoke()
+            android.util.Log.d(
+                "EARAM_BAR_SELECTION",
+                "EDIT TARGET ACTIVE bar=" + (index + 1) +
+                    " beat=" + (beatIndex + 1) +
+                    " voice=" + (currentVoiceIndex + 1) +
+                    " totalBars=" + bs.size
+            )
+            return true
+        }
+
         private fun hitRenderedBarAtPoint(x: Float, y: Float): Int {
             return try {
                 val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
