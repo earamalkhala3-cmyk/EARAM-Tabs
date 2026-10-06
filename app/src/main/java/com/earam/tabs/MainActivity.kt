@@ -2769,6 +2769,9 @@ class MainActivity : ComponentActivity() {
                     updateStatus("Pasted BAR • " + (currentBarIndex + 1))
                     onSelectionChanged?.invoke()
                 }
+                SelectionTarget.RANGE -> {
+                    updateStatus("Paste for note ranges is not available yet")
+                }
             }
         }
 
@@ -3673,7 +3676,12 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     song.finish(score.settings)
-                    clearManualSelection()
+                    selectionAnchorBeat = null
+                    selectionFocusBeat = null
+                    selectionDragActive = false
+                    selectionDragMoved = false
+                    if (selectionTarget == SelectionTarget.RANGE) selectionTarget = SelectionTarget.BEAT
+                    try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
                     renderAndLog("delete-selection")
                     onSelectionChanged?.invoke()
                 }
