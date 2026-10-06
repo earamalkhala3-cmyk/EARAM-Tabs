@@ -1813,6 +1813,9 @@ class MainActivity : ComponentActivity() {
         private var selectionClipboardRange: List<ClipboardBeat>? = null
         // Explicit paste destination: the last beat the user actually tapped after Copy.
         private var pasteDestinationCaret: Caret? = null
+        // After copying a range, the NEXT real TAB tap is an explicit paste destination.
+        // This prevents the source selection from being reused as the destination.
+        private var awaitingPasteDestination = false
         var onSelectionChanged: (() -> Unit)? = null
 
         /**
@@ -1844,6 +1847,11 @@ class MainActivity : ComponentActivity() {
             val string = stringIndex.coerceIn(1, maxStringIndex())
             caret = Caret(track, measure, beat, string)
             session.caret = caret
+            if (awaitingPasteDestination) {
+                pasteDestinationCaret = caret
+                awaitingPasteDestination = false
+                android.util.Log.d("EARAM_PASTE", "DESTINATION NAVIGATION bar=" + (measure + 1) + " beat=" + (beat + 1))
+            }
             armed = true
             pendingFret = ""
             if (notify) {
@@ -2483,6 +2491,7 @@ class MainActivity : ComponentActivity() {
                                     } catch (_: Throwable) { }
                                     updateCursor()
                                     pasteDestinationCaret = caret
+                                    awaitingPasteDestination = false
                                     android.util.Log.d("EARAM_PASTE", "DESTINATION TAP NOTE bar=" + (mi + 1) + " beat=" + (bi + 1) + " string=" + uiString)
                                     updateStatus("SELECTED NOTE • B"+(mi+1)+" • BEAT "+(bi+1)+" • STRING "+uiString+" • FRET "+nb.note.fret.toInt())
                                     onSelectionChanged?.invoke()
@@ -2541,6 +2550,7 @@ class MainActivity : ComponentActivity() {
             updateCursor()
             if (!hit.virtual) {
                 pasteDestinationCaret = caret
+                awaitingPasteDestination = false
                 android.util.Log.d("EARAM_PASTE", "DESTINATION TAP BEAT bar=" + (hit.measure + 1) + " beat=" + (hit.beat + 1) + " string=" + uiString)
             }
             updateStatus()
@@ -2789,7 +2799,11 @@ class MainActivity : ComponentActivity() {
                     }
                     clearClipboardExcept("range")
                     selectionClipboardRange = range
-                    updateStatus("Copied RANGE • " + range.size + " BEATS")
+                    // Do not keep the source caret as an implicit destination.
+                    // The user must choose the destination explicitly after Copy.
+                    pasteDestinationCaret = null
+                    awaitingPasteDestination = true
+                    updateStatus("Copied RANGE • " + range.size + " BEATS • TAP DESTINATION")
                 }
             }
         }
@@ -2880,6 +2894,10 @@ class MainActivity : ComponentActivity() {
 
         private fun pasteRangeAtCurrentCaret(srcRange: List<ClipboardBeat>) {
             val bs = bars() ?: return
+            if (awaitingPasteDestination && pasteDestinationCaret == null) {
+                updateStatus("Tap the destination measure/beat before Paste")
+                return
+            }
             val destination = pasteDestinationCaret ?: caret
             var barIndex = destination.measureIndex
             var beatIndex = destination.beatIndex
@@ -4287,6 +4305,12 @@ class MainActivity : ComponentActivity() {
             pendingFret = ""
 
             // Selecting a measure also seeks playback to the beginning of that measure.
+            if (awaitingPasteDestination) {
+                pasteDestinationCaret = caret
+                awaitingPasteDestination = false
+                android.util.Log.d("EARAM_PASTE", "DESTINATION BAR SELECT bar=" + (index + 1) + " beat=1")
+            }
+
             if (selectedBeat != null) {
                 try {
                     score.api.stop()
