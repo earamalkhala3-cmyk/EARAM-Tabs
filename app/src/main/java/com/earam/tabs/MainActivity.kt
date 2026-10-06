@@ -805,7 +805,6 @@ class MainActivity : ComponentActivity() {
         root.addView(status, LinearLayout.LayoutParams(-1, dp(24f)))
         header.requestApplyInsets()
         root.addView(transport, LinearLayout.LayoutParams(-1, dp(52f)))
-        root.addView(context, LinearLayout.LayoutParams(-1, dp(40f)))
         root.addView(navigation, LinearLayout.LayoutParams(-1, dp(48f)))
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
