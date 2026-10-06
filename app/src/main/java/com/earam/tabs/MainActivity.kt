@@ -1813,6 +1813,9 @@ class MainActivity : ComponentActivity() {
         private var selectionClipboardRange: List<ClipboardBeat>? = null
         // Explicit paste destination: the last beat the user actually tapped after Copy.
         private var pasteDestinationCaret: Caret? = null
+        // Strong destination anchor: the actual AlphaTab Beat tapped after Copy.
+        // This is independent of the mutable caret and cannot fall back to the source beat.
+        private var pasteDestinationBeat: alphaTab.model.Beat? = null
         // After copying a range, the NEXT real TAB tap is an explicit paste destination.
         // This prevents the source selection from being reused as the destination.
         private var awaitingPasteDestination = false
@@ -1849,6 +1852,7 @@ class MainActivity : ComponentActivity() {
             session.caret = caret
             if (awaitingPasteDestination) {
                 pasteDestinationCaret = caret
+                pasteDestinationBeat = null
                 awaitingPasteDestination = false
                 android.util.Log.d("EARAM_PASTE", "DESTINATION NAVIGATION bar=" + (measure + 1) + " beat=" + (beat + 1))
             }
@@ -2491,6 +2495,7 @@ class MainActivity : ComponentActivity() {
                                     } catch (_: Throwable) { }
                                     updateCursor()
                                     pasteDestinationCaret = caret
+                                    pasteDestinationBeat = beat
                                     awaitingPasteDestination = false
                                     android.util.Log.d("EARAM_PASTE", "DESTINATION TAP NOTE bar=" + (mi + 1) + " beat=" + (bi + 1) + " string=" + uiString)
                                     updateStatus("SELECTED NOTE • B"+(mi+1)+" • BEAT "+(bi+1)+" • STRING "+uiString+" • FRET "+nb.note.fret.toInt())
@@ -2550,6 +2555,7 @@ class MainActivity : ComponentActivity() {
             updateCursor()
             if (!hit.virtual) {
                 pasteDestinationCaret = caret
+                pasteDestinationBeat = hit.beatRef
                 awaitingPasteDestination = false
                 android.util.Log.d("EARAM_PASTE", "DESTINATION TAP BEAT bar=" + (hit.measure + 1) + " beat=" + (hit.beat + 1) + " string=" + uiString)
             }
@@ -2802,6 +2808,7 @@ class MainActivity : ComponentActivity() {
                     // Do not keep the source caret as an implicit destination.
                     // The user must choose the destination explicitly after Copy.
                     pasteDestinationCaret = null
+                    pasteDestinationBeat = null
                     awaitingPasteDestination = true
                     updateStatus("Copied RANGE • " + range.size + " BEATS • TAP DESTINATION")
                 }
@@ -2898,10 +2905,42 @@ class MainActivity : ComponentActivity() {
                 updateStatus("Tap the destination measure/beat before Paste")
                 return
             }
+            // Resolve the destination from the actual Beat object captured by the
+            // destination tap. Never use the source selection or a stale Caret here.
+            val destinationBeat = pasteDestinationBeat
             val destination = pasteDestinationCaret ?: caret
-            var barIndex = destination.measureIndex
-            var beatIndex = destination.beatIndex
-            android.util.Log.d("EARAM_PASTE", "PASTE RANGE destination bar=" + (barIndex + 1) + " beat=" + (beatIndex + 1) + " sourceBeats=" + srcRange.size)
+            var barIndex: Int
+            var beatIndex: Int
+            if (destinationBeat != null) {
+                var found = false
+                barIndex = 0
+                beatIndex = 0
+                outer@ for ((mi, bar) in bs.withIndex()) {
+                    val beats = bar.voices.toList()
+                        .getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
+                    for ((bi, beat) in beats.withIndex()) {
+                        if (beat === destinationBeat) {
+                            barIndex = mi
+                            beatIndex = bi
+                            found = true
+                            break@outer
+                        }
+                    }
+                }
+                if (!found) {
+                    updateStatus("Paste destination is no longer in the score")
+                    return
+                }
+            } else {
+                barIndex = destination.measureIndex
+                beatIndex = destination.beatIndex
+            }
+            android.util.Log.d(
+                "EARAM_PASTE",
+                "PASTE RANGE destination REAL BEAT bar=" + (barIndex + 1) +
+                    " beat=" + (beatIndex + 1) +
+                    " sourceBeats=" + srcRange.size
+            )
             if (barIndex !in bs.indices) {
                 updateStatus("Invalid paste destination")
                 return
@@ -2940,9 +2979,11 @@ class MainActivity : ComponentActivity() {
             val finalBeats = bs[finalBar].voices.toList()
                 .getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
             val finalBeat = (beatIndex - 1).coerceIn(0, (finalBeats.size - 1).coerceAtLeast(0))
-            caret = caret.copy(measureIndex = finalBar, beatIndex = finalBeat)
-            session.caret = caret
-            caret = caret.copy(measureIndex = destination.measureIndex, beatIndex = destination.beatIndex)
+            // Leave the UI caret on the actual destination beat used for Paste.
+            caret = caret.copy(measureIndex = barIndex, beatIndex = if (destinationBeat != null) {
+                bs[barIndex].voices.toList().getOrNull(currentVoiceIndex)
+                    ?.beats?.toList()?.indexOfFirst { it === destinationBeat } ?: finalBeat
+            } else destination.beatIndex)
             session.caret = caret
             updateCursor()
             onSelectionChanged?.invoke()
@@ -4307,6 +4348,7 @@ class MainActivity : ComponentActivity() {
             // Selecting a measure also seeks playback to the beginning of that measure.
             if (awaitingPasteDestination) {
                 pasteDestinationCaret = caret
+                pasteDestinationBeat = selectedBeat
                 awaitingPasteDestination = false
                 android.util.Log.d("EARAM_PASTE", "DESTINATION BAR SELECT bar=" + (index + 1) + " beat=1")
             }
