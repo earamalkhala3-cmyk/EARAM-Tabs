@@ -2063,12 +2063,10 @@ class MainActivity : ComponentActivity() {
                 try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
             }
 
-            // Android owns the drag sampling for manual selection.
-            // AlphaTab's beatMouseMove is not sufficient on every Android touch path:
-            // once the finger leaves the original hit target, move events can stop.
-            // We therefore sample ACTION_MOVE directly and resolve it against the
-            // real rendered Beat bounds, while still returning false so AlphaTab keeps
-            // its normal click/selection behavior.
+            // Android owns the complete selection gesture. Returning false on ACTION_DOWN
+            // lets AlphaTab take ownership of the stream, which can prevent subsequent
+            // ACTION_MOVE events from reaching this listener. We therefore consume the
+            // gesture from DOWN through UP and explicitly perform tap/drag/bar actions.
             var manualTouchDown = false
             var manualTouchMoved = false
 
@@ -2082,7 +2080,6 @@ class MainActivity : ComponentActivity() {
                         manualTouchDown = true
                         manualTouchMoved = false
 
-                        // Establish the exact note/beat under the finger immediately.
                         val hit = handleScoreTouch(event.x, event.y)
                         if (hit) {
                             val anchor = currentBeat()
@@ -2094,10 +2091,9 @@ class MainActivity : ComponentActivity() {
 
                         barLongPressRunnable = Runnable {
                             val index = hitRenderedBarAtPoint(barDownX, barDownY)
-                            if (index >= 0) {
+                            if (index >= 0 && manualTouchDown && !manualTouchMoved) {
                                 barLongPressActivated = true
                                 manualTouchDown = false
-                                manualTouchMoved = false
                                 selectionDragActive = false
                                 selectionAnchorBeat = null
                                 selectionFocusBeat = null
@@ -2106,12 +2102,13 @@ class MainActivity : ComponentActivity() {
                                 updateStatus("TAB BAR SELECTED • BAR " + (index + 1) + " • BAR ACTIONS READY")
                             }
                         }.also { activity.window.decorView.postDelayed(it, 500L) }
+
+                        // Consume DOWN so Android guarantees MOVE/UP delivery to this listener.
+                        true
                     }
 
                     android.view.MotionEvent.ACTION_MOVE -> {
-                        if (!manualTouchDown || barLongPressActivated) {
-                            return@setOnTouchListener false
-                        }
+                        if (!manualTouchDown || barLongPressActivated) return@setOnTouchListener true
 
                         val slop = android.view.ViewConfiguration.get(score.context).scaledTouchSlop
                         val moved = kotlin.math.hypot(
@@ -2123,8 +2120,6 @@ class MainActivity : ComponentActivity() {
                             manualTouchMoved = true
                             cancelBarLongPress()
 
-                            // Use the full rendered Beat rectangle. The normal caret hit-test
-                            // is deliberately narrower and only covers the TAB string band.
                             val targetBeat = hitRangeBeatAtPoint(event.x, event.y)
                             if (targetBeat != null) {
                                 if (!selectionDragActive) {
@@ -2134,97 +2129,35 @@ class MainActivity : ComponentActivity() {
                                 updateManualRangeSelection(targetBeat)
                             }
                         }
+                        true
                     }
 
                     android.view.MotionEvent.ACTION_UP,
                     android.view.MotionEvent.ACTION_CANCEL -> {
                         val wasBarSelection = barLongPressActivated
+                        val wasMoved = manualTouchMoved
                         manualTouchDown = false
+                        cancelBarLongPress()
 
                         if (!wasBarSelection) {
-                            cancelBarLongPress()
-                            if (manualTouchMoved) {
+                            if (wasMoved) {
                                 finishManualRangeSelection()
                             } else {
+                                // A normal tap was already resolved by handleScoreTouch().
                                 selectionDragActive = false
                                 selectionAnchorBeat = null
                                 selectionFocusBeat = null
                             }
-                        } else {
-                            barLongPressRunnable?.let { activity.window.decorView.removeCallbacks(it) }
-                            barLongPressRunnable = null
-                            activity.window.decorView.post {
-                                if (selectionTarget == SelectionTarget.BAR) {
-                                    highlightSelectedBar()
-                                    updateStatus(
-                                        "TAB BAR SELECTED • BAR " + (selectedBarIndex + 1) +
-                                            " • BAR ACTIONS READY"
-                                    )
-                                }
-                            }
-                            barLongPressActivated = false
                         }
+
+                        barLongPressActivated = false
+                        true
                     }
-                }
-                false
-            }
 
-            // Range selection must follow BEATS, not only note hitboxes.
-            // noteMouseMove can stop firing as soon as the finger leaves the
-            // original fret/number hitbox. beatMouseMove continues across the
-            // rendered rhythmic cells, which is what a manual Guitar-Pro-style
-            // range selection needs.
-            score.api.beatMouseMove.on { beat ->
-                if (selectionDragActive) updateManualRangeSelection(beat)
-            }
-
-            score.api.noteMouseMove.on { note ->
-                if (selectionDragActive) updateManualRangeSelection(note.beat)
-            }
-
-            score.api.beatMouseUp.on {
-                if (selectionDragActive) finishManualRangeSelection()
-            }
-
-            score.api.noteMouseUp.on {
-                if (selectionDragActive) finishManualRangeSelection()
-            }
-
-            score.api.beatMouseDown.on { beat ->
-                try {
-                    val song = score.api.score ?: return@on
-                    val clickedTrack = beat.voice.bar.staff.track
-                    val clickedTrackIndex = clickedTrack.index.toInt().coerceIn(0, song.tracks.toList().lastIndex)
-                    caret = caret.copy(trackIndex = clickedTrackIndex)
-                    session.caret = caret
-                    val staff = clickedTrack.staves.firstOrNull() ?: return@on
-                    val bar = beat.voice.bar
-                    val barIndex = staff.bars.toList().indexOf(bar)
-                    val beatIndex = beat.voice.beats.toList().indexOf(beat)
-                    if (barIndex < 0 || beatIndex < 0) return@on
-                    currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
-                    caret = Caret(currentTrackIndex, barIndex, beatIndex, currentStringIndex)
-                    session.caret = caret
-                    selectionTarget = SelectionTarget.BEAT
-                    armed = true
-                    pendingFret = ""
-
-                    try {
-                        score.api.stop()
-                        score.api.tickPosition = beat.absolutePlaybackStart
-                        session.tickPosition = score.api.tickPosition
-                    } catch (_: Throwable) { }
-
-                    updateCursor()
-                    score.requestFocus()
-                    updateStatus("SELECTED BAR " + (currentBarIndex + 1) +
-                        " • BEAT " + (currentBeatIndex + 1) +
-                        " • STRING " + currentStringIndex)
-                    onSelectionChanged?.invoke()
-                } catch (t: Throwable) {
-                    android.util.Log.e("EARAM_SELECTION", "beat selection failed", t)
+                    else -> true
                 }
             }
+
 
             score.api.noteMouseDown.on { note ->
                 // Do NOT cancel the long-press timer here. noteMouseDown and beatMouseDown
