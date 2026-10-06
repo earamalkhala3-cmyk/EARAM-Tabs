@@ -2103,37 +2103,51 @@ class MainActivity : ComponentActivity() {
                         // After Copy RANGE, the next tap is exclusively the paste destination.
                         // Do not let the normal selection handler consume it.
                         if (awaitingPasteDestination) {
-                            val destinationHit = hitRangeBeatAtPoint(event.x, event.y)
-                            if (destinationHit != null && !destinationHit.virtual && destinationHit.beatRef != null) {
-                                val destinationBeat = destinationHit.beatRef
-                                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
-                                val contentY = event.y / d + actualScrollOffsetsLayout().second
-                                val uiString = (((contentY - destinationHit.tabTopY) /
-                                    destinationHit.stringSpacing).roundToInt() + 1)
-                                    .coerceIn(1, maxStringIndex())
-                                caret = Caret(currentTrackIndex, destinationHit.measure, destinationHit.beat, uiString)
-                                session.caret = caret
-                                pasteDestinationCaret = caret
-                                pasteDestinationBeat = destinationBeat
-                                awaitingPasteDestination = false
-                                selectionTarget = SelectionTarget.BEAT
-                                selectionDragActive = false
-                                selectionDragMoved = false
-                                selectionAnchorBeat = null
-                                selectionFocusBeat = null
-                                armed = true
-                                pendingFret = ""
-                                updateCursor()
-                                android.util.Log.d(
-                                    "EARAM_PASTE",
-                                    "DESTINATION TAP LOCKED bar=" + (destinationHit.measure + 1) +
-                                        " beat=" + (destinationHit.beat + 1)
-                                )
-                                updateStatus(
-                                    "PASTE DESTINATION • BAR " + (destinationHit.measure + 1) +
-                                        " • BEAT " + (destinationHit.beat + 1)
-                                )
-                                score.requestFocus()
+                            val destinationBeat = hitRangeBeatAtPoint(event.x, event.y)
+                            if (destinationBeat != null) {
+                                var destinationMeasure = -1
+                                var destinationBeatIndex = -1
+                                val staff = score.api.score?.tracks?.toList()
+                                    ?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()
+                                if (staff != null) {
+                                    outer@ for ((mi, bar) in staff.bars.toList().withIndex()) {
+                                        val voice = bar.voices.toList().getOrNull(currentVoiceIndex) ?: continue
+                                        for ((bi, beat) in voice.beats.toList().withIndex()) {
+                                            if (beat === destinationBeat) {
+                                                destinationMeasure = mi
+                                                destinationBeatIndex = bi
+                                                break@outer
+                                            }
+                                        }
+                                    }
+                                }
+                                if (destinationMeasure >= 0 && destinationBeatIndex >= 0) {
+                                    caret = Caret(currentTrackIndex, destinationMeasure, destinationBeatIndex, currentStringIndex)
+                                    session.caret = caret
+                                    pasteDestinationCaret = caret
+                                    pasteDestinationBeat = destinationBeat
+                                    awaitingPasteDestination = false
+                                    selectionTarget = SelectionTarget.BEAT
+                                    selectionDragActive = false
+                                    selectionDragMoved = false
+                                    selectionAnchorBeat = null
+                                    selectionFocusBeat = null
+                                    armed = true
+                                    pendingFret = ""
+                                    updateCursor()
+                                    android.util.Log.d(
+                                        "EARAM_PASTE",
+                                        "DESTINATION TAP LOCKED bar=" + (destinationMeasure + 1) +
+                                            " beat=" + (destinationBeatIndex + 1)
+                                    )
+                                    updateStatus(
+                                        "PASTE DESTINATION • BAR " + (destinationMeasure + 1) +
+                                            " • BEAT " + (destinationBeatIndex + 1)
+                                    )
+                                    score.requestFocus()
+                                } else {
+                                    updateStatus("Paste destination is not in current track")
+                                }
                             } else {
                                 updateStatus("Tap a TAB beat to set Paste destination")
                             }
