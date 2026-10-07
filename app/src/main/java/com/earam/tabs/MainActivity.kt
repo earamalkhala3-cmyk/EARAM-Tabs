@@ -2756,36 +2756,6 @@ class MainActivity : ComponentActivity() {
             // If the touch is not inside a real rendered measure, reject it.
             // Never select a nearest beat or another measure.
             return false
-            val maxString = maxStringIndex()
-            val uiString = (((contentY - hit.tabTopY) / hit.stringSpacing)
-                .roundToInt() + 1).coerceIn(1, maxString)
-            caret = Caret(currentTrackIndex, hit.measure, if (hit.virtual) 0 else hit.beat, uiString)
-            session.caret = caret
-            selectionTarget = SelectionTarget.BEAT
-            armed = true
-            pendingFret = ""
-            try {
-                if (!hit.virtual) {
-                    val beat = bars()?.getOrNull(hit.measure)?.voices?.toList()?.getOrNull(currentVoiceIndex)
-                        ?.beats?.toList()?.getOrNull(hit.beat)
-                    if (beat != null) {
-                        score.api.stop()
-                        score.api.tickPosition = beat.absolutePlaybackStart
-                        session.tickPosition = score.api.tickPosition
-                    }
-                }
-            } catch (_: Throwable) { }
-            updateCursor()
-            if (!hit.virtual) {
-                pasteDestinationCaret = caret
-                pasteDestinationBeat = hit.beatRef
-                awaitingPasteDestination = false
-                android.util.Log.d("EARAM_PASTE", "DESTINATION TAP BEAT bar=" + (hit.measure + 1) + " beat=" + (hit.beat + 1) + " string=" + uiString)
-            }
-            updateStatus()
-            onSelectionChanged?.invoke()
-            score.requestFocus()
-            return true
         }
 
         private fun ensureRealBeatForCaret(): Beat? {
