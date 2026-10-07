@@ -3107,23 +3107,35 @@ class MainActivity : ComponentActivity() {
             }
             val bs = bars() ?: return
             val targetBarIndex = currentBarIndex
-            if (targetBarIndex !in bs.indices || !ensureBarEditable(targetBarIndex)) {
+            if (targetBarIndex !in bs.indices) {
                 updateStatus("Invalid paste destination")
                 return
             }
+
             val targetBar = bs[targetBarIndex]
-            val voice = targetBar.voices.toList().getOrNull(currentVoiceIndex) ?: return
+            val sourceBeats = src.beats
+            val voice = targetBar.voices.toList().getOrNull(currentVoiceIndex)
+                ?: alphaTab.model.Voice().also { targetBar.addVoice(it) }
+
             pushUndoSnapshot()
-            val targets = voice.beats.toList()
-            src.beats.forEachIndexed { i, beatSrc ->
-                val target = targets.getOrNull(i)
-                if (target != null) applyClipboardBeat(target, beatSrc)
-                else voice.addBeat(Beat().also { applyClipboardBeat(it, beatSrc) })
+
+            // Rebuild the destination voice instead of assuming it already contains
+            // the same number of beats as the source.
+            while (voice.beats.toList().isNotEmpty()) {
+                voice.beats.splice((voice.beats.toList().lastIndex).toDouble(), 1.0)
             }
+
+            for (srcBeat in sourceBeats) {
+                voice.addBeat(Beat().also { applyClipboardBeat(it, srcBeat) })
+            }
+
             score.api.score?.finish(score.settings)
-            renderAndLog("paste-bar")
             caret = caret.copy(measureIndex = targetBarIndex, beatIndex = 0)
             session.caret = caret
+            selectionTarget = SelectionTarget.BAR
+            renderAndLog("paste-bar")
+            buildBeatHits()
+            highlightSelectedBar()
             updateCursor()
             updateStatus("Pasted BAR • BAR " + (targetBarIndex + 1))
             onSelectionChanged?.invoke()
