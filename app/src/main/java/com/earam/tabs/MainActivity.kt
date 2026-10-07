@@ -2727,10 +2727,35 @@ class MainActivity : ComponentActivity() {
                 android.util.Log.w("EARAM_SELECTION", "direct TAB note hit-test failed", t)
             }
 
-            // If no fret was hit, select ONLY the rendered Beat that actually
-            // contains the touch. Never fall back to the nearest beat: on a page layout,
-            // the nearest beat can belong to another measure/system and corrupt selection.
-            val hit = hitTest(x, y) ?: return false
+            // A TAB tap that did not hit an actual note selects the WHOLE
+            // rendered measure. A measure is the primary editing target in Earam:
+            // Copy/Paste/Clear/Delete/Duplicate and all Bar actions must operate on
+            // the exact visible measure, never on an inferred/nearest beat.
+            val renderedBar = resolveRenderedBarAtPoint(x, y)
+            if (renderedBar >= 0) {
+                caret = Caret(currentTrackIndex, renderedBar, 0, 1)
+                session.caret = caret
+                selectionTarget = SelectionTarget.BAR
+                armed = true
+                pendingFret = ""
+                pasteDestinationCaret = caret
+                pasteDestinationBeat = null
+                awaitingPasteDestination = false
+                android.util.Log.d(
+                    "EARAM_BAR_SELECTION",
+                    "DIRECT BAR TARGET index=" + (renderedBar + 1) +
+                        " totalBars=" + (bars()?.size ?: 0)
+                )
+                updateCursor()
+                updateStatus("SELECTED BAR • " + (renderedBar + 1))
+                onSelectionChanged?.invoke()
+                score.requestFocus()
+                return true
+            }
+
+            // If the touch is not inside a real rendered measure, reject it.
+            // Never select a nearest beat or another measure.
+            return false
             val maxString = maxStringIndex()
             val uiString = (((contentY - hit.tabTopY) / hit.stringSpacing)
                 .roundToInt() + 1).coerceIn(1, maxString)
