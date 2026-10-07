@@ -634,7 +634,7 @@ class MainActivity : ComponentActivity() {
         val deleteFret = TextView(this).apply {
             text = "⌫"
             setTextColor(0xFFF3F0E8.toInt())
-            textSize = 17f
+            textSize = 15f
             gravity = Gravity.CENTER
             background = surface(0xFF3A2B2B.toInt(), 7f)
             isClickable = true
@@ -642,8 +642,10 @@ class MainActivity : ComponentActivity() {
             contentDescription = "Delete note on selected string"
             setOnClickListener { editor.deleteCurrentNoteFromUi() }
         }
-        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(40f), dp(34f)).apply {
-            leftMargin = dp(5f); rightMargin = dp(2f)
+        // Compact Delete key: deliberately smaller than the Duration control,
+        // while remaining immediately beside the fret-number keys.
+        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(32f), dp(34f)).apply {
+            leftMargin = dp(4f); rightMargin = dp(2f)
         })
 
         score = AlphaTabView(this, null).apply {
