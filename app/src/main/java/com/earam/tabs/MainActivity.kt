@@ -1140,11 +1140,67 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // IMPORTANT: every rendered measure is an actual editable Score.Bar.
+        // AlphaTab may legally represent a rest-only imported measure with a Bar that
+        // has no Voice/Beat objects. That is fine for rendering, but it is NOT a valid
+        // editing target for Earam's TAB editor because hit-testing/copy/paste then has
+        // to invent a "virtual" bar. Materialize those missing structures once, at the
+        // model boundary, while preserving every existing imported rhythm.
+        materializeAllMeasures(score)
+
         try {
             score.finish(alphaTabView?.settings ?: return)
         } catch (t: Throwable) {
             android.util.Log.w("EARAM_IMPORT", "Track display normalization finish failed", t)
         }
+    }
+
+    /**
+     * Converts structurally empty imported measures into real AlphaTab editing
+     * structures. Existing voices/beats are never replaced or rewritten.
+     *
+     * Invariant after this method:
+     *   staff.bars[i].voices[currentVoice] exists
+     *   and that voice contains real Beat objects spanning the measure.
+     *
+     * Empty measures therefore never need a synthetic/virtual BeatHit.
+     */
+    private fun materializeAllMeasures(score: Score) {
+        var createdVoices = 0
+        var createdBeats = 0
+
+        for (track in score.tracks.toList()) {
+            for (staff in track.staves.toList()) {
+                for (bar in staff.bars.toList()) {
+                    var voices = bar.voices.toList()
+
+                    if (voices.isEmpty()) {
+                        val voice = alphaTab.model.Voice()
+                        bar.addVoice(voice)
+                        voices = bar.voices.toList()
+                        createdVoices++
+                    }
+
+                    for (voice in voices) {
+                        if (voice.beats.toList().isEmpty()) {
+                            addEmptyBeatsForTimeSignature(
+                                voice,
+                                bar.masterBar.timeSignatureNumerator.toInt().coerceIn(1, 32),
+                                bar.masterBar.timeSignatureDenominator.toInt().coerceIn(1, 32)
+                            )
+                            createdBeats++
+                        }
+                    }
+                }
+            }
+        }
+
+        android.util.Log.d(
+            "EARAM_MODEL",
+            "materializeAllMeasures: createdVoices=" + createdVoices +
+                " createdBeatGrids=" + createdBeats
+        )
     }
 
     private fun addTrackDialog() {
@@ -2369,20 +2425,12 @@ class MainActivity : ComponentActivity() {
                 val spacing = systemSpacing[meta.system] ?: 10f
                 val voice = meta.bar.voices.toList().getOrNull(currentVoiceIndex)
                 val beats = voice?.beats?.toList().orEmpty()
-                if (beats.isEmpty()) {
-                    beatHits.add(
-                        BeatHit(
-                            meta.measure,
-                            0,
-                            RectF(meta.x, meta.y, meta.x + meta.w, meta.y + meta.h),
-                            top,
-                            spacing,
-                            beatRef = null,
-                            virtual = true
-                        )
-                    )
-                    continue
-                }
+                // There are no virtual measures. normalizeImportedTracks() and
+                // ensureBarEditable() materialize every empty measure into real rests.
+                // If a malformed bar still reaches this point, skip it rather than
+                // fabricating a synthetic editing target.
+                if (beats.isEmpty()) continue
+
                 for ((bi, beat) in beats.withIndex()) {
                     val bounds = lookup.findBeat(beat) ?: continue
                     beatHits.add(
