@@ -2652,7 +2652,7 @@ class MainActivity : ComponentActivity() {
                                 " touchPx=" + x + "," + y +
                                 " content=" + contentX + "," + contentY +
                                 " bounds=" + left + "," + top + "," + right + "," + bottom +
-                                " density=" + d +
+                                " density=" + density +
                                 " scrollLayout=" + scroll.first + "," + scroll.second
                         )
                         return index
