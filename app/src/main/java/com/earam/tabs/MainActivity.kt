@@ -2773,7 +2773,9 @@ class MainActivity : ComponentActivity() {
                                         .coerceIn(1, maxStringIndex())
                                     caret = Caret(currentTrackIndex, mi, bi, uiString)
                                     session.caret = caret
-                                    selectionTarget = SelectionTarget.NOTE
+                                    // A TAB note is inside a real measure; keep exact beat/string in the caret,
+                                    // but make the MEASURE the authoritative bar-action target.
+                                    selectionTarget = SelectionTarget.BAR
                                     armed = true
                                     pendingFret = ""
                                     try {
@@ -2785,8 +2787,8 @@ class MainActivity : ComponentActivity() {
                                     pasteDestinationCaret = caret
                                     pasteDestinationBeat = beat
                                     awaitingPasteDestination = false
-                                    android.util.Log.d("EARAM_PASTE", "DESTINATION TAP NOTE bar=" + (mi + 1) + " beat=" + (bi + 1) + " string=" + uiString)
-                                    updateStatus("SELECTED NOTE • B"+(mi+1)+" • BEAT "+(bi+1)+" • STRING "+uiString+" • FRET "+nb.note.fret.toInt())
+                                    android.util.Log.d("EARAM_BAR_SELECTION", "TAB NOTE INSIDE BAR TARGET bar=" + (mi + 1) + " beat=" + (bi + 1) + " string=" + uiString + " fret=" + nb.note.fret.toInt())
+                                    updateStatus("SELECTED BAR • " + (mi+1) + " • BEAT " + (bi+1) + " • STRING " + uiString)
                                     onSelectionChanged?.invoke()
                                     score.requestFocus()
                                     return true
