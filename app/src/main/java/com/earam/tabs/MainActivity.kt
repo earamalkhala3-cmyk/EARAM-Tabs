@@ -612,7 +612,7 @@ class MainActivity : ComponentActivity() {
         val fretDigits = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            setPadding(dp(3f), dp(3f), dp(3f), dp(3f))
             setBackgroundColor(0xFF1F2226.toInt())
         }
         for (digit in 0..9) {
@@ -627,8 +627,8 @@ class MainActivity : ComponentActivity() {
                 contentDescription = "Fret $digit"
                 setOnClickListener { editor.enterDigitFromUi(digit) }
             }
-            fretDigits.addView(d, LinearLayout.LayoutParams(dp(32f), dp(34f)).apply {
-                leftMargin = dp(2f); rightMargin = dp(2f)
+            fretDigits.addView(d, LinearLayout.LayoutParams(dp(29f), dp(34f)).apply {
+                leftMargin = dp(1f); rightMargin = dp(1f)
             })
         }
 
@@ -644,8 +644,8 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { editor.deleteCurrentNoteFromUi() }
         }
         // Delete is larger than the previous version, but still smaller than Duration.
-        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(44f), dp(34f)).apply {
-            leftMargin = dp(5f); rightMargin = dp(2f)
+        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(40f), dp(34f)).apply {
+            leftMargin = dp(4f); rightMargin = dp(1f)
         })
 
         score = AlphaTabView(this, null).apply {
