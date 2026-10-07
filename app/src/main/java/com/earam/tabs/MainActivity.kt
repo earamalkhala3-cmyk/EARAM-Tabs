@@ -589,7 +589,8 @@ class MainActivity : ComponentActivity() {
             setDurationVisual(Duration.Quarter, 0)
             setOnClickListener { editor.showDurationDialog() }
         }
-        editingStrip.addView(durationSelector, LinearLayout.LayoutParams(0, dp(42f), 1f).apply {
+        // Keep Duration compact so the fret/delete controls get visual priority.
+        editingStrip.addView(durationSelector, LinearLayout.LayoutParams(dp(112f), dp(42f)).apply {
             leftMargin = dp(2f); rightMargin = dp(2f)
         })
 
@@ -642,10 +643,9 @@ class MainActivity : ComponentActivity() {
             contentDescription = "Delete note on selected string"
             setOnClickListener { editor.deleteCurrentNoteFromUi() }
         }
-        // Compact Delete key: deliberately smaller than the Duration control,
-        // while remaining immediately beside the fret-number keys.
-        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(32f), dp(34f)).apply {
-            leftMargin = dp(4f); rightMargin = dp(2f)
+        // Delete is larger than the previous version, but still smaller than Duration.
+        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(44f), dp(34f)).apply {
+            leftMargin = dp(5f); rightMargin = dp(2f)
         })
 
         score = AlphaTabView(this, null).apply {
