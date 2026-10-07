@@ -1166,6 +1166,30 @@ class MainActivity : ComponentActivity() {
      *
      * Empty measures therefore never need a synthetic/virtual BeatHit.
      */
+    private fun addEmptyBeatsForTimeSignature(
+        voice: alphaTab.model.Voice,
+        numerator: Int,
+        denominator: Int
+    ) {
+        val duration = when (denominator) {
+            1 -> Duration.Whole
+            2 -> Duration.Half
+            4 -> Duration.Quarter
+            8 -> Duration.Eighth
+            16 -> Duration.Sixteenth
+            else -> Duration.ThirtySecond
+        }
+        repeat(numerator.coerceAtLeast(1)) {
+            voice.addBeat(Beat().apply {
+                this.duration = duration
+                dots = 0.0
+                tupletNumerator = -1.0
+                tupletDenominator = -1.0
+                isEmpty = true
+            })
+        }
+    }
+
     private fun materializeAllMeasures(score: Score) {
         var createdVoices = 0
         var createdBeats = 0
