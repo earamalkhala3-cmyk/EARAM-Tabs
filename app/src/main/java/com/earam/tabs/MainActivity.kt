@@ -2348,8 +2348,15 @@ class MainActivity : ComponentActivity() {
                     val uiString = (maxStringIndex() + 1 - note.string.toInt()).coerceIn(1, maxStringIndex())
                     caret = Caret(currentTrackIndex, barIndex, beatIndex, uiString)
                     session.caret = caret
-                    beginManualRangeSelection(note.beat)
-                    selectionTarget = SelectionTarget.NOTE
+                    // AlphaTab's noteMouseDown is only a notification of the
+                    // same TAB tap already resolved by handleScoreTouch(). It must never
+                    // downgrade the authoritative BAR target to NOTE/BEAT.
+                    // Range selection is handled exclusively by the Android touch MOVE path.
+                    selectionAnchorBeat = note.beat
+                    selectionFocusBeat = note.beat
+                    selectionDragActive = false
+                    selectionDragMoved = false
+                    selectionTarget = SelectionTarget.BAR
                     armed = true
                     pendingFret = ""
 
