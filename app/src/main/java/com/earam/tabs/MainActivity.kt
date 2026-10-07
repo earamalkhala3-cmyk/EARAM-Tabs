@@ -3275,44 +3275,77 @@ class MainActivity : ComponentActivity() {
 
         private fun pasteCopiedBar() {
             try {
-            val src = selectionClipboardBar ?: run {
-                updateStatus("No bar copied")
-                return
-            }
-            val bs = bars() ?: return
-            val targetBarIndex = currentBarIndex
-            if (targetBarIndex !in bs.indices) {
-                updateStatus("Invalid paste destination")
-                return
-            }
+                val src = selectionClipboardBar ?: run {
+                    updateStatus("No bar copied")
+                    return
+                }
+                val bs = bars() ?: return
+                val targetBarIndex = currentBarIndex
+                if (targetBarIndex !in bs.indices) {
+                    updateStatus("Invalid paste destination")
+                    return
+                }
 
-            val targetBar = bs[targetBarIndex]
-            val sourceBeats = src.beats
-            val voice = targetBar.voices.toList().getOrNull(currentVoiceIndex)
-                ?: alphaTab.model.Voice().also { targetBar.addVoice(it) }
+                val targetBar = bs[targetBarIndex]
+                val sourceBeats = src.beats
+                var voice = targetBar.voices.toList().getOrNull(currentVoiceIndex)
+                if (voice == null) {
+                    voice = alphaTab.model.Voice()
+                    targetBar.addVoice(voice)
+                }
 
-            pushUndoSnapshot()
+                pushUndoSnapshot()
 
-            // Rebuild the destination voice instead of assuming it already contains
-            // the same number of beats as the source.
-            while (voice.beats.toList().isNotEmpty()) {
-                voice.beats.splice((voice.beats.toList().lastIndex).toDouble(), 1.0)
-            }
+                // Do NOT destroy and recreate the destination Voice. AlphaTab keeps
+                // parent/renderer state on Beat objects, and rebuilding the whole
+                // collection can crash during the following render/finish cycle.
+                // Reuse the real destination beats whenever possible.
+                var targetBeats = voice.beats.toList()
 
-            for (srcBeat in sourceBeats) {
-                voice.addBeat(Beat().also { applyClipboardBeat(it, srcBeat) })
-            }
+                // Make sure the destination is a real editable measure first.
+                if (targetBeats.isEmpty()) {
+                    addEmptyBeatsForTimeSignature(
+                        voice,
+                        targetBar.masterBar.timeSignatureNumerator.toInt().coerceIn(1, 32),
+                        targetBar.masterBar.timeSignatureDenominator.toInt().coerceIn(1, 32)
+                    )
+                    targetBeats = voice.beats.toList()
+                }
 
-            score.api.score?.finish(score.settings)
-            caret = caret.copy(measureIndex = targetBarIndex, beatIndex = 0)
-            session.caret = caret
-            selectionTarget = SelectionTarget.BAR
-            renderAndLog("paste-bar")
-            buildBeatHits()
-            highlightSelectedBar()
-            updateCursor()
-            updateStatus("Pasted BAR • BAR " + (targetBarIndex + 1))
-            onSelectionChanged?.invoke()
+                // Apply copied beats onto existing AlphaTab beats.
+                val common = minOf(targetBeats.size, sourceBeats.size)
+                for (i in 0 until common) {
+                    applyClipboardBeat(targetBeats[i], sourceBeats[i])
+                }
+
+                // If the copied bar has more beats, append real Beat objects.
+                if (sourceBeats.size > targetBeats.size) {
+                    for (i in targetBeats.size until sourceBeats.size) {
+                        val tb = Beat()
+                        applyClipboardBeat(tb, sourceBeats[i])
+                        voice.addBeat(tb)
+                    }
+                }
+
+                // If the destination had extra beats, remove only the surplus tail.
+                // This preserves the existing Beat objects used by the renderer.
+                while (voice.beats.toList().size > sourceBeats.size && sourceBeats.isNotEmpty()) {
+                    val last = voice.beats.toList().lastIndex
+                    voice.beats.splice(last.toDouble(), 1.0)
+                }
+
+                score.api.score?.finish(score.settings)
+                caret = caret.copy(measureIndex = targetBarIndex, beatIndex = 0)
+                session.caret = caret
+                selectionTarget = SelectionTarget.BAR
+                armed = true
+                pendingFret = ""
+                renderAndLog("paste-bar")
+                buildBeatHits()
+                highlightSelectedBar()
+                updateCursor()
+                updateStatus("Pasted BAR • BAR " + (targetBarIndex + 1))
+                onSelectionChanged?.invoke()
             } catch (t: Throwable) {
                 android.util.Log.e("EARAM_PASTE", "BAR paste failed", t)
                 updateStatus("Paste bar failed • " + (t.message ?: t.javaClass.simpleName))
