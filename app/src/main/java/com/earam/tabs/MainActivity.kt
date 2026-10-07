@@ -2329,6 +2329,66 @@ class MainActivity : ComponentActivity() {
             }
 
 
+            // AUTHORITATIVE TAB EDIT TARGET: AlphaTab already resolves the tapped
+            // screen position to the real Beat. Do not reconstruct bar coordinates from
+            // Android pixels (density/scale/scroll guesses). This event also fires on rests,
+            // so empty measures are selectable exactly like measures containing notes.
+            score.api.beatMouseDown.on { beat ->
+                try {
+                    val song = score.api.score ?: return@on
+                    val clickedBar = beat.voice.bar
+                    val clickedTrack = clickedBar.staff.track
+                    val clickedTrackIndex = clickedTrack.index.toInt()
+                        .coerceIn(0, song.tracks.toList().lastIndex)
+                    val staff = clickedTrack.staves.firstOrNull() ?: return@on
+                    val barIndex = staff.bars.toList().indexOf(clickedBar)
+                    val beatIndex = beat.voice.beats.toList().indexOf(beat)
+                    if (barIndex < 0 || beatIndex < 0) return@on
+
+                    currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
+                    caret = Caret(
+                        clickedTrackIndex,
+                        barIndex,
+                        beatIndex,
+                        currentStringIndex.coerceIn(1, maxStringIndex())
+                    )
+                    session.caret = caret
+                    selectionTarget = SelectionTarget.BAR
+                    selectionAnchorBeat = beat
+                    selectionFocusBeat = beat
+                    selectionDragActive = false
+                    selectionDragMoved = false
+                    armed = true
+                    pendingFret = ""
+                    pasteDestinationCaret = caret
+                    pasteDestinationBeat = beat
+                    awaitingPasteDestination = false
+
+                    try {
+                        score.api.stop()
+                        score.api.tickPosition = beat.absolutePlaybackStart
+                        session.tickPosition = score.api.tickPosition
+                    } catch (_: Throwable) { }
+
+                    android.util.Log.d(
+                        "EARAM_BAR_SELECTION",
+                        "ALPHATAB BEAT TARGET bar=" + (barIndex + 1) +
+                            " beat=" + (beatIndex + 1) +
+                            " track=" + (clickedTrackIndex + 1) +
+                            " voice=" + (currentVoiceIndex + 1)
+                    )
+                    updateCursor()
+                    score.requestFocus()
+                    updateStatus(
+                        "TAB BEAT SELECTED • B" + (barIndex + 1) +
+                            " • BEAT " + (beatIndex + 1)
+                    )
+                    onSelectionChanged?.invoke()
+                } catch (t: Throwable) {
+                    android.util.Log.e("EARAM_SELECTION", "beat selection failed", t)
+                }
+            }
+
             score.api.noteMouseDown.on { note ->
                 // Do NOT cancel the long-press timer here. noteMouseDown and beatMouseDown
                 // can both fire for the same TAB number. Release is handled centrally above,
@@ -2346,7 +2406,7 @@ class MainActivity : ComponentActivity() {
                     if (barIndex < 0 || beatIndex < 0) return@on
                     currentVoiceIndex = note.beat.voice.index.toInt().coerceIn(0, 3)
                     val uiString = (maxStringIndex() + 1 - note.string.toInt()).coerceIn(1, maxStringIndex())
-                    caret = Caret(currentTrackIndex, barIndex, beatIndex, uiString)
+                    caret = Caret(clickedTrackIndex, barIndex, beatIndex, uiString)
                     session.caret = caret
                     // AlphaTab's noteMouseDown is only a notification of the
                     // same TAB tap already resolved by handleScoreTouch(). It must never
@@ -2881,26 +2941,18 @@ class MainActivity : ComponentActivity() {
             if (voice.beats.toList().isNotEmpty()) {
                 return voice.beats.toList().getOrNull(caret.beatIndex.coerceAtLeast(0))
             }
-            val duration = when (bar.masterBar.timeSignatureDenominator.toInt()) {
-                1 -> Duration.Whole
-                2 -> Duration.Half
-                4 -> Duration.Quarter
-                8 -> Duration.Eighth
-                16 -> Duration.Sixteenth
-                else -> Duration.ThirtySecond
-            }
-            voice.addBeat(Beat().apply {
-                this.duration = duration
-                dots = 0.0
-                tupletNumerator = -1.0
-                tupletDenominator = -1.0
-                isEmpty = true
-            })
-            caret = caret.copy(beatIndex = 0)
+            // A writable measure must have its complete rhythmic rest grid, not a
+            // single fabricated beat. This keeps fret entry valid for every real measure.
+            addEmptyBeatsForTimeSignature(
+                voice,
+                bar.masterBar.timeSignatureNumerator.toInt().coerceIn(1, 32),
+                bar.masterBar.timeSignatureDenominator.toInt().coerceIn(1, 32)
+            )
+            caret = caret.copy(beatIndex = caret.beatIndex.coerceIn(0, voice.beats.toList().lastIndex.coerceAtLeast(0)))
             session.caret = caret
             score.api.score?.finish(score.settings)
-            renderAndLog("materialize-empty-beat")
-            return voice.beats.toList().firstOrNull()
+            renderAndLog("materialize-empty-measure")
+            return voice.beats.toList().getOrNull(caret.beatIndex)
         }
 
         private fun writeFretInternal(beat: Beat, fret: Int) {
