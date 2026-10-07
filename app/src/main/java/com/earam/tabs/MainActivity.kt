@@ -3182,19 +3182,33 @@ class MainActivity : ComponentActivity() {
 
         fun pasteCurrentSelectionFromUi() {
             // Paste follows the copied payload, not selectionTarget.
-            when (clipboardKind) {
-                ClipboardKind.NOTE -> pasteCopiedNote()
-                ClipboardKind.BEAT -> pasteCopiedBeat()
-                ClipboardKind.BAR -> pasteCopiedBar()
-                ClipboardKind.RANGE -> {
-                    val srcRange = selectionClipboardRange
-                    if (srcRange == null || srcRange.isEmpty()) {
-                        updateStatus("Copied range is empty")
-                        return
+            // The whole command is guarded here because this is a UI entry point:
+            // an invalid AlphaTab mutation must never be allowed to terminate Earam.
+            try {
+                android.util.Log.d(
+                    "EARAM_PASTE",
+                    "PASTE command kind=" + clipboardKind +
+                        " caretBar=" + (currentBarIndex + 1) +
+                        " caretBeat=" + (currentBeatIndex + 1) +
+                        " voice=" + (currentVoiceIndex + 1)
+                )
+                when (clipboardKind) {
+                    ClipboardKind.NOTE -> pasteCopiedNote()
+                    ClipboardKind.BEAT -> pasteCopiedBeat()
+                    ClipboardKind.BAR -> pasteCopiedBar()
+                    ClipboardKind.RANGE -> {
+                        val srcRange = selectionClipboardRange
+                        if (srcRange == null || srcRange.isEmpty()) {
+                            updateStatus("Copied range is empty")
+                            return
+                        }
+                        pasteRangeAtCurrentCaret(srcRange)
                     }
-                    pasteRangeAtCurrentCaret(srcRange)
+                    null -> updateStatus("Clipboard is empty")
                 }
-                null -> updateStatus("Clipboard is empty")
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_PASTE", "UNCAUGHT paste failure", t)
+                updateStatus("Paste failed • " + (t.message ?: t.javaClass.simpleName))
             }
         }
 
@@ -3260,6 +3274,7 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun pasteCopiedBar() {
+            try {
             val src = selectionClipboardBar ?: run {
                 updateStatus("No bar copied")
                 return
@@ -3298,6 +3313,10 @@ class MainActivity : ComponentActivity() {
             updateCursor()
             updateStatus("Pasted BAR • BAR " + (targetBarIndex + 1))
             onSelectionChanged?.invoke()
+            } catch (t: Throwable) {
+                android.util.Log.e("EARAM_PASTE", "BAR paste failed", t)
+                updateStatus("Paste bar failed • " + (t.message ?: t.javaClass.simpleName))
+            }
         }
 
         private fun pasteRangeAtCurrentCaret(srcRange: List<ClipboardBeat>) {
