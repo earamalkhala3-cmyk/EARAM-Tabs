@@ -215,7 +215,7 @@ jobs:
           timeout 10s adb -s emulator-5554 logcat -c || true
           timeout 10s adb -s emulator-5554 shell am force-stop com.earam.tabs || true
           timeout 15s adb -s emulator-5554 shell settings put global earam_ci_cursor_test 1
-          timeout 15s adb -s emulator-5554 shell monkey -p com.earam.tabs -c android.intent.category.LAUNCHER --dbg-no-events 1 >/dev/null
+          timeout 15s adb -s emulator-5554 shell monkey -p com.earam.tabs -c android.intent.category.LAUNCHER 1 >/dev/null
           sleep 6
           # Capture in the shell-owned temp area. Android 15 can reject writes to
           # shared storage from the shell screencap command; /data/local/tmp is
