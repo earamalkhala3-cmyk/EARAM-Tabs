@@ -2521,10 +2521,13 @@ class MainActivity : ComponentActivity() {
         // caret or from beatHits, so no measure can become a "secondary" target.
         private fun resolveRenderedBarAtPoint(x: Float, y: Float): Int {
             return try {
-                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
                 val scroll = actualScrollOffsetsLayout()
-                val contentX = x / d + scroll.first
-                val contentY = y / d + scroll.second
+
+                val point = alphaTabContentPoint(x, y, scroll)
+
+                val contentX = point.first
+
+                val contentY = point.second
                 val staff = score.api.score?.tracks?.toList()
                     ?.getOrNull(currentTrackIndex)?.staves?.firstOrNull() ?: return -1
                 val lookup = score.api.renderer.boundsLookup ?: return -1
@@ -2602,12 +2605,24 @@ class MainActivity : ComponentActivity() {
             return true
         }
 
+        private fun alphaTabContentPoint(x: Float, y: Float, scroll: Pair<Float, Float>): Pair<Float, Float> {
+            val density = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+            val scale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
+            return Pair(
+                x / (density * scale) + scroll.first,
+                y / (density * scale) + scroll.second
+            )
+        }
+
         private fun hitRenderedBarAtPoint(x: Float, y: Float): Int {
             return try {
-                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
                 val scroll = actualScrollOffsetsLayout()
-                val contentX = x / d + scroll.first
-                val contentY = y / d + scroll.second
+
+                val point = alphaTabContentPoint(x, y, scroll)
+
+                val contentX = point.first
+
+                val contentY = point.second
 
                 val song = score.api.score ?: return -1
                 val staff = song.tracks.toList()
@@ -2651,10 +2666,10 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun hitTest(x: Float, y: Float): BeatHit? {
-            val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
-            val scrollPx = actualScrollOffsets()
-            val contentX = (x + scrollPx.first) / d
-            val contentY = (y + scrollPx.second) / d
+            val scroll = actualScrollOffsetsLayout()
+            val point = alphaTabContentPoint(x, y, scroll)
+            val contentX = point.first
+            val contentY = point.second
             return beatHits.firstOrNull { hit ->
                 contentX >= hit.rect.left && contentX <= hit.rect.right &&
                     contentY >= hit.tabTopY &&
@@ -2670,10 +2685,13 @@ class MainActivity : ComponentActivity() {
         // choose the beat whose rendered bounds contain the tap, otherwise use beat 0.
         private fun resolvePasteDestinationAtPoint(x: Float, y: Float): Pair<Int, Int>? {
             return try {
-                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
                 val scroll = actualScrollOffsetsLayout()
-                val contentX = x / d + scroll.first
-                val contentY = y / d + scroll.second
+
+                val point = alphaTabContentPoint(x, y, scroll)
+
+                val contentX = point.first
+
+                val contentY = point.second
                 val song = score.api.score ?: return null
                 val staff = song.tracks.toList().getOrNull(currentTrackIndex)
                     ?.staves?.firstOrNull() ?: return null
@@ -2733,10 +2751,13 @@ class MainActivity : ComponentActivity() {
 
         private fun hitRangeBeatAtPoint(x: Float, y: Float): Beat? {
             return try {
-                val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
                 val scroll = actualScrollOffsetsLayout()
-                val contentX = x / d + scroll.first
-                val contentY = y / d + scroll.second
+
+                val point = alphaTabContentPoint(x, y, scroll)
+
+                val contentX = point.first
+
+                val contentY = point.second
 
                 val hit = beatHits.firstOrNull { candidate ->
                     !candidate.virtual &&
@@ -2761,10 +2782,13 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun handleScoreTouch(x: Float, y: Float): Boolean {
-            val d = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
             val scroll = actualScrollOffsetsLayout()
-            val contentX = x / d + scroll.first
-            val contentY = y / d + scroll.second
+
+            val point = alphaTabContentPoint(x, y, scroll)
+
+            val contentX = point.first
+
+            val contentY = point.second
 
             // First hit the actual rendered TAB note/fret. The visible note is the
             // primary editor target, not an approximate screen-space caret.
