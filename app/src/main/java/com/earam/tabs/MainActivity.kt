@@ -3452,29 +3452,61 @@ class MainActivity : ComponentActivity() {
                 }
                 val song = score.api.score ?: return
                 val targetIndex = selectedBarIndex
+                if (targetIndex !in song.masterBars.toList().indices) {
+                    updateStatus("Invalid target measure")
+                    return
+                }
+
                 pushUndoSnapshot()
-                val track = song.tracks.toList().getOrNull(currentTrackIndex)
-                    ?: throw IllegalStateException("No current track")
-                for (staff in track.staves.toList()) {
+
+                // A pasted measure must be a complete real measure. Never depend on
+                // whatever empty/partial Voice/Beat structure happened to exist in
+                // the destination bar.
+                for (track in song.tracks.toList()) {
+                    for (staff in track.staves.toList()) {
                         val target = staff.bars.toList().getOrNull(targetIndex) ?: continue
                         val sourceVoices = source.voices.toList()
+
+                        // Make the target have the same number of voices as the copied bar.
+                        while (target.voices.toList().size < sourceVoices.size) {
+                            target.addVoice(alphaTab.model.Voice())
+                        }
+
                         val targetVoices = target.voices.toList()
+
                         for (vi in targetVoices.indices) {
                             val tv = targetVoices[vi]
-                            for (tb in tv.beats.toList()) {
-                                for (note in tb.notes.toList()) tb.removeNote(note)
-                                tb.isEmpty = true
+                            val sv = sourceVoices.getOrNull(vi)
+
+                            // Clear the existing destination voice completely.
+                            tv.beats.toList().forEach { tb ->
+                                tb.notes.toList().forEach { note -> tb.removeNote(note) }
                             }
-                            val sv = sourceVoices.getOrNull(vi) ?: continue
-                            val targetBeats = tv.beats.toList()
-                            val sourceBeats = sv.beats.toList()
-                            for (bi in targetBeats.indices) {
-                                val tb = targetBeats[bi]
-                                val sb = sourceBeats.getOrNull(bi) ?: continue
-                                tb.duration = sb.duration
-                                tb.dots = sb.dots
-                                tb.tupletNumerator = sb.tupletNumerator
-                                tb.tupletDenominator = sb.tupletDenominator
+                            while (tv.beats.toList().isNotEmpty()) {
+                                tv.beats.splice((tv.beats.toList().lastIndex).toDouble(), 1.0)
+                            }
+
+                            if (sv == null) continue
+
+                            // Rebuild every beat from the copied measure. This means
+                            // an empty/partial destination can never remain a
+                            // "secondary" or non-editable measure.
+                            for (sb in sv.beats.toList()) {
+                                val tb = Beat().apply {
+                                    duration = sb.duration
+                                    dots = sb.dots
+                                    tupletNumerator = sb.tupletNumerator
+                                    tupletDenominator = sb.tupletDenominator
+                                    slap = sb.slap
+                                    pop = sb.pop
+                                    tap = sb.tap
+                                    deadSlapped = sb.deadSlapped
+                                    fadeIn = sb.fadeIn
+                                    slashed = sb.slashed
+                                    showTimer = sb.showTimer
+                                    text = sb.text
+                                    isEmpty = sb.isEmpty
+                                }
                                 for (sn in sb.notes.toList()) {
                                     tb.addNote(Note().apply {
                                         string = sn.string
@@ -3486,19 +3518,32 @@ class MainActivity : ComponentActivity() {
                                         isLetRing = sn.isLetRing
                                         isStaccato = sn.isStaccato
                                         isHammerPullOrigin = sn.isHammerPullOrigin
+                                        vibrato = sn.vibrato
+                                        isLeftHandTapped = sn.isLeftHandTapped
                                     })
                                 }
-                                tb.isEmpty = tb.notes.toList().isEmpty()
+                                tb.isEmpty = sb.isEmpty || tb.notes.toList().isEmpty()
                                 tb.finish(score.settings, null)
+                                tv.addBeat(tb)
                             }
                         }
+                    }
                 }
+
                 song.finish(score.settings)
+                caret = caret.copy(measureIndex = targetIndex, beatIndex = 0)
+                session.caret = caret
+                selectionTarget = SelectionTarget.BAR
+                armed = true
+                pendingFret = ""
                 renderAndLog("paste-bar")
+                buildBeatHits()
+                highlightSelectedBar()
                 updateCursor()
                 onSelectionChanged?.invoke()
                 updateStatus("Pasted copied bar into bar " + (targetIndex + 1))
             } catch (t: Throwable) {
+                android.util.Log.e("EARAM_BAR_CLIPBOARD", "Paste bar failed", t)
                 updateStatus("Paste bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
         }
