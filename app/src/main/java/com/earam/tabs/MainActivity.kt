@@ -2149,62 +2149,12 @@ class MainActivity : ComponentActivity() {
                             return@setOnTouchListener true
                         }
 
-                        // Resolve the rendered measure FIRST. This is critical:
-                        // handleScoreTouch() has a forgiving nearest-beat fallback and
-                        // can otherwise keep the source measure as the caret destination.
-                        // Every visible measure is an independent editing target.
-                        // Use our beat-hit map as the first authority for the tapped
-                        // measure. It is built from the same AlphaTab Score and follows
-                        // scrolling, so it cannot accidentally resolve to the source bar.
-                        val touchHit = beatHits.asSequence()
-                            .filter { !it.virtual && it.beatRef != null }
-                            .minByOrNull { hit ->
-                                val cx = hit.rect.centerX()
-                                val cy = hit.rect.centerY()
-                                val d = kotlin.math.hypot(
-                                    event.x / activity.resources.displayMetrics.density + actualScrollOffsetsLayout().first - cx,
-                                    event.y / activity.resources.displayMetrics.density + actualScrollOffsetsLayout().second - cy
-                                )
-                                d
-                            }
-
-                        val destinationBeforeHit = touchHit?.let { hit ->
-                            val activated = activateBarAsEditingTarget(hit.measure)
-                            android.util.Log.d(
-                                "EARAM_PASTE",
-                                "TAP BEAT-MAP TARGET bar=" + (hit.measure + 1) +
-                                    " beat=" + (hit.beat + 1) +
-                                    " activated=" + activated
-                            )
-                            if (activated) hit.measure else -1
-                        } ?: run {
-                            val renderedBar = resolveRenderedBarAtPoint(event.x, event.y)
-                            if (renderedBar >= 0) {
-                                val activated = activateBarAsEditingTarget(renderedBar)
-                                android.util.Log.d(
-                                    "EARAM_PASTE",
-                                    "TAP RENDERED-BAR TARGET bar=" + (renderedBar + 1) +
-                                        " activated=" + activated
-                                )
-                                if (activated) renderedBar else -1
-                            } else -1
-                        }
-
+                        // IMPORTANT: never choose the nearest rendered beat globally.
+                        // That made a tap in measure N activate whichever beat happened to be
+                        // closest (often the previous/source measure). The TAB point itself is
+                        // the authority: handleScoreTouch() performs exact note/beat hit-testing
+                        // against AlphaTab's real rendered bounds.
                         val hit = handleScoreTouch(event.x, event.y)
-
-                        // The tapped beat-map/rendered bar is authoritative. The
-                        // generic hit-test is never allowed to send the caret back
-                        // to the source measure.
-                        if (destinationBeforeHit >= 0 && caret.measureIndex != destinationBeforeHit) {
-                            caret = caret.copy(measureIndex = destinationBeforeHit, beatIndex = 0)
-                            session.caret = caret
-                            updateCursor()
-                            android.util.Log.d(
-                                "EARAM_PASTE",
-                                "CORRECTED TAP TARGET bar=" + (destinationBeforeHit + 1) +
-                                    " after generic hit-test"
-                            )
-                        }
 
                         if (hit) {
                             val anchor = currentBeat()
@@ -2777,28 +2727,10 @@ class MainActivity : ComponentActivity() {
                 android.util.Log.w("EARAM_SELECTION", "direct TAB note hit-test failed", t)
             }
 
-            // If no fret was hit, select the rendered Beat. Empty beats are valid
-            // editor targets and fret entry materializes the Note in that Beat.
-            val hit = hitTest(x, y) ?: run {
-                val d2 = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
-                val scroll2 = actualScrollOffsetsLayout()
-                val cx = x / d2 + scroll2.first
-                val cy = y / d2 + scroll2.second
-                beatHits.asSequence()
-                    .filter { !it.virtual && it.beatRef != null }
-                    .minByOrNull { candidate ->
-                        val bx = candidate.rect.centerX().toDouble()
-                        val by = candidate.rect.centerY().toDouble()
-                        val dx = cx.toDouble() - bx
-                        val dy = cy.toDouble() - by
-                        dx * dx + dy * dy
-                    }?.takeIf { candidate ->
-                        val bx = candidate.rect.centerX()
-                        val by = candidate.rect.centerY()
-                        val maxDistance = maxOf(candidate.rect.width(), candidate.rect.height()) * 1.35f
-                        kotlin.math.hypot(cx - bx, cy - by) <= maxDistance
-                    }
-            } ?: return false
+            // If no fret was hit, select ONLY the rendered Beat that actually
+            // contains the touch. Never fall back to the nearest beat: on a page layout,
+            // the nearest beat can belong to another measure/system and corrupt selection.
+            val hit = hitTest(x, y) ?: return false
             val maxString = maxStringIndex()
             val uiString = (((contentY - hit.tabTopY) / hit.stringSpacing)
                 .roundToInt() + 1).coerceIn(1, maxString)
