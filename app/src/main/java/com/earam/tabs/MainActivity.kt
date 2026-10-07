@@ -2237,10 +2237,17 @@ class MainActivity : ComponentActivity() {
                         val hit = handleScoreTouch(event.x, event.y)
 
                         if (hit) {
+                            // handleScoreTouch() already selected the exact real measure.
+                            // Do NOT overwrite BAR with NOTE here: that was the hidden reason
+                            // Copy/Paste/Clear/Delete kept acting on the wrong target after a
+                            // normal TAB tap. Keep the beat as the caret anchor only; a MOVE
+                            // can promote the gesture to RANGE explicitly.
                             val anchor = currentBeat()
                             if (anchor != null) {
-                                beginManualRangeSelection(anchor)
-                                selectionTarget = SelectionTarget.NOTE
+                                selectionAnchorBeat = anchor
+                                selectionFocusBeat = anchor
+                                selectionDragActive = false
+                                selectionDragMoved = false
                             }
                         }
 
