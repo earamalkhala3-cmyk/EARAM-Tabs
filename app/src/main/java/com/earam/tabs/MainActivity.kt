@@ -1697,6 +1697,15 @@ class MainActivity : ComponentActivity() {
         private var caretCenterX = Float.NaN
         private var caretCenterY = Float.NaN
         private var caretHalf = 0f
+        private var noteSelectionLeft = Float.NaN
+        private var noteSelectionTop = Float.NaN
+        private var noteSelectionRight = Float.NaN
+        private var noteSelectionBottom = Float.NaN
+        private val noteSelectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            color = 0xFFFF8A00.toInt()
+            strokeWidth = 2.5f * density
+        }
         private var playbackX = Float.NaN
         private var playbackTop = 0f
         private var playbackBottom = 0f
@@ -1722,9 +1731,24 @@ class MainActivity : ComponentActivity() {
             playbackX=centerX; playbackTop=top; playbackBottom=bottom
             invalidate()
         }
+        fun showNoteSelectionContent(left:Float,top:Float,right:Float,bottom:Float){
+            noteSelectionLeft=left
+            noteSelectionTop=top
+            noteSelectionRight=right
+            noteSelectionBottom=bottom
+            invalidate()
+        }
+        fun hideNoteSelection(){
+            noteSelectionLeft=Float.NaN
+            noteSelectionTop=Float.NaN
+            noteSelectionRight=Float.NaN
+            noteSelectionBottom=Float.NaN
+            invalidate()
+        }
         fun showNoteCursor(left:Float,top:Float,width:Float,height:Float)=invalidate()
         fun hideCursor(){
             caretCenterX=Float.NaN; caretCenterY=Float.NaN; caretHalf=0f
+            hideNoteSelection()
             editingGuideX=Float.NaN
             editingGuideTop=Float.NaN
             editingGuideBottom=Float.NaN
@@ -1780,6 +1804,26 @@ class MainActivity : ComponentActivity() {
                     editingGuideX + guideHalf,
                     editingGuideBottom,
                     editingGuidePaint
+                )
+            }
+
+            // Exact note selection: a small rounded orange outline around the
+            // tapped TAB number. This is independent from the beat/playback cursor.
+            if (noteSelectionLeft.isFinite() &&
+                noteSelectionTop.isFinite() &&
+                noteSelectionRight > noteSelectionLeft &&
+                noteSelectionBottom > noteSelectionTop
+            ) {
+                val pad = 3f * density
+                val radius = 4f * density
+                canvas.drawRoundRect(
+                    noteSelectionLeft - pad,
+                    noteSelectionTop - pad,
+                    noteSelectionRight + pad,
+                    noteSelectionBottom + pad,
+                    radius,
+                    radius,
+                    noteSelectionPaint
                 )
             }
 
@@ -2544,15 +2588,15 @@ class MainActivity : ComponentActivity() {
                     val uiString = (maxStringIndex() + 1 - note.string.toInt()).coerceIn(1, maxStringIndex())
                     caret = Caret(clickedTrackIndex, barIndex, beatIndex, uiString)
                     session.caret = caret
-                    // AlphaTab's noteMouseDown is only a notification of the
-                    // same TAB tap already resolved by handleScoreTouch(). It must never
-                    // downgrade the authoritative BAR target to NOTE/BEAT.
+                    // AlphaTab's noteMouseDown identifies the exact TAB number touched.
+                    // Keep NOTE as the authoritative target so Delete removes only this
+                    // string/note from a chord, not the whole Beat or measure.
                     // Range selection is handled exclusively by the Android touch MOVE path.
                     selectionAnchorBeat = note.beat
                     selectionFocusBeat = note.beat
                     selectionDragActive = false
                     selectionDragMoved = false
-                    selectionTarget = SelectionTarget.BAR
+                    selectionTarget = SelectionTarget.NOTE
                     armed = true
                     pendingFret = ""
 
@@ -3007,9 +3051,10 @@ class MainActivity : ComponentActivity() {
                                         .coerceIn(1, maxStringIndex())
                                     caret = Caret(currentTrackIndex, mi, bi, uiString)
                                     session.caret = caret
-                                    // A TAB note is inside a real measure; keep exact beat/string in the caret,
-                                    // but make the MEASURE the authoritative bar-action target.
-                                    selectionTarget = SelectionTarget.BAR
+                                    // A direct TAB-number tap selects that exact NOTE.
+                                    // Bar actions remain available through the explicit bar
+                                    // menu/long-press and never replace a note selection.
+                                    selectionTarget = SelectionTarget.NOTE
                                     armed = true
                                     pendingFret = ""
                                     try {
@@ -4852,6 +4897,16 @@ class MainActivity : ComponentActivity() {
                     val finalY=rawY*d+origin.second
                     val guideTop=rawBar.y.toFloat()*d+origin.second
                     val guideBottom=(rawBar.y+rawBar.h).toFloat()*d+origin.second
+
+                    if (selectionTarget == SelectionTarget.NOTE && selectedNoteBounds != null) {
+                        val noteLeft = selectedNoteBounds.x.toFloat() * d + origin.first
+                        val noteTop = selectedNoteBounds.y.toFloat() * d + origin.second
+                        val noteRight = (selectedNoteBounds.x + selectedNoteBounds.w).toFloat() * d + origin.first
+                        val noteBottom = (selectedNoteBounds.y + selectedNoteBounds.h).toFloat() * d + origin.second
+                        overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
+                    } else {
+                        overlay.hideNoteSelection()
+                    }
 
                     overlay.setDiagnosticRaw(rawX,rawY,d)
                     overlay.showGuitarProGuideContent(finalX,guideTop,guideBottom)
