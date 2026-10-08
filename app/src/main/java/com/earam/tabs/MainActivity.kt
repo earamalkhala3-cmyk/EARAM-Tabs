@@ -794,7 +794,9 @@ class MainActivity : ComponentActivity() {
         }
 
         root.addView(header, LinearLayout.LayoutParams(-1, -2))
-        root.addView(status, LinearLayout.LayoutParams(-1, dp(24f)))
+        // Status text remains an internal feedback channel for commands/errors, but it is
+        // deliberately NOT part of the visible editor chrome. The old 24dp status strip
+        // duplicated information and consumed valuable vertical TAB space.
         header.requestApplyInsets()
         root.addView(transport, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(navigation, LinearLayout.LayoutParams(-1, dp(48f)))
