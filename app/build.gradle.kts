@@ -14,7 +14,7 @@ android { namespace = "com.earam.tabs"; compileSdk = 36
     defaultConfig {
         applicationId = "com.earam.tabs"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         val runNumberProvider = providers.environmentVariable("GITHUB_RUN_NUMBER")
         val runNumberText = runNumberProvider.getOrNull()
         val runNumber = runNumberText?.toIntOrNull() ?: 0
