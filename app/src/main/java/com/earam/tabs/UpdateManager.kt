@@ -37,7 +37,7 @@ class UpdateManager(private val activity: Activity) {
                 val remoteVersion = json.optInt("version_code", parseVersionCode(tag))
                 val apk = json.optJSONArray("assets")?.let { assets ->
                     (0 until assets.length()).map { assets.getJSONObject(it) }
-                        .firstOrNull { it.optString("name").endsWith(".apk", true) }
+                        .firstOrNull { it.optString("name").equals("Earam.apk", true) }
                 }
                 val apkUrl = apk?.optString("browser_download_url").orEmpty()
                 val checksumAsset = json.optJSONArray("assets")?.let { assets ->
@@ -63,14 +63,16 @@ class UpdateManager(private val activity: Activity) {
         }.start()
     }
 
-    private fun parseVersionCode(version: String): Int =
-        version.split(".").mapNotNull { it.toIntOrNull() }.let {
-            when (it.size) {
-                0 -> 0
-                1 -> it[0]
-                else -> it[0] * 10000 + it[1] * 100 + (it.getOrNull(2) ?: 0)
-            }
+    private fun parseVersionCode(version: String): Int {
+        val parts = version.split(".").mapNotNull { it.toIntOrNull() }
+        return when {
+            parts.size >= 3 && parts[0] == 0 -> 100000 + parts[1] * 100000 + parts[2]
+            parts.size >= 3 -> parts[0] * 10000 + parts[1] * 100 + parts[2]
+            parts.size == 2 -> parts[0] * 10000 + parts[1] * 100
+            parts.size == 1 -> parts[0]
+            else -> 0
         }
+    }
 
     private fun showUpdateDialog(version: String, url: String, sha256: String) {
         android.app.AlertDialog.Builder(activity)
