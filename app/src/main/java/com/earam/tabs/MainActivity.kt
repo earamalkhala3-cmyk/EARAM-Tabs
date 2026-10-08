@@ -1020,18 +1020,50 @@ class MainActivity : ComponentActivity() {
                     val editor = noteEditor ?: throw IllegalStateException("note editor missing")
                     editor.setCiTestCaret()
                     editor.writeFretFromUi(7)
-                    editor.setDebugModeFromUi(true)
                     statusView?.text = "CI CURSOR TEST • B1 b1 S2"
-                    android.util.Log.i("EARAM_CI_CURSOR", "CI fixture ready; waiting for AlphaTab layout")
-                    window.decorView.postDelayed({
+                    android.util.Log.i("EARAM_CI_CURSOR", "CI fixture created; waiting for AlphaTab bounds")
+
+                    fun waitForAlphaTabBounds(attempt: Int) {
                         try {
+                            val view = alphaTabView ?: throw IllegalStateException("AlphaTab view missing")
+                            val score = view.api.score ?: throw IllegalStateException("AlphaTab score missing")
+                            val track = score.tracks.toList().firstOrNull()
+                                ?: throw IllegalStateException("CI track missing")
+                            val staff = track.staves.firstOrNull()
+                                ?: throw IllegalStateException("CI staff missing")
+                            val bar = staff.bars.toList().firstOrNull()
+                                ?: throw IllegalStateException("CI bar missing")
+                            val beat = bar.voices.toList().firstOrNull()?.beats?.toList()?.firstOrNull()
+                                ?: throw IllegalStateException("CI beat missing")
+                            val lookup = view.api.renderer.boundsLookup
+                                ?: throw IllegalStateException("AlphaTab boundsLookup missing")
+                            val bounds = lookup.findBeat(beat)
+                                ?: throw IllegalStateException("AlphaTab beat bounds missing")
+
+                            editor.setDebugModeFromUi(true)
                             editor.refreshVisualCursor()
                             editor.logCoordinateDiagnostic("ci-screenshot-ready")
-                            android.util.Log.i("EARAM_CI_CURSOR", "CI cursor test READY")
+                            android.util.Log.i(
+                                "EARAM_CI_CURSOR",
+                                "CI cursor test READY; bounds=" + bounds.realBounds
+                            )
                         } catch (t: Throwable) {
-                            android.util.Log.e("EARAM_CI_CURSOR", "CI visual verification failed", t)
+                            if (attempt < 20) {
+                                window.decorView.postDelayed(
+                                    { waitForAlphaTabBounds(attempt + 1) },
+                                    500L
+                                )
+                            } else {
+                                android.util.Log.e(
+                                    "EARAM_CI_CURSOR",
+                                    "CI AlphaTab bounds did not become ready",
+                                    t
+                                )
+                            }
                         }
-                    }, 1800L)
+                    }
+
+                    waitForAlphaTabBounds(0)
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_CI_CURSOR", "CI fixture failed", t)
                 }
@@ -1040,7 +1072,6 @@ class MainActivity : ComponentActivity() {
             android.util.Log.e("EARAM_CI_CURSOR", "CI score creation failed", t)
         }
     }
-
     /** Guitar-Pro-style New File setup using the same AlphaTab Score model. */
     private fun showNewFileWizard() {
         val box = LinearLayout(this).apply {
