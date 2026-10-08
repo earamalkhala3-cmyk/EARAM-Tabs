@@ -814,7 +814,7 @@ class MainActivity : ComponentActivity() {
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
         // Always visible: compact fret-entry keypad (0–9).
-        root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(40f)))
+        root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(66f)))
         setContentView(root)
 
         // Initialize AlphaTab only after the complete view hierarchy is attached.
@@ -4341,6 +4341,7 @@ class MainActivity : ComponentActivity() {
         fun moveBeatFromUi(delta: Int) = moveBeat(delta)
         fun moveStringFromUi(delta: Int) = moveString(delta)
         fun enterDigitFromUi(digit: Int) = acceptDigit(digit)
+        fun enterFretFromUi(fret: Int) = writeFret(fret)
         fun writeFretFromUi(fret: Int) = writeFret(fret)
         fun deleteCurrentNoteFromUi() {
             when (selectionTarget) {
