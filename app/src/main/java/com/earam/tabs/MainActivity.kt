@@ -337,7 +337,7 @@ class MainActivity : ComponentActivity() {
                 i++
             }
             if (bytes.isEmpty()) throw IllegalStateException("Exporter returned an empty GP file")
-            contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+            contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
                 ?: throw IllegalStateException("Cannot open destination for writing")
             session.sourceUri = uri.toString()
             session.sourceName = displayNameForUri(uri)
