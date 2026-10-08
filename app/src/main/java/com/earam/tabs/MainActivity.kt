@@ -3872,7 +3872,6 @@ class MainActivity : ComponentActivity() {
         }
 
         fun addMeasureFromUi() {
-            val before = score.api.score?.masterBars?.toList()?.size ?: 0
             if (createNextMeasures(1)) {
                 val total = score.api.score?.masterBars?.toList()?.size ?: 0
                 val newIndex = (total - 1).coerceAtLeast(0)
