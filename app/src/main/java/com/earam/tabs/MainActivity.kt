@@ -2071,8 +2071,9 @@ class MainActivity : ComponentActivity() {
             // There is deliberately no Earam caret layer.
             alphaTabCaret = null
             score.settings.player.enableCursor = true
-            score.settings.player.enableAnimatedBeatCursor = false
-            android.util.Log.i("EARAM_ALPHA_CURSOR", "AlphaTab native playback cursor enabled; custom caret removed")
+            score.settings.player.enableAnimatedBeatCursor = true
+            score.settings.player.enableElementHighlighting = true
+            android.util.Log.i("EARAM_ALPHA_CURSOR", "AlphaTab native playback cursor enabled; animated + element highlighting")
         }
         fun setCiTestCaret(){caret=Caret(0,0,0,2);session.caret=caret;currentVoiceIndex=0;armed=true;pendingFret=""}
         private var armed = false
