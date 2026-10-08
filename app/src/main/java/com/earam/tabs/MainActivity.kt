@@ -241,6 +241,12 @@ class MainActivity : ComponentActivity() {
         // Activity recreation must not create a new empty score. The Score and all
         // editor/playback state live in the ViewModel and are rebound to this new view.
         window.decorView.post {
+            if (ciCursorRequested) {
+                // The CI fixture creates and renders its own Score. Do not also render
+                // the normal startup score: two overlapping AlphaTab renderScore()
+                // calls can race in the worker and corrupt BoundsLookup.fromJson().
+                return@post
+            }
             if (intent?.action == Intent.ACTION_VIEW && intent?.data != null) {
                 handleIncomingFileIntent(intent)
             } else if (session.score != null) {
