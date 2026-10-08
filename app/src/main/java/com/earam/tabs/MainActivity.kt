@@ -2616,13 +2616,22 @@ class MainActivity : ComponentActivity() {
                     selectionDragActive = false
                     selectionDragMoved = false
                     selectionTarget = SelectionTarget.NOTE
-                    val tappedBounds = note.noteHeadBounds
-                    tappedNoteBounds = RectF(
-                        tappedBounds.x.toFloat(),
-                        tappedBounds.y.toFloat(),
-                        (tappedBounds.x + tappedBounds.w).toFloat(),
-                        (tappedBounds.y + tappedBounds.h).toFloat()
-                    )
+                    // Note model objects do not expose rendered bounds. Resolve the
+                    // exact tapped note through AlphaTab's renderer bounds lookup instead.
+                    val tappedBounds = score.api.renderer.boundsLookup
+                        ?.findBeat(note.beat)
+                        ?.notes
+                        ?.toList()
+                        ?.firstOrNull { it.note === note }
+                        ?.noteHeadBounds
+                    tappedNoteBounds = tappedBounds?.let { bounds ->
+                        RectF(
+                            bounds.x.toFloat(),
+                            bounds.y.toFloat(),
+                            (bounds.x + bounds.w).toFloat(),
+                            (bounds.y + bounds.h).toFloat()
+                        )
+                    }
                     armed = true
                     pendingFret = ""
 
