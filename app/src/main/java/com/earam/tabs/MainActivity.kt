@@ -3720,6 +3720,15 @@ class MainActivity : ComponentActivity() {
                         dots = sourceBeat.dots
                         tupletNumerator = sourceBeat.tupletNumerator
                         tupletDenominator = sourceBeat.tupletDenominator
+                        slap = sourceBeat.slap
+                        pop = sourceBeat.pop
+                        tap = sourceBeat.tap
+                        deadSlapped = sourceBeat.deadSlapped
+                        fadeIn = sourceBeat.fadeIn
+                        slashed = sourceBeat.slashed
+                        showTimer = sourceBeat.showTimer
+                        text = sourceBeat.text
+                        pickStroke = sourceBeat.pickStroke
                         isEmpty = sourceBeat.isEmpty
                     }
                     for (sourceNote in sourceBeat.notes.toList()) {
@@ -3733,6 +3742,8 @@ class MainActivity : ComponentActivity() {
                             isLetRing = sourceNote.isLetRing
                             isStaccato = sourceNote.isStaccato
                             isHammerPullOrigin = sourceNote.isHammerPullOrigin
+                            vibrato = sourceNote.vibrato
+                            isLeftHandTapped = sourceNote.isLeftHandTapped
                         })
                     }
                     voice.addBeat(beat)
