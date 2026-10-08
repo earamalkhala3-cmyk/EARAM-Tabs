@@ -4509,10 +4509,11 @@ class MainActivity : ComponentActivity() {
                 session.caret = caret
                 armed = true
                 pendingFret = ""
-                val rendered = alphaTab.collections.List<alphaTab.model.Track>()
-                rendered.push(tracks[index])
-                score.api.renderTracks(rendered)
-                    updateCursor()
+                // Track selection changes the edit target only. It must never hide
+                // the other real tracks from the score view.
+                renderAllTracks(score.api.score ?: return)
+                score.api.render()
+                updateCursor()
                 updateStatus("TRACK " + (index + 1) + " • " + trackLabel())
                 onSelectionChanged?.invoke()
             } catch (t: Throwable) {
