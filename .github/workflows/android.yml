@@ -240,23 +240,79 @@ jobs:
               raise SystemExit("invalid screenshot")
           PY
           timeout 15s adb -s emulator-5554 logcat -d -v threadtime > "$OUT/full.log" || true
-          grep -E 'EARAM_ALPHA_CURSOR|EARAM_SCROLL|EARAM_CI_CURSOR|FATAL|AndroidRuntime' "$OUT/full.log" > "$OUT/filtered.log" || true
+          grep -E 'EARAM_ALPHA_CURSOR|EARAM_COORD|EARAM_SCROLL|EARAM_CI_CURSOR|FATAL|AndroidRuntime' "$OUT/full.log" > "$OUT/filtered.log" || true
           test -s "$OUT/alphaTab-cursor-test.png"
+
+          # A valid PNG is not a cursor test. Require the app to report finite,
+          # renderer-derived caret/playback coordinates from the exact AlphaTab
+          # boundsLookup used for the selected beat. This prevents a green CI
+          # result when the screenshot merely exists.
+          python3 - "$OUT/full.log" <<'PY'
+          import re, sys, math
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          if "EARAM_COORD" not in log:
+              raise SystemExit("cursor test failed: no EARAM_COORD diagnostics")
+          caret = re.findall(r"caretFinalPx=([-+0-9.eE]+),([-+0-9.eE]+)", log)
+          playback = re.findall(r"playbackFinalPx=([-+0-9.eE]+),([-+0-9.eE]+)", log)
+          if not caret:
+              raise SystemExit("cursor test failed: no caretFinalPx")
+          if not playback:
+              raise SystemExit("cursor test failed: no playbackFinalPx")
+          def finite(pair):
+              return all(math.isfinite(float(x)) for x in pair)
+          if not finite(caret[-1]) or not finite(playback[-1]):
+              raise SystemExit("cursor test failed: non-finite cursor coordinates")
+          print("caretFinalPx=", caret[-1])
+          print("playbackFinalPx=", playback[-1])
+          PY
+
+          # The visual caret is intentionally yellow/orange. Inspect actual PNG
+          # pixels instead of accepting screenshot dimensions as proof. We use
+          # broad thresholds rather than one exact RGB value so emulator
+          # rendering/anti-aliasing does not create false negatives.
           python3 - "$OUT/alphaTab-cursor-test.png" <<'PY'
-          import struct
-          import sys
-          path = sys.argv[1]
-          with open(path, "rb") as f:
-              if f.read(8) != b"\x89PNG\r\n\x1a\n":
-                  raise SystemExit("invalid PNG signature")
-              length = struct.unpack(">I", f.read(4))[0]
-              chunk = f.read(4)
-              if chunk != b"IHDR" or length != 13:
-                  raise SystemExit("invalid PNG IHDR")
-              width, height = struct.unpack(">II", f.read(8))
-          print(f"screenshot: {width}x{height}")
-          if width < 200 or height < 200:
-              raise SystemExit("invalid screenshot")
+          import struct, zlib, sys
+          p=sys.argv[1]
+          data=open(p,"rb").read()
+          if data[:8] != b"\x89PNG\r\n\x1a\n":
+              raise SystemExit("invalid PNG signature")
+          pos=8; idat=b""; w=h=ct=bd=None
+          while pos < len(data):
+              n=struct.unpack(">I",data[pos:pos+4])[0]; typ=data[pos+4:pos+8]
+              chunk=data[pos+8:pos+8+n]; pos += 12+n
+              if typ==b"IHDR":
+                  w,h,bd,ct,_,_,_=struct.unpack(">IIBBBBB",chunk)
+              elif typ==b"IDAT": idat += chunk
+              elif typ==b"IEND": break
+          if ct != 6 or bd != 8:
+              raise SystemExit(f"unsupported PNG format color_type={ct} bit_depth={bd}")
+          raw=zlib.decompress(idat)
+          bpp=4; stride=w*bpp; rows=[]; prev=bytearray(stride); i=0
+          def paeth(a,b,c):
+              p=a+b-c; pa=abs(p-a); pb=abs(p-b); pc=abs(p-c)
+              return a if pa<=pb and pa<=pc else b if pb<=pc else c
+          for y in range(h):
+              f=raw[i]; i+=1; cur=bytearray(raw[i:i+stride]); i+=stride
+              for x in range(stride):
+                  a=cur[x-bpp] if x>=bpp else 0
+                  b=prev[x]; c=prev[x-bpp] if x>=bpp else 0
+                  if f==1: cur[x]=(cur[x]+a)&255
+                  elif f==2: cur[x]=(cur[x]+b)&255
+                  elif f==3: cur[x]=(cur[x]+((a+b)//2))&255
+                  elif f==4: cur[x]=(cur[x]+paeth(a,b,c))&255
+                  elif f!=0: raise SystemExit(f"unsupported PNG filter {f}")
+              rows.append(cur); prev=cur
+          yellow=orange=0
+          for row in rows:
+              for x in range(0,len(row),4):
+                  r,g,b,a=row[x:x+4]
+                  if a>180 and r>190 and g>150 and b<100:
+                      yellow += 1
+                  if a>120 and r>190 and 55<g<180 and b<90:
+                      orange += 1
+          print(f"visual cursor candidates: yellow={yellow} orange={orange}")
+          if yellow < 8 and orange < 20:
+              raise SystemExit("cursor test failed: no visible yellow/orange cursor pixels in screenshot")
           PY
 
       - name: Upload EARAM cursor test artifact
