@@ -33,6 +33,8 @@ import alphaTab.LayoutMode
 import alphaTab.PlayerMode
 import alphaTab.StaveProfile
 import alphaTab.core.ecmaScript.Uint8Array
+import alphaTab.exporter.Gp7Exporter
+import alphaTab.io.ByteBuffer
 import alphaTab.importer.ScoreLoader
 import alphaTab.model.Bar
 import alphaTab.model.Beat
@@ -215,6 +217,7 @@ class MainActivity : ComponentActivity() {
     private var soundFontLoading = false
     private var playerEngineReady = false
     private lateinit var session: EditorSessionViewModel
+    private var pendingSaveAs = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -248,6 +251,79 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         window.decorView.post { handleIncomingFileIntent(intent) }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 5201 || resultCode != RESULT_OK || data?.data == null) return
+        val uri = data.data ?: return
+        exportCurrentScoreToUri(uri)
+    }
+
+    private fun requestSaveAs() {
+        pendingSaveAs = true
+        val title = (currentScore?.title?.ifBlank { projectName } ?: projectName)
+            .replace(Regex("[\\/:*?"<>|]"), "_")
+            .ifBlank { "Untitled" }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_TITLE, title + ".gp")
+        }
+        startActivityForResult(intent, 5201)
+    }
+
+    private fun saveCurrentScore() {
+        val score = currentScore ?: alphaTabView?.api?.score
+        if (score == null) {
+            Toast.makeText(this, "No score to save.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val existing = session.sourceUri?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        if (existing != null) {
+            try {
+                exportCurrentScoreToUri(existing)
+                return
+            } catch (t: Throwable) {
+                android.util.Log.w("EARAM_SAVE", "Existing source URI is not writable; opening Save As", t)
+            }
+        }
+        requestSaveAs()
+    }
+
+    private fun exportCurrentScoreToUri(uri: Uri) {
+        val score = currentScore ?: alphaTabView?.api?.score
+        val view = alphaTabView
+        if (score == null || view == null) {
+            Toast.makeText(this, "No score to save.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            score.finish(view.settings)
+            val exporter = Gp7Exporter()
+            val data = exporter.export(score, view.settings)
+            val buffer = ByteBuffer.fromBuffer(data)
+            val bytes = ByteArray(buffer.length.toInt())
+            var i = 0
+            while (i < bytes.size) {
+                bytes[i] = buffer.readByte().toInt().toByte()
+                i++
+            }
+            if (bytes.isEmpty()) throw IllegalStateException("Exporter returned an empty GP file")
+            contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                ?: throw IllegalStateException("Cannot open destination for writing")
+            session.sourceUri = uri.toString()
+            session.sourceName = displayNameForUri(uri)
+            projectName = score.title.ifBlank { projectName }
+            session.projectName = projectName
+            titleView?.text = projectName
+            pendingSaveAs = false
+            Toast.makeText(this, "Saved • " + session.sourceName, Toast.LENGTH_SHORT).show()
+            android.util.Log.i("EARAM_SAVE", "GP7 exported bytes=" + bytes.size + " uri=" + uri)
+        } catch (t: Throwable) {
+            android.util.Log.e("EARAM_SAVE", "GP7 export failed", t)
+            Toast.makeText(this, "Save failed • " + (t.message ?: t.javaClass.simpleName), Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onDestroy() {
@@ -898,8 +974,9 @@ class MainActivity : ComponentActivity() {
                 when (which) {
                     0 -> showNewFileWizard()
                     1, 4 -> importTab()
-                    2, 3 -> Toast.makeText(this, "Save is not enabled in this build.", Toast.LENGTH_SHORT).show()
-                    5 -> Toast.makeText(this, "Export is not enabled in this build.", Toast.LENGTH_SHORT).show()
+                    2 -> saveCurrentScore()
+                    3 -> requestSaveAs()
+                    5 -> requestSaveAs()
                     6 -> finish()
                     7 -> Toast.makeText(this, "Update service is not enabled in this build.", Toast.LENGTH_SHORT).show()
                 }
