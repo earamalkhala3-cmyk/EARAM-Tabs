@@ -4337,8 +4337,16 @@ class MainActivity : ComponentActivity() {
             if (!AlphaTabRhythmEngine.fillVoiceToBarCapacity(bar,currentVoiceIndex)) {
                 updateStatus("Cannot complete measure • rhythm exceeds bar capacity"); return false
             }
-            score.api.score?.finish(score.settings); renderAndLog("duration"); updateCursor()
-            updateStatus("Duration " + duration.name); return true
+            score.api.score?.finish(score.settings)
+            renderAndLog("duration")
+            updateCursor()
+
+            // The duration button is a live editor control. Refresh its drawn
+            // notation immediately so 8th/16th/32nd/dotted selections are visible
+            // without requiring the user to move the caret first.
+            onSelectionChanged?.invoke()
+            updateStatus("Duration " + duration.name)
+            return true
         }
 
         private fun createNextMeasures(count: Int = 4): Boolean {
