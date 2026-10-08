@@ -2243,6 +2243,9 @@ class MainActivity : ComponentActivity() {
 
         private var alphaTabCaret: IContainer? = null
         private var lastCaretRect: RectF? = null
+        // Exact AlphaTab bounds captured from the note the user actually tapped.
+        // Used as a fallback if boundsLookup has not populated this note yet.
+        private var tappedNoteBounds: RectF? = null
         private var lastRawCaretX = Float.NaN
         private var lastRawCaretY = Float.NaN
         fun alphaTabContentOriginInOverlay(): Pair<Float, Float> { return try { val sl=IntArray(2); val ol=IntArray(2); score.getLocationOnScreen(sl); overlay.getLocationOnScreen(ol); Pair((sl[0]-ol[0]).toFloat(),(sl[1]-ol[1]).toFloat()) } catch(t:Throwable){ 0f to 0f } }
@@ -2608,6 +2611,13 @@ class MainActivity : ComponentActivity() {
                     selectionDragActive = false
                     selectionDragMoved = false
                     selectionTarget = SelectionTarget.NOTE
+                    val tappedBounds = note.noteHeadBounds
+                    tappedNoteBounds = RectF(
+                        tappedBounds.x.toFloat(),
+                        tappedBounds.y.toFloat(),
+                        (tappedBounds.x + tappedBounds.w).toFloat(),
+                        (tappedBounds.y + tappedBounds.h).toFloat()
+                    )
                     armed = true
                     pendingFret = ""
 
@@ -4686,7 +4696,9 @@ class MainActivity : ComponentActivity() {
             }
             caret=Caret(currentTrackIndex,b,beat,currentStringIndex); session.caret=caret
             val movedBeat = bs.getOrNull(b)?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(beat)
-            selectionTarget = if (movedBeat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+            val hasMovedNote = movedBeat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) != null
+            selectionTarget = if (hasMovedNote) SelectionTarget.NOTE else SelectionTarget.BEAT
+            tappedNoteBounds = null
             armed=true; pendingFret=""
             updateCursor()
             if(lastRawCaretX.isFinite()&&lastRawCaretY.isFinite()) ensureCaretVisible(lastRawCaretX,lastRawCaretY)
@@ -4715,6 +4727,7 @@ class MainActivity : ComponentActivity() {
             session.caret = caret
             val beat = currentBeat()
             selectionTarget = if (beat?.getNoteOnString(alphaTabString(caret.stringIndex).toDouble()) != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+            tappedNoteBounds = null
             armed = true
             pendingFret = ""
             updateCursor()
@@ -4894,11 +4907,14 @@ class MainActivity : ComponentActivity() {
                     val selectedNoteBounds = bb.notes?.toList()
                         ?.firstOrNull { it.note.string.toDouble() == selectedAlphaString }
                         ?.noteHeadBounds
+                    val selectedNoteRect = selectedNoteBounds?.let {
+                        RectF(it.x.toFloat(), it.y.toFloat(), (it.x + it.w).toFloat(), (it.y + it.h).toFloat())
+                    } ?: if (selectionTarget == SelectionTarget.NOTE) tappedNoteBounds else null
                     val hit=beatHits.firstOrNull{it.measure==caret.measureIndex&&it.beat==caret.beatIndex&&!it.virtual}
                     val fallbackTop=hit?.tabTopY ?: (rawBar.y.toFloat()+rawBar.h.toFloat()*.58f)
                     val spacing=hit?.stringSpacing ?: stringSpacing
-                    val rawY = if (selectedNoteBounds != null) {
-                        selectedNoteBounds.y.toFloat() + selectedNoteBounds.h.toFloat() * 0.5f
+                    val rawY = if (selectedNoteRect != null) {
+                        selectedNoteRect.centerY()
                     } else {
                         fallbackTop+(caret.stringIndex-1).coerceAtLeast(0)*spacing
                     }
@@ -4914,11 +4930,11 @@ class MainActivity : ComponentActivity() {
                     val guideTop=rawBar.y.toFloat()*d+origin.second
                     val guideBottom=(rawBar.y+rawBar.h).toFloat()*d+origin.second
 
-                    if (selectionTarget == SelectionTarget.NOTE && selectedNoteBounds != null) {
-                        val noteLeft = selectedNoteBounds.x.toFloat() * d + origin.first
-                        val noteTop = selectedNoteBounds.y.toFloat() * d + origin.second
-                        val noteRight = (selectedNoteBounds.x + selectedNoteBounds.w).toFloat() * d + origin.first
-                        val noteBottom = (selectedNoteBounds.y + selectedNoteBounds.h).toFloat() * d + origin.second
+                    if (selectionTarget == SelectionTarget.NOTE && selectedNoteRect != null) {
+                        val noteLeft = selectedNoteRect.left * d + origin.first
+                        val noteTop = selectedNoteRect.top * d + origin.second
+                        val noteRight = selectedNoteRect.right * d + origin.first
+                        val noteBottom = selectedNoteRect.bottom * d + origin.second
                         overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
                     } else {
                         overlay.hideNoteSelection()
