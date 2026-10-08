@@ -3872,10 +3872,23 @@ class MainActivity : ComponentActivity() {
         }
 
         fun addMeasureFromUi() {
-            pushUndoSnapshot()
+            val before = score.api.score?.masterBars?.toList()?.size ?: 0
             if (createNextMeasures(1)) {
-                updateStatus("Measure added • total " + (score.api.score?.masterBars?.toList()?.size ?: 0))
+                val total = score.api.score?.masterBars?.toList()?.size ?: 0
+                val newIndex = (total - 1).coerceAtLeast(0)
+                caret = caret.copy(measureIndex = newIndex, beatIndex = 0)
+                session.caret = caret
+                selectedBarIndex = newIndex
+                selectionTarget = SelectionTarget.BAR
+                armed = true
+                pendingFret = ""
+                buildBeatHits()
+                highlightSelectedBar()
+                updateCursor()
+                updateStatus("Measure added • BAR " + (newIndex + 1) + " • total " + total)
                 onSelectionChanged?.invoke()
+            } else {
+                updateStatus("Could not add measure")
             }
         }
 
