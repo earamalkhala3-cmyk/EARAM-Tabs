@@ -213,26 +213,34 @@ jobs:
           OUT="${RUNNER_TEMP}/earam-smoke"
           mkdir -p "$OUT"
           timeout 10s adb -s emulator-5554 logcat -c || true
-          timeout 10s adb -s emulator-5554 shell am force-stop com.earam.tabs || true
-          # Pass the CI request as an explicit Activity launch extra. The app also
-          # accepts the legacy Global setting, but the extra is deterministic.
-          timeout 15s adb -s emulator-5554 shell am start -W -n com.earam.tabs/.MainActivity --ez earam_ci_cursor_test true >/dev/null
-          # Do not guess a fixed renderer startup delay. Wait until the app itself
-          # reports that the cursor fixture and AlphaTab coordinate diagnostics exist.
+          # Start a fresh Activity and pass the CI trigger as an explicit Intent extra.
+          # -S is intentional: it guarantees the old Activity/process cannot consume
+          # the launch without receiving the new extra.
+          timeout 20s adb -s emulator-5554 shell am start -S -W -n com.earam.tabs/.MainActivity --ez earam_ci_cursor_test true > "$OUT/launch.log" 2>&1
+          cat "$OUT/launch.log"
+          # Never guess that AlphaTab is ready after N seconds. The application must
+          # explicitly report fixture creation plus finite renderer-derived coordinates.
           READY=0
-          for i in $(seq 1 20); do
-            timeout 5s adb -s emulator-5554 logcat -d -v brief -s EARAM_CI_CURSOR EARAM_COORD EARAM_ALPHA_CURSOR EARAM_SCROLL > "$OUT/wait.log" || true
-            if grep -q "CI cursor test READY" "$OUT/wait.log" && grep -q "caretFinalPx=" "$OUT/wait.log" && grep -q "playbackFinalPx=" "$OUT/wait.log"; then
+          for i in $(seq 1 45); do
+            timeout 5s adb -s emulator-5554 logcat -d -v brief > "$OUT/wait.log" || true
+            if grep -q "EARAM_CI_CURSOR.*CI cursor test READY" "$OUT/wait.log" &&
+               grep -q "caretFinalPx=" "$OUT/wait.log" &&
+               grep -q "playbackFinalPx=" "$OUT/wait.log"; then
               READY=1
               break
             fi
             sleep 1
           done
-          test "$READY" -eq 1 || {
+          if [ "$READY" -ne 1 ]; then
             echo "CI cursor fixture did not become ready"
-            cat "$OUT/wait.log" || true
+            echo "----- CI/CURSOR LOG -----"
+            grep -E 'EARAM_CI_CURSOR|EARAM_COORD|EARAM_ALPHA_CURSOR|EARAM_SCROLL|FATAL|AndroidRuntime' "$OUT/wait.log" || true
+            echo "----- ACTIVITY STATE -----"
+            timeout 10s adb -s emulator-5554 shell dumpsys activity activities | grep -E 'mResumedActivity|MainActivity|com.earam.tabs' | tail -40 || true
+            echo "----- PROCESS STATE -----"
+            timeout 10s adb -s emulator-5554 shell pidof com.earam.tabs || true
             exit 1
-          }
+          fi
           # Capture directly through adb exec-out. This avoids Android 15 shell
           # filesystem/path quirks around screencap + pull and gives the test the
           # PNG bytes directly on the runner.
