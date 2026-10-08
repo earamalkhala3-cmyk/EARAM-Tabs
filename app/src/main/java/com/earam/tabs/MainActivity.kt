@@ -3924,6 +3924,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 song.finish(score.settings)
+                selectedBarIndex = sourceIndex + 1
                 caret = caret.copy(
                     measureIndex = sourceIndex + 1,
                     beatIndex = 0,
@@ -4002,13 +4003,14 @@ class MainActivity : ComponentActivity() {
                 }
                 val last = song.masterBars.toList().lastIndex
                 val target = index.coerceAtMost(last)
+                selectedBarIndex = target
                 caret = caret.copy(measureIndex = target, beatIndex = 0)
                 session.caret = caret
                 song.finish(score.settings)
                 renderAndLog("delete-bar")
                     updateCursor()
                 onSelectionChanged?.invoke()
-                updateStatus("Deleted selected bar • " + (selectedBarIndex + 1) + " is now selected")
+                updateStatus("Deleted BAR " + (index + 1) + " • BAR " + (selectedBarIndex + 1) + " is now selected")
             } catch (t: Throwable) {
                 updateStatus("Delete bar failed • " + (t.message ?: t.javaClass.simpleName))
             }
