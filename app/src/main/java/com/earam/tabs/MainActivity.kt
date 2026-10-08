@@ -1042,6 +1042,7 @@ class MainActivity : ComponentActivity() {
 
                             editor.setDebugModeFromUi(true)
                             editor.refreshVisualCursor()
+                            editor.showPlaybackBeat(beat)
                             editor.logCoordinateDiagnostic("ci-screenshot-ready")
                             android.util.Log.i(
                                 "EARAM_CI_CURSOR",
