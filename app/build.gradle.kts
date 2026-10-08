@@ -1,6 +1,15 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 
 android { namespace = "com.earam.tabs"; compileSdk = 36
+    // The canonical Earam logo lives at the repository root (Logo.png).
+    // Copy it into Android resources before resource processing so every
+    // Activity/dialog can use the exact same artwork.
+    val copyEaramLogo = tasks.register<Copy>("copyEaramLogo") {
+        from(rootProject.file("Logo.png"))
+        into(layout.projectDirectory.dir("src/main/res/drawable"))
+        rename { "earam_logo.png" }
+    }
+    tasks.named("preBuild").configure { dependsOn(copyEaramLogo) }
     buildFeatures { buildConfig = true }
     defaultConfig {
         applicationId = "com.earam.tabs"
