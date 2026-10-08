@@ -117,12 +117,27 @@ jobs:
             echo "Checking $lib"
             mapfile -t ALIGNMENTS < <(readelf -lW "$OUT" | awk '$1 == "LOAD" {print $NF}')
             test "${#ALIGNMENTS[@]}" -gt 0
-            for alignment in "${ALIGNMENTS[@]}"; do
-              if [ "$alignment" != "0x4000" ]; then
-                echo "ERROR: $lib has LOAD alignment $alignment; required 0x4000 (16 KB)"
+
+            # Google Play's 16 KB requirement applies to 64-bit ABIs.
+            # 32-bit ARM/x86 libraries remain 4 KB page-aligned by design and
+            # are exempt. Keep the strict 16 KB check for arm64-v8a/x86_64.
+            case "$lib" in
+              lib/arm64-v8a/*.so|lib/x86_64/*.so)
+                for alignment in "${ALIGNMENTS[@]}"; do
+                  if [ "$alignment" != "0x4000" ]; then
+                    echo "ERROR: $lib has LOAD alignment $alignment; required 0x4000 (16 KB)"
+                    exit 1
+                  fi
+                done
+                ;;
+              lib/armeabi-v7a/*.so|lib/x86/*.so)
+                echo "OK: $lib is a 32-bit ABI; 0x1000 (4 KB) alignment is permitted."
+                ;;
+              *)
+                echo "ERROR: unrecognized native ABI path: $lib"
                 exit 1
-              fi
-            done
+                ;;
+            esac
           done
 
       - name: Verify APK signature
