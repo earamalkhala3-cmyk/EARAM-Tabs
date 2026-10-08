@@ -327,30 +327,6 @@ class MainActivity : ComponentActivity() {
             }
 
         // Compact Earam bottom sheet: replaces the generic Android AlertDialog look for editor menus.
-        private fun dialogTitleView(title: String): View {
-            val row = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(activity.dp(8f), activity.dp(6f), activity.dp(8f), activity.dp(6f))
-            }
-            val logo = ImageView(activity).apply {
-                setImageResource(R.drawable.earam_logo)
-                contentDescription = "Earam logo"
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-            }
-            val text = TextView(activity).apply {
-                this.text = title
-                setTextColor(0xFFF3F0E8.toInt())
-                textSize = 17f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(activity.dp(8f), 0, 0, 0)
-            }
-            row.addView(logo, LinearLayout.LayoutParams(activity.dp(58f), activity.dp(58f)))
-            row.addView(text, LinearLayout.LayoutParams(0, activity.dp(58f), 1f))
-            return row
-        }
-
         fun showPanel(titleText: String, items: List<Pair<String, () -> Unit>>) {
             val dialog = android.app.Dialog(this)
             val container = LinearLayout(this).apply {
@@ -3048,7 +3024,7 @@ class MainActivity : ComponentActivity() {
 
         fun showTupletDialog() {
             val labels = arrayOf("Off", "3:2 Triplet", "5:4 Quintuplet", "6:4 Sextuplet", "7:4 Septuplet")
-            AlertDialog.Builder(activity).setCustomTitle(dialogTitleView("TUPLET")).setItems(labels) { _, which ->
+            AlertDialog.Builder(activity).setTitle("TUPLET").setItems(labels) { _, which ->
                 val beat = currentBeat() ?: return@setItems
                 val pair = when (which) {
                     0 -> Pair(-1, -1)
@@ -3483,7 +3459,7 @@ class MainActivity : ComponentActivity() {
                 panel.addView(it, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             }
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("SCORE INFO"))
+                .setTitle("SCORE INFO")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -3521,7 +3497,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(start, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             panel.addView(raw, LinearLayout.LayoutParams(-1, activity.dp(110f)))
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("TRACK LYRICS"))
+                .setTitle("TRACK LYRICS")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -3569,7 +3545,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(modeSpinner, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             panel.addView(tempo, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("TIME / KEY / TEMPO • BAR " + (selectedBarIndex + 1)))
+                .setTitle("TIME / KEY / TEMPO • BAR " + (selectedBarIndex + 1))
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -3940,7 +3916,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(repeatCount, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             panel.addView(section, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("BAR TOOLS • " + (selectedBarIndex + 1)))
+                .setTitle("BAR TOOLS • " + (selectedBarIndex + 1))
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -3977,7 +3953,7 @@ class MainActivity : ComponentActivity() {
             }
             inputs.forEach { panel.addView(it, LinearLayout.LayoutParams(-1, activity.dp(42f))) }
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("CUSTOM TUNING • " + track.name))
+                .setTitle("CUSTOM TUNING • " + track.name)
                 .setView(android.widget.ScrollView(activity).apply { addView(panel) })
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -4038,7 +4014,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(pan, LinearLayout.LayoutParams(-1, activity.dp(44f)))
 
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("TRACK MIXER"))
+                .setTitle("TRACK MIXER")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("APPLY") { _, _ ->
@@ -4143,7 +4119,7 @@ class MainActivity : ComponentActivity() {
             )
             var selected = values.indexOf(note.bendType).coerceAtLeast(0)
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("BEND"))
+                .setTitle("BEND")
                 .setSingleChoiceItems(types, selected) { dialog, which ->
                     selected = which
                     dialog.dismiss()
@@ -4171,7 +4147,7 @@ class MainActivity : ComponentActivity() {
                 note.isLeftHandTapped
             )
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("NOTE EFFECTS"))
+                .setTitle("NOTE EFFECTS")
                 .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
                     when (which) {
                         0 -> note.isHammerPullOrigin = isChecked
@@ -4199,7 +4175,7 @@ class MainActivity : ComponentActivity() {
             val labels = arrayOf("Slap", "Pop", "Tap", "Dead Slap", "Fade In", "Slashed", "Show Time", "Text / Annotation")
             val checked = booleanArrayOf(beat.slap, beat.pop, beat.tap, beat.deadSlapped, beat.fadeIn, beat.slashed, beat.showTimer, !beat.text.isNullOrBlank())
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("BEAT EFFECTS"))
+                .setTitle("BEAT EFFECTS")
                 .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
                     when (which) {
                         0 -> beat.slap = isChecked
@@ -4212,7 +4188,7 @@ class MainActivity : ComponentActivity() {
                         7 -> {
                             if (isChecked) {
                                 val input = EditText(activity).apply { setSingleLine(true); hint = "Beat text" }
-                                AlertDialog.Builder(activity).setCustomTitle(dialogTitleView("ANNOTATION")).setView(input)
+                                AlertDialog.Builder(activity).setTitle("ANNOTATION").setView(input)
                                     .setPositiveButton("OK") { _, _ ->
                                         beat.text = input.text.toString()
                                         finishEditedScore("beat-text")
@@ -4753,7 +4729,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("TRACK"))
+                .setTitle("TRACK")
                 .setItems(labels) { _, which ->
                     if (which == 0) {
                         val all = alphaTab.collections.List<alphaTab.model.Track>()
@@ -4776,7 +4752,7 @@ class MainActivity : ComponentActivity() {
                 if (i == currentVoiceIndex) "✓ VOICE " + (i + 1) else "VOICE " + (i + 1)
             }
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("SELECT VOICE"))
+                .setTitle("SELECT VOICE")
                 .setItems(labels) { _, which -> selectVoiceFromUi(which) }
                 .show()
         }
@@ -4804,7 +4780,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(field, LinearLayout.LayoutParams(-1, activity.dp(48f)))
             panel.addView(info, LinearLayout.LayoutParams(-1, activity.dp(34f)))
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("SELECT BAR"))
+                .setTitle("SELECT BAR")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
                 .setPositiveButton("SELECT") { _, _ ->
@@ -4895,7 +4871,7 @@ class MainActivity : ComponentActivity() {
         fun showDurationDialog() {
             val labels = arrayOf("𝅝  WHOLE", "𝅗𝅥  HALF", "♩  QUARTER", "♪  EIGHTH", "𝅘𝅥𝅮  16TH", "𝅘𝅥𝅯  32ND", "♩.  DOTTED")
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("NOTE DURATION"))
+                .setTitle("NOTE DURATION")
                 .setItems(labels) { _, which ->
                     when (which) {
                         0 -> setCurrentDuration(Duration.Whole)
@@ -4914,7 +4890,7 @@ class MainActivity : ComponentActivity() {
 
         fun showPickStrokeDialog() {
             AlertDialog.Builder(activity)
-                .setCustomTitle(dialogTitleView("PICK STROKE"))
+                .setTitle("PICK STROKE")
                 .setItems(arrayOf("↓ DOWN", "↑ UP", "OFF")) { _, which ->
                     when (which) {
                         0 -> setPickStrokeFromUi("down")
