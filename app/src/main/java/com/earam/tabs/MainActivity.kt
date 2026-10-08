@@ -263,7 +263,7 @@ class MainActivity : ComponentActivity() {
     private fun requestSaveAs() {
         pendingSaveAs = true
         val title = (currentScore?.title?.ifBlank { projectName } ?: projectName)
-            .replace(Regex("[\\/:*?"<>|]"), "_")
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
             .ifBlank { "Untitled" }
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
