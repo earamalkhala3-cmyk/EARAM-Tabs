@@ -236,7 +236,7 @@ jobs:
           # Never guess that AlphaTab is ready after N seconds. The application must
           # explicitly report fixture creation plus finite renderer-derived coordinates.
           READY=0
-          for i in $(seq 1 45); do
+          for _ in $(seq 1 45); do
             timeout 5s adb -s emulator-5554 logcat -d -v brief > "$OUT/wait.log" || true
             if grep -q "EARAM_CI_CURSOR.*CI cursor test READY" "$OUT/wait.log" &&
                grep -q "caretFinalPx=" "$OUT/wait.log" &&
@@ -582,7 +582,7 @@ jobs:
           # Never guess that AlphaTab is ready after N seconds. The application must
           # explicitly report fixture creation plus finite renderer-derived coordinates.
           READY=0
-          for i in $(seq 1 45); do
+          for _ in $(seq 1 45); do
             timeout 5s adb -s emulator-5554 logcat -d -v brief > "$OUT/wait.log" || true
             if grep -q "EARAM_CI_CURSOR.*CI cursor test READY" "$OUT/wait.log" &&
                grep -q "caretFinalPx=" "$OUT/wait.log" &&
