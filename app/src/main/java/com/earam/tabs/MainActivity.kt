@@ -351,6 +351,13 @@ class MainActivity : ComponentActivity() {
                 background = surface(0x00303030, 10f)
                 setOnClickListener { dialog.dismiss() }
             }
+            val panelLogo = ImageView(this).apply {
+                setImageResource(R.drawable.earam_logo)
+                contentDescription = "Earam logo"
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setPadding(dp(2f), dp(2f), dp(2f), dp(2f))
+            }
+            titleRow.addView(panelLogo, LinearLayout.LayoutParams(dp(38f), dp(40f)))
             titleRow.addView(titleTextView, LinearLayout.LayoutParams(0, dp(40f), 1f))
             titleRow.addView(close, LinearLayout.LayoutParams(dp(40f), dp(40f)))
             container.addView(titleRow)
@@ -397,31 +404,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val brand = TextView(this).apply {
-            text = "Ea"
-            setTextColor(0xFFF3F0E8.toInt())
-            textSize = 23f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        val brandLogo = ImageView(this).apply {
+            setImageResource(R.drawable.earam_logo)
+            contentDescription = "Earam logo"
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(2f), dp(2f), dp(2f), dp(2f))
         }
-        val brandR = TextView(this).apply {
-            text = "r"
-            setTextColor(0xFFFF8A00.toInt())
-            textSize = 23f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-        val brandEnd = TextView(this).apply {
-            text = "am"
-            setTextColor(0xFFF3F0E8.toInt())
-            textSize = 23f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-        val brandWrap = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        brandWrap.addView(brand, LinearLayout.LayoutParams(-2, dp(32f)))
-        brandWrap.addView(brandR, LinearLayout.LayoutParams(-2, dp(32f)))
-        brandWrap.addView(brandEnd, LinearLayout.LayoutParams(-2, dp(32f)))
 
         val title = TextView(this).apply {
             text = projectName
@@ -487,7 +475,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        header.addView(brandWrap, LinearLayout.LayoutParams(-2, dp(42f)))
+        header.addView(brandLogo, LinearLayout.LayoutParams(dp(46f), dp(42f)))
         header.addView(title, LinearLayout.LayoutParams(0, dp(42f), 1f))
         header.addView(overflow, LinearLayout.LayoutParams(dp(42f), dp(42f)))
 
@@ -3036,7 +3024,7 @@ class MainActivity : ComponentActivity() {
 
         fun showTupletDialog() {
             val labels = arrayOf("Off", "3:2 Triplet", "5:4 Quintuplet", "6:4 Sextuplet", "7:4 Septuplet")
-            AlertDialog.Builder(activity).setTitle("TUPLET").setItems(labels) { _, which ->
+            AlertDialog.Builder(activity).setIcon(R.drawable.earam_logo).setTitle("TUPLET").setItems(labels) { _, which ->
                 val beat = currentBeat() ?: return@setItems
                 val pair = when (which) {
                     0 -> Pair(-1, -1)
@@ -3471,6 +3459,7 @@ class MainActivity : ComponentActivity() {
                 panel.addView(it, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             }
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("SCORE INFO")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
@@ -3509,6 +3498,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(start, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             panel.addView(raw, LinearLayout.LayoutParams(-1, activity.dp(110f)))
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("TRACK LYRICS")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
@@ -3557,6 +3547,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(modeSpinner, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             panel.addView(tempo, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("TIME / KEY / TEMPO • BAR " + (selectedBarIndex + 1))
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
@@ -3928,6 +3919,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(repeatCount, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             panel.addView(section, LinearLayout.LayoutParams(-1, activity.dp(46f)))
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("BAR TOOLS • " + (selectedBarIndex + 1))
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
@@ -3965,6 +3957,7 @@ class MainActivity : ComponentActivity() {
             }
             inputs.forEach { panel.addView(it, LinearLayout.LayoutParams(-1, activity.dp(42f))) }
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("CUSTOM TUNING • " + track.name)
                 .setView(android.widget.ScrollView(activity).apply { addView(panel) })
                 .setNegativeButton("CANCEL", null)
@@ -4026,6 +4019,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(pan, LinearLayout.LayoutParams(-1, activity.dp(44f)))
 
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("TRACK MIXER")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
@@ -4131,6 +4125,7 @@ class MainActivity : ComponentActivity() {
             )
             var selected = values.indexOf(note.bendType).coerceAtLeast(0)
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("BEND")
                 .setSingleChoiceItems(types, selected) { dialog, which ->
                     selected = which
@@ -4159,6 +4154,7 @@ class MainActivity : ComponentActivity() {
                 note.isLeftHandTapped
             )
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("NOTE EFFECTS")
                 .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
                     when (which) {
@@ -4187,6 +4183,7 @@ class MainActivity : ComponentActivity() {
             val labels = arrayOf("Slap", "Pop", "Tap", "Dead Slap", "Fade In", "Slashed", "Show Time", "Text / Annotation")
             val checked = booleanArrayOf(beat.slap, beat.pop, beat.tap, beat.deadSlapped, beat.fadeIn, beat.slashed, beat.showTimer, !beat.text.isNullOrBlank())
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("BEAT EFFECTS")
                 .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
                     when (which) {
@@ -4200,7 +4197,7 @@ class MainActivity : ComponentActivity() {
                         7 -> {
                             if (isChecked) {
                                 val input = EditText(activity).apply { setSingleLine(true); hint = "Beat text" }
-                                AlertDialog.Builder(activity).setTitle("ANNOTATION").setView(input)
+                                AlertDialog.Builder(activity).setIcon(R.drawable.earam_logo).setTitle("ANNOTATION").setView(input)
                                     .setPositiveButton("OK") { _, _ ->
                                         beat.text = input.text.toString()
                                         finishEditedScore("beat-text")
@@ -4741,6 +4738,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("TRACK")
                 .setItems(labels) { _, which ->
                     if (which == 0) {
@@ -4764,6 +4762,7 @@ class MainActivity : ComponentActivity() {
                 if (i == currentVoiceIndex) "✓ VOICE " + (i + 1) else "VOICE " + (i + 1)
             }
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("SELECT VOICE")
                 .setItems(labels) { _, which -> selectVoiceFromUi(which) }
                 .show()
@@ -4792,6 +4791,7 @@ class MainActivity : ComponentActivity() {
             panel.addView(field, LinearLayout.LayoutParams(-1, activity.dp(48f)))
             panel.addView(info, LinearLayout.LayoutParams(-1, activity.dp(34f)))
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("SELECT BAR")
                 .setView(panel)
                 .setNegativeButton("CANCEL", null)
@@ -4883,6 +4883,7 @@ class MainActivity : ComponentActivity() {
         fun showDurationDialog() {
             val labels = arrayOf("𝅝  WHOLE", "𝅗𝅥  HALF", "♩  QUARTER", "♪  EIGHTH", "𝅘𝅥𝅮  16TH", "𝅘𝅥𝅯  32ND", "♩.  DOTTED")
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("NOTE DURATION")
                 .setItems(labels) { _, which ->
                     when (which) {
@@ -4902,6 +4903,7 @@ class MainActivity : ComponentActivity() {
 
         fun showPickStrokeDialog() {
             AlertDialog.Builder(activity)
+                .setIcon(R.drawable.earam_logo)
                 .setTitle("PICK STROKE")
                 .setItems(arrayOf("↓ DOWN", "↑ UP", "OFF")) { _, which ->
                     when (which) {
