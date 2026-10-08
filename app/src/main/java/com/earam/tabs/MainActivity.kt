@@ -4508,8 +4508,11 @@ class MainActivity : ComponentActivity() {
         fun enterFretFromUi(fret: Int) = writeFret(fret)
         fun writeFretFromUi(fret: Int) = writeFret(fret)
         fun deleteCurrentNoteFromUi() {
+            // Delete is a NOTE/BEAT operation. A BAR selection is only a fallback
+            // target produced when the user taps empty space inside a measure; it
+            // must never turn the Delete key/button into "Clear bar".
             when (selectionTarget) {
-                SelectionTarget.BAR -> clearCurrentBarFromUi()
+                SelectionTarget.BAR -> deleteCurrentNote()
                 SelectionTarget.RANGE -> {
                     val a = selectionAnchorBeat ?: return
                     val b = selectionFocusBeat ?: return
