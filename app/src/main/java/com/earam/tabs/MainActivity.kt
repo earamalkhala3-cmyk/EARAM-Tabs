@@ -797,10 +797,15 @@ class MainActivity : ComponentActivity() {
             clipChildren = false
             clipToPadding = false
         }
-        // The TAB is the complete editing surface. No Android caret/marker overlay
-        // is placed above it; AlphaTab receives and resolves the actual touch target.
+        // AlphaTab remains the touch target; the overlay is a transparent visual layer only.
         scoreLayer.addView(score, FrameLayout.LayoutParams(-1, -1))
-        val editorOverlay = TabEditOverlayView(this)
+        val editorOverlay = TabEditOverlayView(this).apply {
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        // Add AFTER AlphaTab so the orange note-selection disc is actually visible above the TAB.
+        scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
         editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
         noteEditor = editor
         editor.attach()
