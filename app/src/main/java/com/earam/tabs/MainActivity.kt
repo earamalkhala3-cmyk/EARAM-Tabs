@@ -227,11 +227,15 @@ class MainActivity : ComponentActivity() {
         timeSig = session.timeSignature
         openEditor()
 
-        // CI uses a shell-set Global setting because direct am-start waits for this
-        // renderer-heavy Activity to become idle. The app reads Global settings but
-        // does not write them.
-        if (Settings.Global.getString(contentResolver, "earam_ci_cursor_test") == "1") {
-            window.decorView.postDelayed({ runCiCursorTest() }, 900L)
+        // CI trigger: prefer the explicit launch extra; keep the Global setting
+        // as a backward-compatible fallback. The explicit extra removes a race where
+        // the renderer Activity could start before the shell setting was observable.
+        val ciCursorRequested =
+            intent?.getBooleanExtra("earam_ci_cursor_test", false) == true ||
+                Settings.Global.getString(contentResolver, "earam_ci_cursor_test") == "1"
+        if (ciCursorRequested) {
+            android.util.Log.i("EARAM_CI_CURSOR", "CI cursor test requested")
+            window.decorView.postDelayed({ runCiCursorTest() }, 700L)
         }
 
         // Activity recreation must not create a new empty score. The Score and all
@@ -1002,6 +1006,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun runCiCursorTest() {
+        android.util.Log.i("EARAM_CI_CURSOR", "CI cursor test START")
         try {
             newScore("CI Cursor Geometry", 120, 4, 4, 8, listOf("Guitar"))
             window.decorView.postDelayed({
@@ -1011,15 +1016,20 @@ class MainActivity : ComponentActivity() {
                     editor.writeFretFromUi(7)
                     editor.setDebugModeFromUi(true)
                     statusView?.text = "CI CURSOR TEST • B1 b1 S2"
+                    android.util.Log.i("EARAM_CI_CURSOR", "CI fixture ready; waiting for AlphaTab layout")
                     window.decorView.postDelayed({
-                        editor.refreshVisualCursor()
-                        editor.refreshVisualCursor()
-                        editor.logCoordinateDiagnostic("ci-screenshot-ready")
-                    }, 1000L)
+                        try {
+                            editor.refreshVisualCursor()
+                            editor.logCoordinateDiagnostic("ci-screenshot-ready")
+                            android.util.Log.i("EARAM_CI_CURSOR", "CI cursor test READY")
+                        } catch (t: Throwable) {
+                            android.util.Log.e("EARAM_CI_CURSOR", "CI visual verification failed", t)
+                        }
+                    }, 1800L)
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_CI_CURSOR", "CI fixture failed", t)
                 }
-            }, 1200L)
+            }, 1400L)
         } catch (t: Throwable) {
             android.util.Log.e("EARAM_CI_CURSOR", "CI score creation failed", t)
         }
