@@ -4708,8 +4708,9 @@ class MainActivity : ComponentActivity() {
             val note = beat.getNoteOnString(alphaTabString.toDouble())
 
             if (note == null) {
-                moveBeat(-1)
-                updateStatus("No note on current string • previous beat")
+                // Delete in a notation editor must be non-destructive when the
+                // selected string is already empty. Never move the caret as a side effect.
+                updateStatus("No note on selected string")
                 return
             }
 
