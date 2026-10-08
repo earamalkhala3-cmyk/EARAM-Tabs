@@ -255,9 +255,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 5201 || resultCode != RESULT_OK || data?.data == null) return
-        val uri = data.data ?: return
-        exportCurrentScoreToUri(uri)
+        if (resultCode != RESULT_OK || data?.data == null) return
+
+        val uri = data.data!!
+
+        when (requestCode) {
+            5201 -> exportCurrentScoreToUri(uri)
+            4107 -> {
+                val name = displayNameForUri(uri)
+                val statusMessage = "Importing $name directly into AlphaTab Score…"
+                Toast.makeText(this, statusMessage, Toast.LENGTH_SHORT).show()
+
+                Thread {
+                    try {
+                        importScore(uri, name)
+                    } catch (t: Throwable) {
+                        runOnUiThread { showImportError("TAB import", t) }
+                    }
+                }.start()
+            }
+        }
     }
 
     private fun requestSaveAs() {
@@ -1585,25 +1602,6 @@ class MainActivity : ComponentActivity() {
             .setMessage(detail)
             .setPositiveButton("OK", null)
             .show()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 4107 || resultCode != RESULT_OK || data?.data == null) return
-
-        val uri = data.data!!
-        val name = displayNameForUri(uri)
-
-        val statusMessage = "Importing $name directly into AlphaTab Score…"
-        Toast.makeText(this, statusMessage, Toast.LENGTH_SHORT).show()
-
-        Thread {
-            try {
-                importScore(uri, name)
-            } catch (t: Throwable) {
-                runOnUiThread { showImportError("TAB import", t) }
-            }
-        }.start()
     }
 
     private class TabEditOverlayView(context: Context) : View(context) {
