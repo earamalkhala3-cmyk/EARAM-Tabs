@@ -1005,7 +1005,7 @@ class MainActivity : ComponentActivity() {
                     3 -> requestSaveAs()
                     5 -> requestSaveAs()
                     6 -> finish()
-                    7 -> Toast.makeText(this, "Update service is not enabled in this build.", Toast.LENGTH_SHORT).show()
+                    7 -> UpdateManager(this).checkForUpdates()
                 }
             }
             .show()
