@@ -1701,10 +1701,16 @@ class MainActivity : ComponentActivity() {
         private var noteSelectionTop = Float.NaN
         private var noteSelectionRight = Float.NaN
         private var noteSelectionBottom = Float.NaN
+        // A translucent orange disc keeps the TAB fret number readable while
+        // making the exact selected note obvious on a dense chord.
+        private val noteSelectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = 0x55FF8A00
+        }
         private val noteSelectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             color = 0xFFFF8A00.toInt()
-            strokeWidth = 2.5f * density
+            strokeWidth = 1.8f * density
         }
         private var playbackX = Float.NaN
         private var playbackTop = 0f
@@ -1814,17 +1820,22 @@ class MainActivity : ComponentActivity() {
                 noteSelectionRight > noteSelectionLeft &&
                 noteSelectionBottom > noteSelectionTop
             ) {
-                val pad = 3f * density
-                val radius = 4f * density
-                canvas.drawRoundRect(
-                    noteSelectionLeft - pad,
-                    noteSelectionTop - pad,
-                    noteSelectionRight + pad,
-                    noteSelectionBottom + pad,
-                    radius,
-                    radius,
-                    noteSelectionPaint
+                // Draw a true circular selection centered on the fret number.
+                // Fill is deliberately translucent; the digit remains legible.
+                val centerX = (noteSelectionLeft + noteSelectionRight) / 2f
+                val centerY = (noteSelectionTop + noteSelectionBottom) / 2f
+                val noteW = noteSelectionRight - noteSelectionLeft
+                val noteH = noteSelectionBottom - noteSelectionTop
+                val radius = (maxOf(noteW, noteH) * 0.72f + 3f * density)
+                    .coerceAtLeast(7f * density)
+                val selectionCircle = RectF(
+                    centerX - radius,
+                    centerY - radius,
+                    centerX + radius,
+                    centerY + radius
                 )
+                canvas.drawOval(selectionCircle, noteSelectionFillPaint)
+                canvas.drawOval(selectionCircle, noteSelectionPaint)
             }
 
             // Earam string-level handle: hollow yellow square, 0.9 * string
