@@ -69,5 +69,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation("com.google.android.material:material:1.12.0")
     implementation("net.alphatab:alphaTab:1.8.4")
+    // alphaTab 1.8.4 declares alphaSkia 3.4.135. Override the Android
+    // native renderer with 3.5.147, whose official build validates 16 KB
+    // PT_LOAD alignment for 64-bit Android libraries.
+    implementation("net.alphatab:alphaSkia-android:3.5.147")
     testImplementation("junit:junit:4.13.2")
 }
