@@ -3877,7 +3877,6 @@ class MainActivity : ComponentActivity() {
                 val newIndex = (total - 1).coerceAtLeast(0)
                 caret = caret.copy(measureIndex = newIndex, beatIndex = 0)
                 session.caret = caret
-                selectedBarIndex = newIndex
                 selectionTarget = SelectionTarget.BAR
                 armed = true
                 pendingFret = ""
@@ -3924,7 +3923,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 song.finish(score.settings)
-                selectedBarIndex = sourceIndex + 1
                 caret = caret.copy(
                     measureIndex = sourceIndex + 1,
                     beatIndex = 0,
@@ -4003,7 +4001,6 @@ class MainActivity : ComponentActivity() {
                 }
                 val last = song.masterBars.toList().lastIndex
                 val target = index.coerceAtMost(last)
-                selectedBarIndex = target
                 caret = caret.copy(measureIndex = target, beatIndex = 0)
                 session.caret = caret
                 song.finish(score.settings)
