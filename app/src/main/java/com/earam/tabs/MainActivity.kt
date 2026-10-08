@@ -603,21 +603,32 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(3f), dp(3f), dp(3f), dp(3f))
             setBackgroundColor(0xFF1F2226.toInt())
         }
-        for (digit in 0..9) {
-            val d = TextView(this).apply {
-                text = digit.toString()
-                setTextColor(0xFFF3F0E8.toInt())
-                textSize = 14f
-                gravity = Gravity.CENTER
-                background = surface(0xFF2B2F34.toInt(), 7f)
-                isClickable = true
-                isFocusable = false
-                contentDescription = "Fret $digit"
-                setOnClickListener { editor.enterDigitFromUi(digit) }
+        // Full fret entry: 0–24. Two rows keep every fret directly reachable without
+        // making the toolbar excessively wide on phone displays.
+        for (row in 0..1) {
+            val rowLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
             }
-            fretDigits.addView(d, LinearLayout.LayoutParams(dp(29f), dp(34f)).apply {
-                leftMargin = dp(1f); rightMargin = dp(1f)
-            })
+            val start = if (row == 0) 0 else 13
+            val end = if (row == 0) 12 else 24
+            for (fret in start..end) {
+                val d = TextView(this).apply {
+                    text = fret.toString()
+                    setTextColor(0xFFF3F0E8.toInt())
+                    textSize = if (fret >= 10) 12f else 14f
+                    gravity = Gravity.CENTER
+                    background = surface(0xFF2B2F34.toInt(), 7f)
+                    isClickable = true
+                    isFocusable = false
+                    contentDescription = "Fret $fret"
+                    setOnClickListener { editor.enterFretFromUi(fret) }
+                }
+                rowLayout.addView(d, LinearLayout.LayoutParams(0, dp(30f), 1f).apply {
+                    leftMargin = dp(1f); rightMargin = dp(1f)
+                })
+            }
+            fretDigits.addView(rowLayout, LinearLayout.LayoutParams(-1, dp(31f)))
         }
 
         val deleteFret = TextView(this).apply {
