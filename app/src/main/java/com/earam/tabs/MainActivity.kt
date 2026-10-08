@@ -598,7 +598,7 @@ class MainActivity : ComponentActivity() {
         editingStrip.addView(editMore, LinearLayout.LayoutParams(dp(46f), dp(42f)))
 
         val fretDigits = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(3f), dp(3f), dp(3f), dp(3f))
             setBackgroundColor(0xFF1F2226.toInt())
@@ -642,9 +642,10 @@ class MainActivity : ComponentActivity() {
             contentDescription = "Delete note on selected string"
             setOnClickListener { editor.deleteCurrentNoteFromUi() }
         }
-        // Delete is larger than the previous version, but still smaller than Duration.
-        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(40f), dp(34f)).apply {
-            leftMargin = dp(4f); rightMargin = dp(1f)
+        // Delete occupies a dedicated compact third row so the 0–24 keypad never
+        // exceeds the phone width or gets clipped by the horizontal editor strip.
+        fretDigits.addView(deleteFret, LinearLayout.LayoutParams(dp(44f), dp(30f)).apply {
+            topMargin = dp(2f); leftMargin = dp(1f)
         })
 
         score = AlphaTabView(this, null).apply {
@@ -663,7 +664,11 @@ class MainActivity : ComponentActivity() {
             settings.display.barCount = -1.0
             settings.display.startBar = 1.0
             settings.display.scale = 0.72
-            settings.display.stretchForce = 0.0
+            // Keep AlphaTab's automatic rhythmic spacing; a small positive stretch
+            // gives short-note passages enough breathing room without forcing equal bars.
+            settings.display.stretchForce = 0.8
+            settings.display.barCountPerPartial = 8.0
+            settings.display.justifyLastSystem = true
             settings.core.includeNoteBounds = true
             settings.player.playerMode = PlayerMode.EnabledSynthesizer
             settings.player.enablePlayer = true
@@ -671,8 +676,10 @@ class MainActivity : ComponentActivity() {
             settings.player.enableCursor = true
             // Let AlphaTab own playback cursor placement and scrolling. Editing selection
             // is model-based and must not be painted by a separate caret overlay.
-            settings.player.enableAnimatedBeatCursor = false
-            settings.player.enableElementHighlighting = false
+            // Use AlphaTab's native Guitar-Pro-style beat cursor. The editor does
+            // not synthesize a second playback coordinate system.
+            settings.player.enableAnimatedBeatCursor = true
+            settings.player.enableElementHighlighting = true
             settings.player.bufferTimeInMilliseconds = 1000.0
             // Do not push renderer settings from inside the AlphaTabView constructor.
             // The view must first be attached to the window; early native renderer setup
@@ -814,7 +821,7 @@ class MainActivity : ComponentActivity() {
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
         // Always visible: compact fret-entry keypad (0–9).
-        root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(66f)))
+        root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(100f)))
         setContentView(root)
 
         // Initialize AlphaTab only after the complete view hierarchy is attached.
