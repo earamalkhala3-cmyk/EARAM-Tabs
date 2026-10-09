@@ -3116,7 +3116,7 @@ class MainActivity : ComponentActivity() {
                                 val expectedTabY = tabHit?.let { it.tabTopY + (uiString - 1) * it.stringSpacing }
                                 val centerY = r.y.toFloat() + r.h.toFloat() / 2f
                                 val onTabString = expectedTabY == null ||
-                                    kotlin.math.abs(centerY - expectedTabY) <= (tabHit.stringSpacing * 0.7f).coerceAtLeast(7f)
+                                    kotlin.math.abs(centerY - expectedTabY) <= ((tabHit?.stringSpacing ?: 0f) * 0.7f).coerceAtLeast(7f)
                                 if (onTabString &&
                                     contentX >= r.x.toFloat() - 7f &&
                                     contentX <= (r.x + r.w).toFloat() + 7f &&
