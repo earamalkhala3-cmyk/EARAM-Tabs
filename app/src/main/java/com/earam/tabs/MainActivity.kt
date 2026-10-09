@@ -5161,7 +5161,7 @@ class MainActivity : ComponentActivity() {
                 orientation = LinearLayout.VERTICAL
                 addView(android.widget.ScrollView(activity).apply {
                     addView(textView)
-                    layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+                    layoutParams = LinearLayout.LayoutParams(-1, activity.dp(380f))
                 })
                 addView(copyButton, LinearLayout.LayoutParams(-1, -2))
                 setPadding(activity.dp(8f), activity.dp(4f), activity.dp(8f), activity.dp(4f))
