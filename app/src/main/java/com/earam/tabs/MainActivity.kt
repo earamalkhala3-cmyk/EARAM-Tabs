@@ -2743,19 +2743,24 @@ class MainActivity : ComponentActivity() {
 
             val systemSpacing = mutableMapOf<Int, Float>()
             val systemTop = mutableMapOf<Int, Float>()
-            for ((system, notes) in noteGeoms.groupBy { it.system }) {
-                val candidates = mutableListOf<Float>()
-                for (i in notes.indices) for (j in i + 1 until notes.size) {
-                    val ds = kotlin.math.abs(notes[i].uiString - notes[j].uiString)
-                    if (ds > 0) {
-                        val candidate = kotlin.math.abs(notes[i].y - notes[j].y) / ds
-                        if (candidate.isFinite() && candidate in 3f..40f) candidates.add(candidate)
-                    }
-                }
-                val spacing = candidates.sorted().let { if (it.isEmpty()) 10f else it[it.size / 2] }
-                systemSpacing[system] = spacing
-                val tops = notes.map { it.y - it.uiString * spacing }.sorted()
+
+            // IMPORTANT: noteHeadBounds may refer to standard-notation noteheads,
+            // not the corresponding fret-number glyph in the TAB staff. Inferring
+            // the TAB origin from those noteheads shifts the orange selection into
+            // the gap between notation and TAB (the regression shown in the device
+            // screenshot). Derive TAB geometry from AlphaTab's rendered bar bounds
+            // instead; these bounds include the complete Score+TAB staff system.
+            for ((system, barsInSystem) in barMeta.groupBy { it.system }) {
+                val tops = barsInSystem
+                    .map { it.y + it.h * 0.61f }
+                    .filter { it.isFinite() }
+                    .sorted()
+                val spacings = barsInSystem
+                    .map { (it.h * 0.075f).coerceIn(6f, 24f) }
+                    .filter { it.isFinite() }
+                    .sorted()
                 if (tops.isNotEmpty()) systemTop[system] = tops[tops.size / 2]
+                if (spacings.isNotEmpty()) systemSpacing[system] = spacings[spacings.size / 2]
             }
 
             for (meta in barMeta) {
