@@ -5115,6 +5115,7 @@ class MainActivity : ComponentActivity() {
                     report.appendLine("$label: onNotesX=${diagnosticMember(candidate, "onNotesX")}")
                     report.appendLine("$label: barBounds.visual={${diagnosticBounds(diagnosticMember(barBounds, "visualBounds"))}}")
                     report.appendLine("$label: barBounds.real={${diagnosticBounds(diagnosticMember(barBounds, "realBounds"))}}; barMatch=${locateBar(barObject)}")
+                    report.appendLine("$label: candidate.staffBounds={${diagnosticBounds(diagnosticMember(candidate, "staffBounds"))}}; barBounds.staffBounds={${diagnosticBounds(diagnosticMember(barBounds, "staffBounds"))}}; staffSystemBounds=${diagnosticMember(barBounds, "staffSystemBounds")}")
                     val masterBounds = diagnosticMember(barBounds, "masterBarBounds")
                     report.appendLine("$label: masterBarBounds.visual={${diagnosticBounds(diagnosticMember(masterBounds, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(masterBounds, "realBounds"))}}")
                     val notes = diagnosticItems(diagnosticMember(candidate, "notes"))
@@ -5138,7 +5139,7 @@ class MainActivity : ComponentActivity() {
                 if (barCandidates.isNotEmpty()) {
                     barCandidates.forEachIndexed { i, candidate ->
                         val barObject = diagnosticMember(candidate, "bar")
-                        report.appendLine("masterBar.bars[$i]: visual={${diagnosticBounds(diagnosticMember(candidate, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(candidate, "realBounds"))}}; modelMatch=${locateBar(barObject)}")
+                        report.appendLine("masterBar.bars[$i]: visual={${diagnosticBounds(diagnosticMember(candidate, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(candidate, "realBounds"))}}; staffBounds={${diagnosticBounds(diagnosticMember(candidate, "staffBounds"))}}; modelMatch=${locateBar(barObject)}")
                     }
                 } else report.appendLine("masterBar.bars: unavailable/empty")
 
