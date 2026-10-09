@@ -5017,11 +5017,12 @@ class MainActivity : ComponentActivity() {
             if (getter != null) return runCatching { getter.invoke(obj) }.getOrNull()
             var type: Class<*>? = obj.javaClass
             while (type != null) {
-                val field = runCatching { type.getDeclaredField(name) }.getOrNull()
+                val currentType = type
+                val field = runCatching { currentType.getDeclaredField(name) }.getOrNull()
                 if (field != null) {
                     return runCatching { field.isAccessible = true; field.get(obj) }.getOrNull()
                 }
-                type = type.superclass
+                type = currentType.superclass
             }
             return null
         }
@@ -5079,15 +5080,15 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("lookupPresent=${lookup != null}; selectedBeatPresent=${beat != null}; findBeatCount=${if (single == null) 0 else 1}; findBeatsCount=${many.size}")
 
                 if (track != null) {
-                    report.appendLine("selected track=$currentTrackIndex; trackStaffCount=${track.staves.size}")
+                    report.appendLine("selected track=$currentTrackIndex; trackStaffCount=${track.staves.toList().size}")
                     track.staves.toList().forEachIndexed { si, st ->
-                        report.appendLine("track[$currentTrackIndex].staff[$si]: showStandardNotation=${st.showStandardNotation}, showTablature=${st.showTablature}, bars=${st.bars.size}")
+                        report.appendLine("track[$currentTrackIndex].staff[$si]: showStandardNotation=${st.showStandardNotation}, showTablature=${st.showTablature}, bars=${st.bars.toList().size}")
                     }
                 } else report.appendLine("selected track/staff: null")
                 if (bar != null) {
-                    report.appendLine("selected model bar: masterBarIndex=${song?.masterBars?.toList()?.indexOfFirst { it === bar.masterBar }}, barVoiceCount=${bar.voices.size}")
+                    report.appendLine("selected model bar: masterBarIndex=${song?.masterBars?.toList()?.indexOfFirst { it === bar.masterBar }}, barVoiceCount=${bar.voices.toList().size}")
                 } else report.appendLine("selected model bar: null")
-                if (beat != null) report.appendLine("selected model beat: notes=${beat.notes.size}, isEmpty=${beat.isEmpty}") else report.appendLine("selected model beat: null")
+                if (beat != null) report.appendLine("selected model beat: notes=${beat.notes.toList().size}, isEmpty=${beat.isEmpty}") else report.appendLine("selected model beat: null")
 
                 fun locateBar(barObject: Any?): String {
                     if (barObject == null || song == null) return "unresolved"
