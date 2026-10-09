@@ -2265,6 +2265,9 @@ class MainActivity : ComponentActivity() {
         // Exact AlphaTab bounds captured from the note the user actually tapped.
         // Used as a fallback if boundsLookup has not populated this note yet.
         private var tappedNoteBounds: RectF? = null
+        // The selection must refer to the exact AlphaTab Note object, not merely
+        // the caret's string index. This is essential for deleting one note from a chord.
+        private var selectedNoteRef: alphaTab.model.Note? = null
         private var lastRawCaretX = Float.NaN
         private var lastRawCaretY = Float.NaN
         fun alphaTabContentOriginInOverlay(): Pair<Float, Float> { return try { val sl=IntArray(2); val ol=IntArray(2); score.getLocationOnScreen(sl); overlay.getLocationOnScreen(ol); Pair((sl[0]-ol[0]).toFloat(),(sl[1]-ol[1]).toFloat()) } catch(t:Throwable){ 0f to 0f } }
@@ -2630,6 +2633,7 @@ class MainActivity : ComponentActivity() {
                     selectionDragActive = false
                     selectionDragMoved = false
                     selectionTarget = SelectionTarget.NOTE
+                    selectedNoteRef = note
                     // Note model objects do not expose rendered bounds. Resolve the
                     // exact tapped note through AlphaTab's renderer bounds lookup instead.
                     val tappedBounds = score.api.renderer.boundsLookup
@@ -3101,9 +3105,14 @@ class MainActivity : ComponentActivity() {
                                     caret = Caret(currentTrackIndex, mi, bi, uiString)
                                     session.caret = caret
                                     // A direct TAB-number tap selects that exact NOTE.
-                                    // Bar actions remain available through the explicit bar
-                                    // menu/long-press and never replace a note selection.
+                                    // Keep the model object itself: a chord may contain several
+                                    // notes in one Beat, and Delete must remove only this one.
                                     selectionTarget = SelectionTarget.NOTE
+                                    selectedNoteRef = nb.note
+                                    tappedNoteBounds = RectF(
+                                        r.x.toFloat(), r.y.toFloat(),
+                                        (r.x + r.w).toFloat(), (r.y + r.h).toFloat()
+                                    )
                                     armed = true
                                     pendingFret = ""
                                     try {
@@ -3138,6 +3147,9 @@ class MainActivity : ComponentActivity() {
                 caret = Caret(currentTrackIndex, renderedBar, 0, 1)
                 session.caret = caret
                 selectionTarget = SelectionTarget.BAR
+                selectedNoteRef = null
+                tappedNoteBounds = null
+                overlay.hideNoteSelection()
                 armed = true
                 pendingFret = ""
                 pasteDestinationCaret = caret
@@ -3666,6 +3678,11 @@ class MainActivity : ComponentActivity() {
 
         private fun selectedNote(): alphaTab.model.Note? {
             val beat = selectedBeat() ?: return null
+            val exact = selectedNoteRef
+            if (selectionTarget == SelectionTarget.NOTE && exact != null &&
+                exact.beat === beat && beat.notes.toList().any { it === exact }) {
+                return exact
+            }
             return beat.getNoteOnString(alphaTabString(caret.stringIndex).toDouble())
         }
 
@@ -4889,8 +4906,13 @@ class MainActivity : ComponentActivity() {
 
         private fun deleteCurrentNote() {
             val beat = currentBeat() ?: return
-            val alphaTabString = alphaTabString(currentStringIndex)
-            val note = beat.getNoteOnString(alphaTabString.toDouble())
+            // NOTE selection is object-based. Never infer the note to delete from a
+            // moving caret when the user explicitly selected a fret in a chord.
+            val note = if (selectionTarget == SelectionTarget.NOTE) {
+                selectedNote()?.takeIf { candidate -> beat.notes.toList().any { it === candidate } }
+            } else {
+                beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
+            }
 
             if (note == null) {
                 // Delete in a notation editor must be non-destructive when the
@@ -4904,10 +4926,17 @@ class MainActivity : ComponentActivity() {
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
-            renderAndLog("delete-string-note")
+            selectedNoteRef = null
+            tappedNoteBounds = null
+            selectionTarget = SelectionTarget.BEAT
+            overlay.hideNoteSelection()
+            renderAndLog("delete-selected-note")
             updateCursor()
             onSelectionChanged?.invoke()
-            updateStatus(if (beat.isEmpty) "Beat is now rest" else "Note deleted")
+            updateStatus(
+                if (beat.isEmpty) "Beat is now rest"
+                else "Selected note deleted • remaining chord notes preserved"
+            )
         }
 
         fun refreshVisualCursor() {
