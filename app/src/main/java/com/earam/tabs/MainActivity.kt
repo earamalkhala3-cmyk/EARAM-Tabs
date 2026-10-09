@@ -2636,11 +2636,24 @@ class MainActivity : ComponentActivity() {
                     selectedNoteRef = note
                     // Note model objects do not expose rendered bounds. Resolve the
                     // exact tapped note through AlphaTab's renderer bounds lookup instead.
-                    val tappedBounds = score.api.renderer.boundsLookup
-                        ?.findBeat(note.beat)
-                        ?.notes
-                        ?.toList()
-                        ?.firstOrNull { it.note === note }
+                    val lookup = score.api.renderer.boundsLookup
+                    val allBeatBounds = lookup?.let {
+                        runCatching { it.findBeats(note.beat)?.toList().orEmpty() }.getOrDefault(emptyList())
+                    }.orEmpty()
+                    val tabHit = beatHits.firstOrNull { it.measure == barIndex && it.beat == beatIndex && !it.virtual }
+                    val expectedTabY = tabHit?.let { hit ->
+                        hit.tabTopY + (uiString - 1).coerceAtLeast(0) * hit.stringSpacing
+                    }
+                    // The same Beat can have separate rendered bounds for standard notation
+                    // and TAB. Pick this note's bounds closest to its expected TAB string,
+                    // rather than the first result returned by findBeat().
+                    val tappedBounds = allBeatBounds.asSequence()
+                        .flatMap { it.notes?.toList().orEmpty().asSequence() }
+                        .filter { it.note === note }
+                        .minByOrNull { nb ->
+                            val centerY = nb.noteHeadBounds.y.toDouble() + nb.noteHeadBounds.h.toDouble() / 2.0
+                            kotlin.math.abs(centerY - (expectedTabY?.toDouble() ?: centerY))
+                        }
                         ?.noteHeadBounds
                     tappedNoteBounds = tappedBounds?.let { bounds ->
                         RectF(
@@ -3093,15 +3106,22 @@ class MainActivity : ComponentActivity() {
                     for ((mi, bar) in staff.bars.toList().withIndex()) {
                         val voice = bar.voices.toList().getOrNull(currentVoiceIndex) ?: continue
                         for ((bi, beat) in voice.beats.toList().withIndex()) {
-                            val bb = lookup.findBeat(beat) ?: continue
-                            for (nb in bb.notes?.toList().orEmpty()) {
+                            val beatBounds = runCatching { lookup.findBeats(beat)?.toList().orEmpty() }
+                                .getOrDefault(listOfNotNull(lookup.findBeat(beat)))
+                            val tabHit = beatHits.firstOrNull { it.measure == mi && it.beat == bi && !it.virtual }
+                            for (nb in beatBounds.flatMap { it.notes?.toList().orEmpty() }) {
                                 val r = nb.noteHeadBounds
-                                if (contentX >= r.x.toFloat() - 7f &&
+                                val uiString = (maxStringIndex() + 1 - nb.note.string.toInt())
+                                    .coerceIn(1, maxStringIndex())
+                                val expectedTabY = tabHit?.let { it.tabTopY + (uiString - 1) * it.stringSpacing }
+                                val centerY = r.y.toFloat() + r.h.toFloat() / 2f
+                                val onTabString = expectedTabY == null ||
+                                    kotlin.math.abs(centerY - expectedTabY) <= (tabHit.stringSpacing * 0.7f).coerceAtLeast(7f)
+                                if (onTabString &&
+                                    contentX >= r.x.toFloat() - 7f &&
                                     contentX <= (r.x + r.w).toFloat() + 7f &&
                                     contentY >= r.y.toFloat() - 5f &&
                                     contentY <= (r.y + r.h).toFloat() + 5f) {
-                                    val uiString = (maxStringIndex() + 1 - nb.note.string.toInt())
-                                        .coerceIn(1, maxStringIndex())
                                     caret = Caret(currentTrackIndex, mi, bi, uiString)
                                     session.caret = caret
                                     // A direct TAB-number tap selects that exact NOTE.
@@ -4939,6 +4959,13 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        private fun hitExpectedTabY(measureIndex: Int, beatIndex: Int, stringIndex: Int): Float? {
+            val hit = beatHits.firstOrNull {
+                it.measure == measureIndex && it.beat == beatIndex && !it.virtual
+            } ?: return null
+            return hit.tabTopY + (stringIndex - 1).coerceAtLeast(0) * hit.stringSpacing
+        }
+
         fun refreshVisualCursor() {
             try {
                 val lookup=score.api.renderer.boundsLookup; val song=score.api.score
@@ -4961,8 +4988,22 @@ class MainActivity : ComponentActivity() {
                     // calculation whenever a real TAB note exists. onNotesX is the
                     // official beat-center X used by AlphaTab's cursor.
                     val selectedAlphaString = alphaTabString(caret.stringIndex).toDouble()
-                    val selectedNoteBounds = bb.notes?.toList()
-                        ?.firstOrNull { it.note.string.toDouble() == selectedAlphaString }
+                    val allBeatBounds = runCatching { lookup.findBeats(beat)?.toList().orEmpty() }
+                        .getOrDefault(listOf(bb))
+                    val expectedTabY = hitExpectedTabY(caret.measureIndex, caret.beatIndex, caret.stringIndex)
+                    val selectedNoteBounds = allBeatBounds.asSequence()
+                        .flatMap { it.notes?.toList().orEmpty().asSequence() }
+                        .filter { nb ->
+                            if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
+                                nb.note === selectedNoteRef
+                            } else {
+                                nb.note.string.toDouble() == selectedAlphaString
+                            }
+                        }
+                        .minByOrNull { nb ->
+                            val centerY = nb.noteHeadBounds.y.toDouble() + nb.noteHeadBounds.h.toDouble() / 2.0
+                            kotlin.math.abs(centerY - (expectedTabY?.toDouble() ?: centerY))
+                        }
                         ?.noteHeadBounds
                     val selectedNoteRect = selectedNoteBounds?.let {
                         RectF(it.x.toFloat(), it.y.toFloat(), (it.x + it.w).toFloat(), (it.y + it.h).toFloat())
