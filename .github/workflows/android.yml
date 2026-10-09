@@ -245,11 +245,17 @@ jobs:
           retention-days: 14
 
       - name: Deterministic AlphaTab cursor screenshot test
-        timeout-minutes: 3
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           OUT="${RUNNER_TEMP}/earam-smoke"
           mkdir -p "$OUT"
+          # Coordinate diagnostics are intentionally disabled in Release. Run this
+          # renderer/overlay diagnostic test against a Debug APK instead, while the
+          # separately validated and uploaded Release APK remains unchanged.
+          gradle :app:assembleDebug --no-daemon --stacktrace
+          adb -s emulator-5554 uninstall com.earam.tabs || true
+          adb -s emulator-5554 install --no-incremental app/build/outputs/apk/debug/app-debug.apk
           timeout 10s adb -s emulator-5554 logcat -c || true
           # Start a fresh Activity and pass the CI trigger as an explicit Intent extra.
           # -S is intentional: it guarantees the old Activity/process cannot consume
