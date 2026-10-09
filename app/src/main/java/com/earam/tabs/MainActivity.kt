@@ -1726,7 +1726,10 @@ class MainActivity : ComponentActivity() {
         fun setDebugData(enabled:Boolean,bars:List<RectF>,label:String){debugEnabled=enabled;debugBars.clear();debugBars.addAll(bars);invalidate()}
         fun setDebugBanner(text:String){debugBanner=text;invalidate()}
         fun setDiagnosticBanner(text:String){diagnosticBanner=text;invalidate()}
-        fun setDiagnosticRaw(rawX:Float,rawY:Float,d:Float){diagnosticRawX=rawX;diagnosticRawY=rawY;diagnosticRawDensity=d;invalidate()}
+        fun setDiagnosticRaw(rawX:Float,rawY:Float,d:Float){
+            if (!BuildConfig.DEBUG || !debugEnabled) return
+            diagnosticRawX=rawX;diagnosticRawY=rawY;diagnosticRawDensity=d;invalidate()
+        }
 
         fun showBeatCaretContent(centerX:Float,centerY:Float,half:Float){
             caretCenterX=centerX; caretCenterY=centerY; caretHalf=half
@@ -1773,15 +1776,19 @@ class MainActivity : ComponentActivity() {
         override fun onDraw(canvas:Canvas){
             super.onDraw(canvas)
 
-            val fixed=60f*density
-            val fixedSize=30f*density
-            canvas.drawRect(fixed,fixed,fixed+fixedSize,fixed+fixedSize,diagnosticMagentaPaint)
-            if(diagnosticRawX.isFinite() && diagnosticRawY.isFinite()){
-                val half=15f*density
-                canvas.drawRect(diagnosticRawX-half,diagnosticRawY-half,diagnosticRawX+half,diagnosticRawY+half,diagnosticCyanPaint)
-                val yellowX=diagnosticRawX*diagnosticRawDensity
-                val yellowY=diagnosticRawY*diagnosticRawDensity
-                canvas.drawRect(yellowX-half,yellowY-half,yellowX+half,yellowY+half,diagnosticYellowPaint)
+            // Diagnostic rectangles are available only in DEBUG builds and only
+            // while the existing hidden coordinate-debug mode is enabled.
+            if (BuildConfig.DEBUG && debugEnabled) {
+                val fixed=60f*density
+                val fixedSize=30f*density
+                canvas.drawRect(fixed,fixed,fixed+fixedSize,fixed+fixedSize,diagnosticMagentaPaint)
+                if(diagnosticRawX.isFinite() && diagnosticRawY.isFinite()){
+                    val half=15f*density
+                    canvas.drawRect(diagnosticRawX-half,diagnosticRawY-half,diagnosticRawX+half,diagnosticRawY+half,diagnosticCyanPaint)
+                    val yellowX=diagnosticRawX*diagnosticRawDensity
+                    val yellowY=diagnosticRawY*diagnosticRawDensity
+                    canvas.drawRect(yellowX-half,yellowY-half,yellowX+half,yellowY+half,diagnosticYellowPaint)
+                }
             }
 
             val scroll=scrollProvider?.invoke() ?: (0f to 0f)
@@ -4904,11 +4911,11 @@ class MainActivity : ComponentActivity() {
                 val beat=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)
                 val bb=beat?.let{lookup?.findBeat(it)}
                 if(lookup==null){
-                    overlay.setDiagnosticBanner("lookup=null")
+                    if (BuildConfig.DEBUG && coordinateDebugEnabled) overlay.setDiagnosticBanner("lookup=null")
                 } else if(beat==null){
-                    overlay.setDiagnosticBanner("beat=null")
+                    if (BuildConfig.DEBUG && coordinateDebugEnabled) overlay.setDiagnosticBanner("beat=null")
                 } else if(bb==null){
-                    overlay.setDiagnosticBanner("bb=null")
+                    if (BuildConfig.DEBUG && coordinateDebugEnabled) overlay.setDiagnosticBanner("bb=null")
                 } else if(beat!=null&&bb!=null){
                     val rawBar=lookup.findMasterBar(bb.beat.voice.bar.masterBar)?.bars?.toList()?.firstOrNull()?.realBounds ?: bb.barBounds.masterBarBounds.visualBounds
                     val rawX=bb.onNotesX.toFloat()
@@ -4954,7 +4961,7 @@ class MainActivity : ComponentActivity() {
                         overlay.hideNoteSelection()
                     }
 
-                    overlay.setDiagnosticRaw(rawX,rawY,d)
+                    if (BuildConfig.DEBUG && coordinateDebugEnabled) overlay.setDiagnosticRaw(rawX,rawY,d)
                     overlay.showGuitarProGuideContent(finalX,guideTop,guideBottom)
                     overlay.showBeatCaretContent(finalX,finalY,half)
                     lastCaretPosition=Triple(finalX,finalY,half)
@@ -4962,13 +4969,17 @@ class MainActivity : ComponentActivity() {
 
                     val scLayout=actualScrollOffsetsLayout()
                     val scPx=actualScrollOffsets()
-                    overlay.setDiagnosticBanner("OK raw=("+rawX+","+rawY+") d="+d+" final=("+finalX+","+finalY+") scrollPx=("+scPx.first+","+scPx.second+") overlay="+overlay.width+"x"+overlay.height+" AlphaTabView="+score.width+"x"+score.height)
-                    android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" selectedNoteBounds="+selectedNoteBounds+" tabY(rawLayout)="+rawY+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
+                    if (BuildConfig.DEBUG && coordinateDebugEnabled) {
+                        overlay.setDiagnosticBanner("OK raw=("+rawX+","+rawY+") d="+d+" final=("+finalX+","+finalY+") scrollPx=("+scPx.first+","+scPx.second+") overlay="+overlay.width+"x"+overlay.height+" AlphaTabView="+score.width+"x"+score.height)
+                        android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" selectedNoteBounds="+selectedNoteBounds+" tabY(rawLayout)="+rawY+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
+                    }
                     updateDebugOverlay()
                 } else overlay.hideCursor()
             }catch(t:Throwable){
-                overlay.setDiagnosticBanner("EXCEPTION "+(t.message ?: t.javaClass.simpleName))
-                android.util.Log.e("EARAM_ALPHA_CURSOR","overlay caret positioning failed",t)
+                if (BuildConfig.DEBUG && coordinateDebugEnabled) {
+                    overlay.setDiagnosticBanner("EXCEPTION "+(t.message ?: t.javaClass.simpleName))
+                    android.util.Log.e("EARAM_ALPHA_CURSOR","overlay caret positioning failed",t)
+                }
             }
         }
         private fun updateDebugBanner(x:Double,y:Double,w:Double,h:Double,onNotesX:Double,l:Float,t:Float,r:Float,b:Float){
@@ -4977,7 +4988,7 @@ class MainActivity : ComponentActivity() {
             overlay.setDebugBanner("Bar1 raw x=$x y=$y w=$w h=$h\nBeat.onNotesX=$onNotesX caret=[$l,$t,$r,$b]\nAlphaTab scroll=(${scroll.first},${scroll.second})\nAlphaTabView screen=(${sl[0]},${sl[1]}) overlay screen=(${ol[0]},${ol[1]})")
         }
         fun logOfficialPlaybackCursor(playedBeat:Beat){
-            try{ val b=score.api.renderer.boundsLookup?.findBeat(playedBeat)?:return; val bar=score.api.renderer.boundsLookup?.findMasterBar(b.beat.voice.bar.masterBar)?.realBounds ?: b.barBounds.masterBarBounds.visualBounds; val o=alphaTabContentOriginInOverlay(); val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f); val rawX=b.onNotesX.toFloat(); val x=rawX*d+o.first; val top=bar.y.toFloat()*d+o.second; val bottom=(bar.y+bar.h).toFloat()*d+o.second; overlay.showPlaybackCursorContent(x,top,bottom); val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets(); android.util.Log.d("EARAM_COORD","playback BAR1 raw barBounds.realBounds="+bar+" beatRealBounds="+b.realBounds+" onNotesX(rawLayout)="+rawX+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+o.first+","+o.second+" | playbackFinalPx="+x+","+top+" playbackBottomPx="+bottom) }catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","overlay playback cursor failed",t)}
+            try{ val b=score.api.renderer.boundsLookup?.findBeat(playedBeat)?:return; val bar=score.api.renderer.boundsLookup?.findMasterBar(b.beat.voice.bar.masterBar)?.realBounds ?: b.barBounds.masterBarBounds.visualBounds; val o=alphaTabContentOriginInOverlay(); val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f); val rawX=b.onNotesX.toFloat(); val x=rawX*d+o.first; val top=bar.y.toFloat()*d+o.second; val bottom=(bar.y+bar.h).toFloat()*d+o.second; overlay.showPlaybackCursorContent(x,top,bottom); if (BuildConfig.DEBUG && coordinateDebugEnabled) { val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets(); android.util.Log.d("EARAM_COORD","playback BAR1 raw barBounds.realBounds="+bar+" beatRealBounds="+b.realBounds+" onNotesX(rawLayout)="+rawX+" | density="+d+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+o.first+","+o.second+" | playbackFinalPx="+x+","+top+" playbackBottomPx="+bottom) } }catch(t:Throwable){android.util.Log.e("EARAM_ALPHA_CURSOR","overlay playback cursor failed",t)}
         }
         fun showPlaybackBeat(playedBeat:Beat)=logOfficialPlaybackCursor(playedBeat)
         fun hidePlaybackCursor(){
@@ -4990,7 +5001,7 @@ class MainActivity : ComponentActivity() {
         fun setDebugModeFromUi(enabled:Boolean){coordinateDebugEnabled=enabled;buildBeatHits();updateDebugOverlay();updateStatus(if(enabled)"DEBUG ON • long-press title to disable" else "DEBUG OFF");refreshVisualCursor();logCoordinateDiagnostic("debug-toggle")}
         fun actualScrollOffsetsLayout():Pair<Float,Float>{return try{val s=score.api.uiFacade.getScrollContainer();Pair(s.scrollLeft.toFloat(),s.scrollTop.toFloat())}catch(t:Throwable){val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);Pair(score.scrollX.toFloat()/d,score.scrollY.toFloat()/d)}}
         fun actualScrollOffsets():Pair<Float,Float>{val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);val raw=actualScrollOffsetsLayout();return Pair(raw.first*d,raw.second*d)}
-        fun logCoordinateDiagnostic(reason:String){try{val s=score.api.uiFacade.getScrollContainer();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol);android.util.Log.d("EARAM_SCROLL","reason="+reason+" scroller="+s.javaClass.name+" actualScroll="+s.scrollLeft+","+s.scrollTop+" scoreScroll="+score.scrollX+","+score.scrollY+" scoreLoc="+sl[0]+","+sl[1]+" overlayLoc="+ol[0]+","+ol[1]);val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val bar=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(caret.measureIndex);val bb=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)?.let{lookup.findBeat(it)};val safeBarRect=bar?.let{lookup.findMasterBar(it.masterBar)?.realBounds}; android.util.Log.d("EARAM_SCROLL","raw barRect="+safeBarRect+" beatRect="+bb?.realBounds+" onNotesX="+bb?.onNotesX+" nativeCaretRect="+lastCaretRect+" parent=AlphaTab.selectionWrapper")}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","coordinate diagnostic failed",t)}}
+        fun logCoordinateDiagnostic(reason:String){if (!BuildConfig.DEBUG || !coordinateDebugEnabled) return; try{val s=score.api.uiFacade.getScrollContainer();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol);android.util.Log.d("EARAM_SCROLL","reason="+reason+" scroller="+s.javaClass.name+" actualScroll="+s.scrollLeft+","+s.scrollTop+" scoreScroll="+score.scrollX+","+score.scrollY+" scoreLoc="+sl[0]+","+sl[1]+" overlayLoc="+ol[0]+","+ol[1]);val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val bar=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(caret.measureIndex);val bb=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)?.let{lookup.findBeat(it)};val safeBarRect=bar?.let{lookup.findMasterBar(it.masterBar)?.realBounds}; android.util.Log.d("EARAM_SCROLL","raw barRect="+safeBarRect+" beatRect="+bb?.realBounds+" onNotesX="+bb?.onNotesX+" nativeCaretRect="+lastCaretRect+" parent=AlphaTab.selectionWrapper")}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","coordinate diagnostic failed",t)}}
         private fun updateDebugOverlay(){val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val staff=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?:return;val bars=staff.bars.toList().mapNotNull{bar->lookup.findMasterBar(bar.masterBar)?.realBounds?.let{RectF(it.x.toFloat(),it.y.toFloat(),(it.x+it.w).toFloat(),(it.y+it.h).toFloat())}};val sc=actualScrollOffsets();overlay.setDebugData(coordinateDebugEnabled,bars,"bar="+(caret.measureIndex+1)+" beat="+(caret.beatIndex+1)+" string="+caret.stringIndex+" cx="+(lastCaretPosition?.first?:-1f)+" cy="+(lastCaretPosition?.second?:-1f)+" scrollY="+sc.second);lastCaretRect?.let{r->val bb=currentBeat()?.let{score.api.renderer.boundsLookup?.findBeat(it)};val br=bb?.let{lookup.findMasterBar(it.beat.voice.bar.masterBar)?.realBounds};if(bb!=null&&br!=null)updateDebugBanner(br.x.toDouble(),br.y.toDouble(),br.w.toDouble(),br.h.toDouble(),bb.onNotesX.toDouble(),r.left,r.top,r.right,r.bottom)}}
         private fun ensureCaretVisible(contentX:Float,contentY:Float){try{val s=score.api.uiFacade.getScrollContainer();val mx=(s.width*.12).coerceAtLeast(24.0);val my=(s.height*.10).coerceAtLeast(24.0);var x=s.scrollLeft;var y=s.scrollTop;if(contentX-x<mx)x=(contentX-mx).coerceAtLeast(0.0)else if(contentX-x>s.width-mx)x=(contentX-s.width+mx).coerceAtLeast(0.0);if(contentY-y<my)y=(contentY-my).coerceAtLeast(0.0)else if(contentY-y>s.height-my)y=(contentY-s.height+my).coerceAtLeast(0.0);s.scrollLeft=x;s.scrollTop=y}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","official scroll failed",t)}}
         private fun updateCursor(){ refreshVisualCursor() }
