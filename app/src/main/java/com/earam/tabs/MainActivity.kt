@@ -5032,6 +5032,22 @@ class MainActivity : ComponentActivity() {
                 "w=${diagnosticMember(bounds, "w")}, h=${diagnosticMember(bounds, "h")}"
         }
 
+        private fun diagnosticItems(obj: Any?): List<Any?> {
+            if (obj == null) return emptyList()
+            if (obj is Iterable<*>) return obj.toList()
+            if (obj is Array<*>) return obj.toList()
+            val toListMethod = obj.javaClass.methods.firstOrNull { it.name == "toList" && it.parameterCount == 0 }
+            val converted = if (toListMethod != null) runCatching { toListMethod.invoke(obj) }.getOrNull() else null
+            if (converted is Iterable<*>) return converted.toList()
+            if (converted is Array<*>) return converted.toList()
+            val size = ((diagnosticMember(obj, "size") ?: diagnosticMember(obj, "length")) as? Number)?.toInt() ?: 0
+            val getMethod = obj.javaClass.methods.firstOrNull { it.name == "get" && it.parameterCount == 1 }
+            if (getMethod != null && size in 1..10000) {
+                return (0 until size).map { index -> runCatching { getMethod.invoke(obj, index) }.getOrNull() }
+            }
+            return emptyList()
+        }
+
         fun showBoundsDiagnosticDialog() {
             if (!BuildConfig.DEBUG) return
             val report = StringBuilder()
@@ -5053,7 +5069,7 @@ class MainActivity : ComponentActivity() {
 
                 report.appendLine("EARAM ALPHATAB BOUNDS DIAGNOSTIC")
                 report.appendLine("DEBUG only; drawing logic was not changed by this diagnostic.")
-                report.appendLine("versionName=0.1.622 (expected build run #622); currentTrackIndex=$currentTrackIndex, measureIndex=${caret.measureIndex}, beatIndex=${caret.beatIndex}, voiceIndex=$currentVoiceIndex, stringIndex=${caret.stringIndex}")
+                report.appendLine("versionName=${BuildConfig.VERSION_NAME}; versionCode=${BuildConfig.VERSION_CODE}; currentTrackIndex=$currentTrackIndex, measureIndex=${caret.measureIndex}, beatIndex=${caret.beatIndex}, voiceIndex=$currentVoiceIndex, stringIndex=${caret.stringIndex}")
                 report.appendLine("density=$density; originOverlayPx=(${origin.first}, ${origin.second})")
                 report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second})")
                 report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
@@ -5100,11 +5116,9 @@ class MainActivity : ComponentActivity() {
                     report.appendLine("$label: barBounds.real={${diagnosticBounds(diagnosticMember(barBounds, "realBounds"))}}; barMatch=${locateBar(barObject)}")
                     val masterBounds = diagnosticMember(barBounds, "masterBarBounds")
                     report.appendLine("$label: masterBarBounds.visual={${diagnosticBounds(diagnosticMember(masterBounds, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(masterBounds, "realBounds"))}}")
-                    val notes = diagnosticMember(candidate, "notes") as? Iterable<*>
-                    if (notes == null) {
-                        report.appendLine("$label.notes: null/not iterable")
-                    } else if (!notes.iterator().hasNext()) {
-                        report.appendLine("$label.notes: empty")
+                    val notes = diagnosticItems(diagnosticMember(candidate, "notes"))
+                    if (notes.isEmpty()) {
+                        report.appendLine("$label.notes: empty/null/unreadable")
                     } else {
                         notes.forEachIndexed { ni, nb ->
                             val note = diagnosticMember(nb, "note")
@@ -5119,13 +5133,13 @@ class MainActivity : ComponentActivity() {
                 val masterBar = bar?.masterBar
                 val masterBounds = if (lookup != null && masterBar != null) lookup.findMasterBar(masterBar) else null
                 report.appendLine("masterBarBounds: visual={${diagnosticBounds(diagnosticMember(masterBounds, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(masterBounds, "realBounds"))}}; staffSystem={${diagnosticMember(masterBounds, "staffSystemBounds")}}")
-                val barCandidates = diagnosticMember(masterBounds, "bars") as? Iterable<*>
-                if (barCandidates != null) {
+                val barCandidates = diagnosticItems(diagnosticMember(masterBounds, "bars"))
+                if (barCandidates.isNotEmpty()) {
                     barCandidates.forEachIndexed { i, candidate ->
                         val barObject = diagnosticMember(candidate, "bar")
                         report.appendLine("masterBar.bars[$i]: visual={${diagnosticBounds(diagnosticMember(candidate, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(candidate, "realBounds"))}}; modelMatch=${locateBar(barObject)}")
                     }
-                } else report.appendLine("masterBar.bars: unavailable")
+                } else report.appendLine("masterBar.bars: unavailable/empty")
 
                 report.appendLine("END DIAGNOSTIC")
             } catch (t: Throwable) {
