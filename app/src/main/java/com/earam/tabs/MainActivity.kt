@@ -525,10 +525,14 @@ class MainActivity : ComponentActivity() {
         }
         titleView = title
         title.setOnLongClickListener {
-            editor.setDebugModeFromUi(!editor.isDebugMode())
-            true
+            if (BuildConfig.DEBUG) {
+                editor.showBoundsDiagnosticDialog()
+                true
+            } else {
+                false
+            }
         }
-        title.contentDescription = "File title • long press for coordinate debug"
+        title.contentDescription = "File title • long press to copy bounds diagnostics (Debug only)"
 
         val overflow = iconButton("⋮", "Open Earam menu", 42f).apply {
             textSize = 24f
@@ -1759,6 +1763,9 @@ class MainActivity : ComponentActivity() {
             noteSelectionBottom=Float.NaN
             invalidate()
         }
+        fun diagnosticNoteSelectionBounds(): String =
+            "noteSelectionLeft=$noteSelectionLeft, noteSelectionTop=$noteSelectionTop, " +
+            "noteSelectionRight=$noteSelectionRight, noteSelectionBottom=$noteSelectionBottom"
         fun showNoteCursor(left:Float,top:Float,width:Float,height:Float)=invalidate()
         fun hideCursor(){
             caretCenterX=Float.NaN; caretCenterY=Float.NaN; caretHalf=0f
@@ -5001,6 +5008,161 @@ class MainActivity : ComponentActivity() {
         fun setDebugModeFromUi(enabled:Boolean){if (!BuildConfig.DEBUG) return; coordinateDebugEnabled=enabled;buildBeatHits();updateDebugOverlay();updateStatus(if(enabled)"DEBUG ON • long-press title to disable" else "DEBUG OFF");refreshVisualCursor();logCoordinateDiagnostic("debug-toggle")}
         fun actualScrollOffsetsLayout():Pair<Float,Float>{return try{val s=score.api.uiFacade.getScrollContainer();Pair(s.scrollLeft.toFloat(),s.scrollTop.toFloat())}catch(t:Throwable){val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);Pair(score.scrollX.toFloat()/d,score.scrollY.toFloat()/d)}}
         fun actualScrollOffsets():Pair<Float,Float>{val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);val raw=actualScrollOffsetsLayout();return Pair(raw.first*d,raw.second*d)}
+        private fun diagnosticMember(obj: Any?, name: String): Any? {
+            if (obj == null) return null
+            val suffix = name.substring(0, 1).uppercase() + name.substring(1)
+            val getter = obj.javaClass.methods.firstOrNull {
+                it.parameterCount == 0 && (it.name == "get$suffix" || it.name == "is$suffix" || it.name == name)
+            }
+            if (getter != null) return runCatching { getter.invoke(obj) }.getOrNull()
+            var type: Class<*>? = obj.javaClass
+            while (type != null) {
+                val field = runCatching { type.getDeclaredField(name) }.getOrNull()
+                if (field != null) {
+                    return runCatching { field.isAccessible = true; field.get(obj) }.getOrNull()
+                }
+                type = type.superclass
+            }
+            return null
+        }
+
+        private fun diagnosticBounds(bounds: Any?): String {
+            if (bounds == null) return "null"
+            return "x=${diagnosticMember(bounds, "x")}, y=${diagnosticMember(bounds, "y")}, " +
+                "w=${diagnosticMember(bounds, "w")}, h=${diagnosticMember(bounds, "h")}"
+        }
+
+        fun showBoundsDiagnosticDialog() {
+            if (!BuildConfig.DEBUG) return
+            val report = StringBuilder()
+            try {
+                val lookup = score.api.renderer.boundsLookup
+                val song = score.api.score
+                val track = song?.tracks?.toList()?.getOrNull(currentTrackIndex)
+                val staff = track?.staves?.firstOrNull()
+                val bar = staff?.bars?.toList()?.getOrNull(caret.measureIndex)
+                val beat = bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)
+                val single = if (lookup != null && beat != null) lookup.findBeat(beat) else null
+                val many = if (lookup != null && beat != null) runCatching { lookup.findBeats(beat)?.toList().orEmpty() }.getOrDefault(emptyList()) else emptyList()
+                val dm = activity.resources.displayMetrics
+                val density = dm.density.coerceAtLeast(0.01f)
+                val origin = alphaTabContentOriginInOverlay()
+                val scroll = actualScrollOffsets()
+                val scrollLayout = actualScrollOffsetsLayout()
+                val last = lastCaretPosition
+
+                report.appendLine("EARAM ALPHATAB BOUNDS DIAGNOSTIC")
+                report.appendLine("DEBUG only; drawing logic was not changed by this diagnostic.")
+                report.appendLine("versionName=0.1.622 (expected build run #622); currentTrackIndex=$currentTrackIndex, measureIndex=${caret.measureIndex}, beatIndex=${caret.beatIndex}, voiceIndex=$currentVoiceIndex, stringIndex=${caret.stringIndex}")
+                report.appendLine("density=$density; originOverlayPx=(${origin.first}, ${origin.second})")
+                report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second})")
+                report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
+                report.appendLine("lastFinalCaret=(x=${last?.first}, y=${last?.second}, half=${last?.third}); lastCaretRect=$lastCaretRect")
+                report.appendLine("drawn orange selection: ${overlay.diagnosticNoteSelectionBounds()}")
+                report.appendLine("origin math: finalX = rawX * density + originX; finalY = rawY * density + originY")
+                report.appendLine("lookupPresent=${lookup != null}; selectedBeatPresent=${beat != null}; findBeatCount=${if (single == null) 0 else 1}; findBeatsCount=${many.size}")
+
+                if (track != null) {
+                    report.appendLine("selected track=$currentTrackIndex; trackStaffCount=${track.staves.size}")
+                    track.staves.toList().forEachIndexed { si, st ->
+                        report.appendLine("track[$currentTrackIndex].staff[$si]: showStandardNotation=${st.showStandardNotation}, showTablature=${st.showTablature}, bars=${st.bars.size}")
+                    }
+                } else report.appendLine("selected track/staff: null")
+                if (bar != null) {
+                    report.appendLine("selected model bar: masterBarIndex=${song?.masterBars?.toList()?.indexOfFirst { it === bar.masterBar }}, barVoiceCount=${bar.voices.size}")
+                } else report.appendLine("selected model bar: null")
+                if (beat != null) report.appendLine("selected model beat: notes=${beat.notes.size}, isEmpty=${beat.isEmpty}") else report.appendLine("selected model beat: null")
+
+                fun locateBar(barObject: Any?): String {
+                    if (barObject == null || song == null) return "unresolved"
+                    val found = mutableListOf<String>()
+                    song.tracks.toList().forEachIndexed { ti, tr ->
+                        tr.staves.toList().forEachIndexed { si, st ->
+                            st.bars.toList().forEachIndexed { bi, candidate ->
+                                if (candidate === barObject) found.add("track=$ti staff=$si bar=$bi(tab=${st.showTablature},score=${st.showStandardNotation})")
+                            }
+                        }
+                    }
+                    return found.joinToString("; ").ifEmpty { "no model identity match" }
+                }
+
+                fun dumpCandidate(label: String, candidate: Any?) {
+                    if (candidate == null) {
+                        report.appendLine("$label: null")
+                        return
+                    }
+                    val barBounds = diagnosticMember(candidate, "barBounds")
+                    val barObject = diagnosticMember(barBounds, "bar")
+                    report.appendLine("$label: visualBounds={${diagnosticBounds(diagnosticMember(candidate, "visualBounds"))}}")
+                    report.appendLine("$label: realBounds={${diagnosticBounds(diagnosticMember(candidate, "realBounds"))}}")
+                    report.appendLine("$label: onNotesX=${diagnosticMember(candidate, "onNotesX")}")
+                    report.appendLine("$label: barBounds.visual={${diagnosticBounds(diagnosticMember(barBounds, "visualBounds"))}}")
+                    report.appendLine("$label: barBounds.real={${diagnosticBounds(diagnosticMember(barBounds, "realBounds"))}}; barMatch=${locateBar(barObject)}")
+                    val masterBounds = diagnosticMember(barBounds, "masterBarBounds")
+                    report.appendLine("$label: masterBarBounds.visual={${diagnosticBounds(diagnosticMember(masterBounds, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(masterBounds, "realBounds"))}}")
+                    val notes = diagnosticMember(candidate, "notes") as? Iterable<*>
+                    if (notes == null) {
+                        report.appendLine("$label.notes: null/not iterable")
+                    } else if (!notes.iterator().hasNext()) {
+                        report.appendLine("$label.notes: empty")
+                    } else {
+                        notes.forEachIndexed { ni, nb ->
+                            val note = diagnosticMember(nb, "note")
+                            report.appendLine("$label.note[$ni]: noteHeadBounds={${diagnosticBounds(diagnosticMember(nb, "noteHeadBounds"))}}; string=${diagnosticMember(note, "string")}; fret=${diagnosticMember(note, "fret")}; noteId=${diagnosticMember(note, "id")}")
+                        }
+                    }
+                }
+
+                dumpCandidate("findBeat", single)
+                many.forEachIndexed { i, candidate -> dumpCandidate("findBeats[$i]", candidate) }
+
+                val masterBar = bar?.masterBar
+                val masterBounds = if (lookup != null && masterBar != null) lookup.findMasterBar(masterBar) else null
+                report.appendLine("masterBarBounds: visual={${diagnosticBounds(diagnosticMember(masterBounds, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(masterBounds, "realBounds"))}}; staffSystem={${diagnosticMember(masterBounds, "staffSystemBounds")}}")
+                val barCandidates = diagnosticMember(masterBounds, "bars") as? Iterable<*>
+                if (barCandidates != null) {
+                    barCandidates.forEachIndexed { i, candidate ->
+                        val barObject = diagnosticMember(candidate, "bar")
+                        report.appendLine("masterBar.bars[$i]: visual={${diagnosticBounds(diagnosticMember(candidate, "visualBounds"))}}; real={${diagnosticBounds(diagnosticMember(candidate, "realBounds"))}}; modelMatch=${locateBar(barObject)}")
+                    }
+                } else report.appendLine("masterBar.bars: unavailable")
+
+                report.appendLine("END DIAGNOSTIC")
+            } catch (t: Throwable) {
+                report.appendLine("DIAGNOSTIC ERROR: ${t.javaClass.name}: ${t.message}")
+                report.appendLine(android.util.Log.getStackTraceString(t))
+            }
+
+            val textView = TextView(activity).apply {
+                text = report.toString()
+                textSize = 12f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextIsSelectable(true)
+                setPadding(activity.dp(12f), activity.dp(8f), activity.dp(12f), activity.dp(8f))
+            }
+            val copyButton = Button(activity).apply { text = "نسخ" }
+            val panel = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(android.widget.ScrollView(activity).apply {
+                    addView(textView)
+                    layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+                })
+                addView(copyButton, LinearLayout.LayoutParams(-1, -2))
+                setPadding(activity.dp(8f), activity.dp(4f), activity.dp(8f), activity.dp(4f))
+            }
+            val dialog = AlertDialog.Builder(activity)
+                .setTitle("Bounds Diagnostic • Debug")
+                .setView(panel)
+                .setNegativeButton("إغلاق", null)
+                .create()
+            dialog.show()
+            copyButton.setOnClickListener {
+                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Earam bounds diagnostic", report.toString()))
+                Toast.makeText(activity, "تم نسخ نتيجة التشخيص", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         fun logCoordinateDiagnostic(reason:String){if (!BuildConfig.DEBUG || !coordinateDebugEnabled) return; try{val s=score.api.uiFacade.getScrollContainer();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol);android.util.Log.d("EARAM_SCROLL","reason="+reason+" scroller="+s.javaClass.name+" actualScroll="+s.scrollLeft+","+s.scrollTop+" scoreScroll="+score.scrollX+","+score.scrollY+" scoreLoc="+sl[0]+","+sl[1]+" overlayLoc="+ol[0]+","+ol[1]);val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val bar=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(caret.measureIndex);val bb=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)?.let{lookup.findBeat(it)};val safeBarRect=bar?.let{lookup.findMasterBar(it.masterBar)?.realBounds}; android.util.Log.d("EARAM_SCROLL","raw barRect="+safeBarRect+" beatRect="+bb?.realBounds+" onNotesX="+bb?.onNotesX+" nativeCaretRect="+lastCaretRect+" parent=AlphaTab.selectionWrapper")}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","coordinate diagnostic failed",t)}}
         private fun updateDebugOverlay(){val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val staff=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?:return;val bars=staff.bars.toList().mapNotNull{bar->lookup.findMasterBar(bar.masterBar)?.realBounds?.let{RectF(it.x.toFloat(),it.y.toFloat(),(it.x+it.w).toFloat(),(it.y+it.h).toFloat())}};val sc=actualScrollOffsets();overlay.setDebugData(coordinateDebugEnabled,bars,"bar="+(caret.measureIndex+1)+" beat="+(caret.beatIndex+1)+" string="+caret.stringIndex+" cx="+(lastCaretPosition?.first?:-1f)+" cy="+(lastCaretPosition?.second?:-1f)+" scrollY="+sc.second);lastCaretRect?.let{r->val bb=currentBeat()?.let{score.api.renderer.boundsLookup?.findBeat(it)};val br=bb?.let{lookup.findMasterBar(it.beat.voice.bar.masterBar)?.realBounds};if(bb!=null&&br!=null)updateDebugBanner(br.x.toDouble(),br.y.toDouble(),br.w.toDouble(),br.h.toDouble(),bb.onNotesX.toDouble(),r.left,r.top,r.right,r.bottom)}}
         private fun ensureCaretVisible(contentX:Float,contentY:Float){try{val s=score.api.uiFacade.getScrollContainer();val mx=(s.width*.12).coerceAtLeast(24.0);val my=(s.height*.10).coerceAtLeast(24.0);var x=s.scrollLeft;var y=s.scrollTop;if(contentX-x<mx)x=(contentX-mx).coerceAtLeast(0.0)else if(contentX-x>s.width-mx)x=(contentX-s.width+mx).coerceAtLeast(0.0);if(contentY-y<my)y=(contentY-my).coerceAtLeast(0.0)else if(contentY-y>s.height-my)y=(contentY-s.height+my).coerceAtLeast(0.0);s.scrollLeft=x;s.scrollTop=y}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","official scroll failed",t)}}
