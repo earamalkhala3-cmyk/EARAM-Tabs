@@ -4726,7 +4726,7 @@ class MainActivity : ComponentActivity() {
                     selectionFocusBeat = null
                     selectionDragActive = false
                     selectionDragMoved = false
-                    if (selectionTarget == SelectionTarget.RANGE) selectionTarget = SelectionTarget.BEAT
+                    if (selectionTarget == SelectionTarget.RANGE) setSelection(SelectionTarget.BEAT)
                     try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
                     renderAndLog("delete-selection")
                     onSelectionChanged?.invoke()
