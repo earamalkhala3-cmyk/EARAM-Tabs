@@ -5009,16 +5009,30 @@ class MainActivity : ComponentActivity() {
                     }
                     val fallbackTop = hit?.tabTopY ?: (rawBar.y.toFloat() + rawBar.h.toFloat() * 0.61f)
                     val spacing = hit?.stringSpacing ?: stringSpacing
-                    // AlphaTab NoteBounds.noteHeadBounds belongs to standard notation on
-                    // Score+TAB layouts; it is NOT the corresponding TAB fret glyph.
-                    // Anchor the orange outline to the selected string row and beat column.
+                    // Resolve the selected Note's rendered bounds from the TAB staff.
+                    // A Beat can expose separate NoteBounds for standard notation and TAB;
+                    // choose the matching Note whose vertical center is closest to this
+                    // note's expected TAB string row, then center the selection on its glyph.
+                    val selectedTabNoteBounds = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
+                        allBeatBounds.asSequence()
+                            .flatMap { it.notes?.toList().orEmpty().asSequence() }
+                            .filter { it.note === selectedNoteRef }
+                            .minByOrNull { nb ->
+                                val centerY = nb.noteHeadBounds.y.toDouble() + nb.noteHeadBounds.h.toDouble() / 2.0
+                                kotlin.math.abs(centerY - (expectedTabY?.toDouble() ?: centerY))
+                            }?.noteHeadBounds
+                    } else null
                     val selectedNoteRect = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
                         val tabY = expectedTabY
                             ?: (fallbackTop + (caret.stringIndex - 1).coerceAtLeast(0) * spacing)
+                        val noteBounds = selectedTabNoteBounds
+                        val selectionCenterX = if (noteBounds != null && noteBounds.w > 0.0)
+                            (noteBounds.x + noteBounds.w / 2.0).toFloat()
+                        else rawX.toFloat()
                         val halfWidth = (spacing * 0.62f).coerceIn(5f, 11f)
                         val halfHeight = (spacing * 0.46f).coerceIn(4f, 8f)
-                        RectF(rawX.toFloat() - halfWidth, tabY - halfHeight,
-                            rawX.toFloat() + halfWidth, tabY + halfHeight)
+                        RectF(selectionCenterX - halfWidth, tabY - halfHeight,
+                            selectionCenterX + halfWidth, tabY + halfHeight)
                     } else null
                     val rawY = if (selectedNoteRect != null) {
                         selectedNoteRect.centerY()
