@@ -2159,7 +2159,6 @@ class MainActivity : ComponentActivity() {
         var currentVoiceIndex: Int = 0
             private set
         private var copiedFret: Int? = null
-        private var copiedBar: Bar? = null
         private var selectionClipboardNote: ClipboardNote? = null
         private var selectionClipboardBeat: ClipboardBeat? = null
         private var selectionClipboardBar: ClipboardBar? = null
@@ -2445,7 +2444,7 @@ class MainActivity : ComponentActivity() {
                 selectionFocusBeat = beat
                 selectionDragActive = true
                 selectionDragMoved = false
-                selectionTarget = SelectionTarget.BEAT
+                setSelection(SelectionTarget.BEAT)
             }
 
             fun updateManualRangeSelection(beat: alphaTab.model.Beat) {
@@ -2453,7 +2452,7 @@ class MainActivity : ComponentActivity() {
                 if (!selectionDragActive) return
                 selectionDragMoved = true
                 selectionFocusBeat = beat
-                selectionTarget = SelectionTarget.RANGE
+                setSelection(SelectionTarget.RANGE)
                 try {
                     score.api.highlightPlaybackRange(anchor, beat)
                     updateStatus("NOTE SELECTION")
@@ -2475,7 +2474,7 @@ class MainActivity : ComponentActivity() {
                     selectionFocusBeat = null
                     return
                 }
-                selectionTarget = SelectionTarget.RANGE
+                setSelection(SelectionTarget.RANGE)
                 try { score.api.highlightPlaybackRange(anchor, focus) } catch (_: Throwable) { }
                 updateStatus("NOTES SELECTED")
                 onSelectionChanged?.invoke()
@@ -2486,7 +2485,7 @@ class MainActivity : ComponentActivity() {
                 selectionFocusBeat = null
                 selectionDragActive = false
                 selectionDragMoved = false
-                if (selectionTarget == SelectionTarget.RANGE) selectionTarget = SelectionTarget.BEAT
+                if (selectionTarget == SelectionTarget.RANGE) setSelection(SelectionTarget.BEAT)
                 try { score.api.clearPlaybackRangeHighlight() } catch (_: Throwable) { }
             }
 
@@ -2519,16 +2518,14 @@ class MainActivity : ComponentActivity() {
                             if (destination != null) {
                                 val destinationMeasure = destination.first
                                 val destinationBeatIndex = destination.second
-                                caret = Caret(
+                                setSelection(SelectionTarget.BEAT, Caret(
                                     currentTrackIndex,
                                     destinationMeasure,
                                     destinationBeatIndex,
                                     currentStringIndex
-                                )
-                                session.caret = caret
+                                ))
                                 pasteDestinationCaret = caret
                                 awaitingPasteDestination = false
-                                selectionTarget = SelectionTarget.BEAT
                                 selectionDragActive = false
                                 selectionDragMoved = false
                                 selectionAnchorBeat = null
@@ -2582,7 +2579,7 @@ class MainActivity : ComponentActivity() {
                                 selectionDragActive = false
                                 selectionAnchorBeat = null
                                 selectionFocusBeat = null
-                                selectionTarget = SelectionTarget.BAR
+                                setSelection(SelectionTarget.BAR)
                                 selectBarFromUi(index)
                                 updateStatus("TAB BAR SELECTED • BAR " + (index + 1) + " • BAR ACTIONS READY")
                             }
@@ -2669,14 +2666,12 @@ class MainActivity : ComponentActivity() {
                     if (barIndex < 0 || beatIndex < 0) return@on
 
                     currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
-                    caret = Caret(
+                    setSelection(SelectionTarget.BAR, Caret(
                         clickedTrackIndex,
                         barIndex,
                         beatIndex,
                         currentStringIndex.coerceIn(1, maxStringIndex())
-                    )
-                    session.caret = caret
-                    selectionTarget = SelectionTarget.BAR
+                    ))
                     selectionAnchorBeat = beat
                     selectionFocusBeat = beat
                     selectionDragActive = false
@@ -3080,11 +3075,9 @@ class MainActivity : ComponentActivity() {
             val bs = bars() ?: return false
             if (index !in bs.indices) return false
             if (!ensureBarEditable(index)) return false
-            caret = caret.copy(measureIndex = index, beatIndex = 0)
-            session.caret = caret
+            setSelection(SelectionTarget.BEAT, caret.copy(measureIndex = index, beatIndex = 0))
             armed = true
             pendingFret = ""
-            selectionTarget = SelectionTarget.BEAT
             updateCursor()
             onSelectionChanged?.invoke()
             android.util.Log.d(
@@ -3574,7 +3567,6 @@ class MainActivity : ComponentActivity() {
             if (kind != "beat") selectionClipboardBeat = null
             if (kind != "bar") {
                 selectionClipboardBar = null
-                copiedBar = null
             }
             if (kind != "range") selectionClipboardRange = null
             clipboardKind = when (kind) {
@@ -3605,7 +3597,6 @@ class MainActivity : ComponentActivity() {
                     val bar = bars()?.getOrNull(currentBarIndex) ?: return
                     clearClipboardExcept("bar")
                     selectionClipboardBar = snapshotBarForClipboard(bar)
-                    copiedBar = bar
                     updateStatus("Copied BAR " + (currentBarIndex + 1) + " • TAB")
                 }
                 SelectionTarget.RANGE -> {
@@ -4116,132 +4107,14 @@ class MainActivity : ComponentActivity() {
             return cloned
         }
 
-        fun copyCurrentBarFromUi() {
-            try {
-                val song = score.api.score ?: return
-                val source = song.tracks.toList().getOrNull(currentTrackIndex)
-                    ?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(selectedBarIndex)
-                    ?: throw IllegalStateException("No current bar")
-                val master = song.masterBars.toList().getOrNull(selectedBarIndex)
-                    ?: throw IllegalStateException("No current master bar")
-                copiedBar = cloneBarForScore(source, master)
-                selectionTarget = SelectionTarget.BAR
-                caret = caret.copy(measureIndex = selectedBarIndex, beatIndex = 0)
-                session.caret = caret
-                armed = true
-                pendingFret = ""
-                updateCursor()
-                onSelectionChanged?.invoke()
-                updateStatus("Copied BAR " + (selectedBarIndex + 1) + " • TRACK " + (currentTrackIndex + 1))
-            } catch (t: Throwable) {
-                updateStatus("Copy bar failed • " + (t.message ?: t.javaClass.simpleName))
-            }
-        }
-
-        fun pasteBarToCurrentFromUi() {
-            try {
-                val source = copiedBar ?: run {
-                    updateStatus("No copied bar")
-                    return
-                }
-                val song = score.api.score ?: return
-                val targetIndex = selectedBarIndex
-                val staff = song.tracks.toList()
-                    .getOrNull(currentTrackIndex)
-                    ?.staves?.firstOrNull()
-                    ?: run {
-                        updateStatus("No active track")
-                        return
-                    }
-                val target = staff.bars.toList().getOrNull(targetIndex)
-                    ?: run {
-                        updateStatus("Invalid target measure")
-                        return
-                    }
-
-                pushUndoSnapshot()
-
-                // Bar paste is track-local: only the selected measure of the active
-                // track is modified. Other tracks are never overwritten accidentally.
-                val sourceVoices = source.voices.toList()
-                while (target.voices.toList().size < sourceVoices.size) {
-                    target.addVoice(alphaTab.model.Voice())
-                }
-
-                for (vi in target.voices.toList().indices) {
-                    val tv = target.voices.toList()[vi]
-                    val sv = sourceVoices.getOrNull(vi)
-
-                    tv.beats.toList().forEach { beat ->
-                        beat.notes.toList().forEach { note -> beat.removeNote(note) }
-                    }
-                    while (tv.beats.toList().isNotEmpty()) {
-                        tv.beats.splice((tv.beats.toList().lastIndex).toDouble(), 1.0)
-                    }
-                    if (sv == null) continue
-
-                    for (sb in sv.beats.toList()) {
-                        val tb = Beat().apply {
-                            duration = sb.duration
-                            dots = sb.dots
-                            tupletNumerator = sb.tupletNumerator
-                            tupletDenominator = sb.tupletDenominator
-                            slap = sb.slap
-                            pop = sb.pop
-                            tap = sb.tap
-                            deadSlapped = sb.deadSlapped
-                            fadeIn = sb.fadeIn
-                            slashed = sb.slashed
-                            showTimer = sb.showTimer
-                            text = sb.text
-                            isEmpty = sb.isEmpty
-                        }
-                        for (sn in sb.notes.toList()) {
-                            tb.addNote(Note().apply {
-                                string = sn.string
-                                fret = sn.fret
-                                dynamics = sn.dynamics
-                                isGhost = sn.isGhost
-                                isDead = sn.isDead
-                                isPalmMute = sn.isPalmMute
-                                isLetRing = sn.isLetRing
-                                isStaccato = sn.isStaccato
-                                isHammerPullOrigin = sn.isHammerPullOrigin
-                                vibrato = sn.vibrato
-                                isLeftHandTapped = sn.isLeftHandTapped
-                            })
-                        }
-                        tb.isEmpty = sb.isEmpty || tb.notes.toList().isEmpty()
-                        tb.finish(score.settings, null)
-                        tv.addBeat(tb)
-                    }
-                }
-
-                song.finish(score.settings)
-                caret = caret.copy(measureIndex = targetIndex, beatIndex = 0)
-                session.caret = caret
-                selectionTarget = SelectionTarget.BAR
-                armed = true
-                pendingFret = ""
-                renderAndLog("paste-bar")
-                buildBeatHits()
-                highlightSelectedBar()
-                updateCursor()
-                onSelectionChanged?.invoke()
-                updateStatus("Pasted BAR " + (targetIndex + 1) + " • TRACK " + (currentTrackIndex + 1))
-            } catch (t: Throwable) {
-                android.util.Log.e("EARAM_BAR_CLIPBOARD", "Paste bar failed", t)
-                updateStatus("Paste bar failed • " + (t.message ?: t.javaClass.simpleName))
-            }
-        }
+        // The older track-local copiedBar path had no callers. Bar copy/paste now
+        // goes exclusively through copyCurrentSelectionFromUi/pasteCopiedBar.
 
         fun addMeasureFromUi() {
             if (createNextMeasures(1)) {
                 val total = score.api.score?.masterBars?.toList()?.size ?: 0
                 val newIndex = (total - 1).coerceAtLeast(0)
-                caret = caret.copy(measureIndex = newIndex, beatIndex = 0)
-                session.caret = caret
-                selectionTarget = SelectionTarget.BAR
+                setSelection(SelectionTarget.BAR, caret.copy(measureIndex = newIndex, beatIndex = 0))
                 armed = true
                 pendingFret = ""
                 buildBeatHits()
@@ -4287,13 +4160,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 song.finish(score.settings)
-                caret = caret.copy(
+                setSelection(SelectionTarget.BAR, caret.copy(
                     measureIndex = sourceIndex + 1,
                     beatIndex = 0,
                     stringIndex = 1
-                )
-                session.caret = caret
-                selectionTarget = SelectionTarget.BAR
+                ))
                 armed = true
                 pendingFret = ""
                 renderAndLog("duplicate-bar")
@@ -4333,9 +4204,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 song.finish(score.settings)
-                selectionTarget = SelectionTarget.BAR
-                caret = caret.copy(measureIndex = index, beatIndex = 0)
-                session.caret = caret
+                setSelection(SelectionTarget.BAR, caret.copy(measureIndex = index, beatIndex = 0))
                 renderAndLog("clear-bar")
                 highlightSelectedBar()
                 updateCursor()
@@ -5665,9 +5534,7 @@ class MainActivity : ComponentActivity() {
             // A BAR target is a real measure target, not just the current beat index.
             // Always anchor it to beat 1 so every bar command resolves deterministically
             // against this exact measure.
-            selectionTarget = SelectionTarget.BAR
-            caret = caret.copy(measureIndex = index, beatIndex = 0)
-            session.caret = caret
+            setSelection(SelectionTarget.BAR, caret.copy(measureIndex = index, beatIndex = 0))
             armed = true
             pendingFret = ""
 
