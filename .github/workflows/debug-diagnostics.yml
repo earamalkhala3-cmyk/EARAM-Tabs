@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   debug-diagnostics:
@@ -24,11 +24,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Prepare dedicated Debug certificate
+      - name: Prepare and persist dedicated Debug certificate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           set -euo pipefail
           if [ ! -s app/debug.keystore ]; then
             keytool -genkeypair -noprompt -alias earam_debug -keyalg RSA -keysize 2048 -validity 10000 -keystore app/debug.keystore -storetype JKS -storepass earam_debug_dev_only -keypass earam_debug_dev_only -dname "CN=Earam Tabs Debug, O=EARAM, C=EG"
+            CONTENT="$(base64 -w0 app/debug.keystore)"
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/app/debug.keystore" -f message="Add stable development-only Debug keystore" -f content="$CONTENT" -f branch=main
           fi
       - name: Build diagnostic Debug APK
         run: gradle clean :app:assembleDebug --no-daemon --stacktrace
