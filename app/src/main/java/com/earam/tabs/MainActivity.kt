@@ -2208,8 +2208,7 @@ class MainActivity : ComponentActivity() {
             val beatCount = bs.getOrNull(measure)?.voices?.toList()?.getOrNull(voice)?.beats?.toList()?.size ?: 0
             val beat = if (beatCount > 0) beatIndex.coerceIn(0, beatCount - 1) else 0
             val string = stringIndex.coerceIn(1, maxStringIndex())
-            caret = Caret(track, measure, beat, string)
-            session.caret = caret
+            setSelectionFromCaretString(Caret(track, measure, beat, string))
             // Navigation always owns the paste destination through the live caret.
             if (clipboardKind == ClipboardKind.RANGE) {
                 pasteDestinationCaret = null
@@ -3426,8 +3425,7 @@ class MainActivity : ComponentActivity() {
         fun selectVoiceFromUi(index: Int) {
             val max = bars()?.getOrNull(selectedBarIndex)?.voices?.toList()?.lastIndex ?: 0
             currentVoiceIndex = index.coerceIn(0, max)
-            caret = caret.copy(beatIndex = 0)
-            session.caret = caret
+            setSelectionFromCaretString(caret.copy(beatIndex = 0))
             armed = true
             pendingFret = ""
             updateCursor()
@@ -4234,8 +4232,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val last = song.masterBars.toList().lastIndex
                 val target = index.coerceAtMost(last)
-                caret = caret.copy(measureIndex = target, beatIndex = 0)
-                session.caret = caret
+                setSelection(SelectionTarget.BAR, caret.copy(measureIndex = target, beatIndex = 0))
                 song.finish(score.settings)
                 renderAndLog("delete-bar")
                     updateCursor()
@@ -4669,7 +4666,7 @@ class MainActivity : ComponentActivity() {
             val bar=bs.getOrNull(currentBarIndex) ?: return
             val beat=currentBeat() ?: return
             if(AlphaTabRhythmEngine.nextBeat(bar,beat,currentVoiceIndex)!=null) {
-                caret=caret.copy(beatIndex=caret.beatIndex+1); session.caret=caret; updateCursor(); updateStatus(); return
+                setSelectionFromCaretString(caret.copy(beatIndex=caret.beatIndex+1)); updateCursor(); updateStatus(); return
             }
             val used=AlphaTabRhythmEngine.barUsedTicks(bar,currentVoiceIndex)
             val capacity=AlphaTabRhythmEngine.barCapacityTicks(bar)
@@ -4677,12 +4674,12 @@ class MainActivity : ComponentActivity() {
                 if(!AlphaTabRhythmEngine.fillVoiceToBarCapacity(bar,currentVoiceIndex)) return
                 val count=bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.size ?: return
                 if(caret.beatIndex+1<count) {
-                    caret=caret.copy(beatIndex=caret.beatIndex+1); session.caret=caret; updateCursor(); updateStatus(); return
+                    setSelectionFromCaretString(caret.copy(beatIndex=caret.beatIndex+1)); updateCursor(); updateStatus(); return
                 }
             }
             if(currentBarIndex==bs.lastIndex) { if(!createNextMeasures(4)) return }
             val nextMeasure=currentBarIndex+1
-            caret=caret.copy(measureIndex=nextMeasure,beatIndex=0); session.caret=caret; updateCursor()
+            setSelectionFromCaretString(caret.copy(measureIndex=nextMeasure,beatIndex=0)); updateCursor()
             updateStatus("Measure " + nextMeasure + " • Beat 1")
         }
 
@@ -4740,8 +4737,7 @@ class MainActivity : ComponentActivity() {
             val tracks = score.api.score?.tracks?.toList().orEmpty()
             if (index !in tracks.indices) return
             try {
-                caret = Caret(index, 0, 0, 1)
-                session.caret = caret
+                setSelection(SelectionTarget.BEAT, Caret(index, 0, 0, 1))
                 armed = true
                 pendingFret = ""
                 // Track selection changes the edit target only. It must never hide
