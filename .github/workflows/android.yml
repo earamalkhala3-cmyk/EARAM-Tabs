@@ -244,6 +244,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Build DEBUG diagnostic APK
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
       - name: Upload DEBUG diagnostic APK
         uses: actions/upload-artifact@v4
         with:
@@ -263,8 +266,7 @@ jobs:
           # Coordinate diagnostics are intentionally disabled in Release. Run this
           # renderer/overlay diagnostic test against a Debug APK instead, while the
           # separately validated and uploaded Release APK remains unchanged.
-          gradle :app:assembleDebug --no-daemon --stacktrace
-          # Publish a separate DEBUG APK for on-device coordinate diagnostics.
+          # The separate DEBUG APK was built and published in the preceding steps.
           # Its applicationIdSuffix is .debug, so it can coexist with the signed app.
           sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/app-debug.apk.sha256
           adb -s emulator-5554 uninstall com.earam.tabs.debug || true
