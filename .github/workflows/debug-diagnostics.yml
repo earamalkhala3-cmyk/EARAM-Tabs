@@ -1,0 +1,53 @@
+name: EARAM Debug Diagnostics
+run-name: EARAM Debug Diagnostics #${{ github.run_number }}
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug-diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Prepare dedicated Debug certificate
+        run: |
+          set -euo pipefail
+          if [ ! -s app/debug.keystore ]; then
+            keytool -genkeypair -noprompt -alias earam_debug -keyalg RSA -keysize 2048 -validity 10000 -keystore app/debug.keystore -storetype JKS -storepass earam_debug_dev_only -keypass earam_debug_dev_only -dname "CN=Earam Tabs Debug, O=EARAM, C=EG"
+          fi
+      - name: Build diagnostic Debug APK
+        run: gradle clean :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify Debug certificate and APK metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee debug-certificate.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$APK" | grep "^package:"
+          sha256sum "$APK" | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+      - name: Upload Debug diagnostics artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Earam-Debug-Diagnostics-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+            debug-certificate.txt
+          if-no-files-found: error
+          retention-days: 14
