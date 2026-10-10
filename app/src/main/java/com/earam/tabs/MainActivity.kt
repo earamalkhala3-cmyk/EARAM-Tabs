@@ -2706,12 +2706,77 @@ class MainActivity : ComponentActivity() {
         private var debugScrollMonitorRunning = false
         private var lastObservedScrollLayout: Pair<Float, Float>? = null
         private var lastObservedRefreshCount = 0
+
+        // Keep the visual caret synchronized with AlphaTab's own scroll container.
+        // AlphaTab exposes this container through uiFacade (scrollLeft/scrollTop),
+        // rather than as an Android ScrollView, so observe its actual offsets and
+        // refresh at a throttled cadence instead of guessing a native scroll parent.
+        private var cursorRefreshMonitorRunning = false
+        private var lastCursorRefreshScroll: Pair<Float, Float>? = null
+        private var lastCursorRefreshAt = 0L
+        private var cursorLayoutListenerInstalled = false
+
         private var lastFinalBeforeClampX = Float.NaN
         private var lastFinalBeforeClampY = Float.NaN
         private var lastFinalAfterClampX = Float.NaN
         private var lastFinalAfterClampY = Float.NaN
         private var lastFinalNoteRect: RectF? = null
         private val beatHits = mutableListOf<BeatHit>()
+
+        init {
+            installCursorRefreshHooks()
+        }
+
+        private fun installCursorRefreshHooks() {
+            if (cursorLayoutListenerInstalled) return
+            cursorLayoutListenerInstalled = true
+            val layoutChanged = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                requestThrottledCursorRefresh("layout")
+            }
+            score.addOnLayoutChangeListener(layoutChanged)
+            overlay.addOnLayoutChangeListener(layoutChanged)
+
+            // The measured scrolling surface is AlphaTab's uiFacade container:
+            // actualScrollOffsetsLayout() reads its scrollLeft/scrollTop. It is not
+            // an Android ScrollView, so poll those authoritative offsets at 50 ms;
+            // refresh only when the content has actually moved and throttle updates.
+            startCursorRefreshMonitor()
+        }
+
+        private fun requestThrottledCursorRefresh(reason: String) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastCursorRefreshAt < 80L) return
+            lastCursorRefreshAt = now
+            refreshVisualCursor()
+            if (BuildConfig.DEBUG && coordinateDebugEnabled) {
+                logCoordinateDiagnostic("cursor-refresh-$reason")
+            }
+        }
+
+        private fun startCursorRefreshMonitor() {
+            if (cursorRefreshMonitorRunning) return
+            cursorRefreshMonitorRunning = true
+            lastCursorRefreshScroll = actualScrollOffsetsLayout()
+            val poll = object : Runnable {
+                override fun run() {
+                    if (!overlay.isAttachedToWindow) {
+                        cursorRefreshMonitorRunning = false
+                        return
+                    }
+                    val current = actualScrollOffsetsLayout()
+                    val previous = lastCursorRefreshScroll
+                    if (previous != null &&
+                        (kotlin.math.abs(current.first - previous.first) > 0.5f ||
+                         kotlin.math.abs(current.second - previous.second) > 0.5f)
+                    ) {
+                        requestThrottledCursorRefresh("alphatab-scroll")
+                    }
+                    lastCursorRefreshScroll = current
+                    overlay.postDelayed(this, 50L)
+                }
+            }
+            overlay.post(poll)
+        }
         private var stringSpacing: Float = 10f
         private var lastCaretPosition: Triple<Float, Float, Float>? = null
 
