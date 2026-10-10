@@ -5203,11 +5203,6 @@ class MainActivity : ComponentActivity() {
                 val selectedFret = selectedNoteObject?.let { diagnosticMember(it, "fret") }
                 val selectedHeadX = selectedNoteHead?.let { diagnosticMember(it, "x") }
                 val selectedHeadW = selectedNoteHead?.let { diagnosticMember(it, "w") }
-                val orangeCenterX = if (overlay.diagnosticNoteSelectionBounds().contains("noteSelectionCenterX=")) {
-                    // Parsed from the actual overlay rectangle by the explicit values below.
-                    Float.NaN
-                } else Float.NaN
-
                 report.appendLine("EARAM ALPHATAB BOUNDS DIAGNOSTIC")
                 report.appendLine("DEBUG only; drawing logic was not changed by this diagnostic.")
                 report.appendLine("versionName=${BuildConfig.VERSION_NAME}; versionCode=${BuildConfig.VERSION_CODE}; currentTrackIndex=$currentTrackIndex, measureIndex=${caret.measureIndex}, beatIndex=${caret.beatIndex}, voiceIndex=$currentVoiceIndex, stringIndex=${caret.stringIndex}")
