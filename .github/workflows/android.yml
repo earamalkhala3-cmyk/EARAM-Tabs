@@ -479,7 +479,10 @@ jobs:
           # exact .tab file/content pathSuffix filters and MIME filters above
           # were decoded from the final signed APK itself.
 
+      # Experimental branches may upload workflow artifacts, but must never mutate
+      # Releases because the app updater consumes releases/latest.
       - name: Publish release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
