@@ -4996,23 +4996,20 @@ class MainActivity : ComponentActivity() {
                     val allBeatBounds = runCatching { lookup.findBeats(beat)?.toList().orEmpty() }
                         .getOrDefault(listOf(bb))
                     val expectedTabY = hitExpectedTabY(caret.measureIndex, caret.beatIndex, caret.stringIndex)
-                    val selectedNoteBounds = allBeatBounds.asSequence()
-                        .flatMap { it.notes?.toList().orEmpty().asSequence() }
-                        .filter { nb ->
-                            if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
-                                nb.note === selectedNoteRef
-                            } else {
-                                nb.note.string.toDouble() == selectedAlphaString
-                            }
-                        }
-                        .minByOrNull { nb ->
-                            val centerY = nb.noteHeadBounds.y.toDouble() + nb.noteHeadBounds.h.toDouble() / 2.0
-                            kotlin.math.abs(centerY - (expectedTabY?.toDouble() ?: centerY))
-                        }
-                        ?.noteHeadBounds
-                    val selectedNoteRect = selectedNoteBounds?.let {
-                        RectF(it.x.toFloat(), it.y.toFloat(), (it.x + it.w).toFloat(), (it.y + it.h).toFloat())
-                    } ?: if (selectionTarget == SelectionTarget.NOTE) tappedNoteBounds else null
+                    // AlphaTab NoteBounds.noteHeadBounds belongs to standard notation on
+                    // Score+TAB layouts; it is NOT the fret-number glyph rectangle. Never
+                    // use it for the orange TAB selection. Anchor selection to this beat's
+                    // rendered TAB column and the selected string's TAB row instead.
+                    val selectedNoteRect = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
+                        val tabY = expectedTabY
+                            ?: (hitExpectedTabY(caret.measureIndex, caret.beatIndex, caret.stringIndex)
+                                ?: (hit?.tabTopY ?: (rawBar.y.toFloat() + rawBar.h.toFloat() * 0.61f)) +
+                                    (caret.stringIndex - 1).coerceAtLeast(0) * spacing)
+                        val halfWidth = (spacing * 0.62f).coerceIn(5f, 11f)
+                        val halfHeight = (spacing * 0.46f).coerceIn(4f, 8f)
+                        RectF(rawX.toFloat() - halfWidth, tabY - halfHeight,
+                            rawX.toFloat() + halfWidth, tabY + halfHeight)
+                    } else null
                     val hit=beatHits.firstOrNull{it.measure==caret.measureIndex&&it.beat==caret.beatIndex&&!it.virtual}
                     val fallbackTop=hit?.tabTopY ?: (rawBar.y.toFloat()+rawBar.h.toFloat()*.58f)
                     val spacing=hit?.stringSpacing ?: stringSpacing
