@@ -56,13 +56,13 @@ jobs:
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          BADGING="$(aapt dump badging "$APK")"
+          BADGING="$ANDROID_HOME/build-tools/36.0.0/aapt dump badging "$APK""
           echo "$BADGING" | grep -F "name='com.earam.tabs.debug'"
           APK_VERSION_CODE="$(echo "$BADGING" | sed -n "s/^package:.*versionCode='\\([^']*\\)'.*/\\1/p")"
           test -n "$APK_VERSION_CODE"
           test "$APK_VERSION_CODE" -eq "$EARAM_VERSION_CODE"
           test "$APK_VERSION_CODE" -gt 100004
-          CERT_LINE="$(apksigner verify --print-certs "$APK" | grep -i 'certificate SHA-256 digest:' | head -n 1)"
+          CERT_LINE="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep -i 'certificate SHA-256 digest:' | head -n 1)"
           ACTUAL_CERT="$(echo "$CERT_LINE" | awk -F': ' '{print $2}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           EXPECTED_CERT="16345630c8ce937276e76359adeff9bc02c2bd0318cf3f55ec86f23a7d40a712"
           echo "Debug certificate SHA-256=$ACTUAL_CERT"
