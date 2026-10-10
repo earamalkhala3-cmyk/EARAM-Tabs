@@ -1763,9 +1763,12 @@ class MainActivity : ComponentActivity() {
             noteSelectionBottom=Float.NaN
             invalidate()
         }
-        fun diagnosticNoteSelectionBounds(): String =
-            "noteSelectionLeft=$noteSelectionLeft, noteSelectionTop=$noteSelectionTop, " +
-            "noteSelectionRight=$noteSelectionRight, noteSelectionBottom=$noteSelectionBottom"
+        fun diagnosticNoteSelectionBounds(): String {
+            val centerX = if (noteSelectionLeft.isFinite() && noteSelectionRight.isFinite()) (noteSelectionLeft + noteSelectionRight) / 2f else Float.NaN
+            return "noteSelectionLeft=$noteSelectionLeft, noteSelectionTop=$noteSelectionTop, " +
+                "noteSelectionRight=$noteSelectionRight, noteSelectionBottom=$noteSelectionBottom, " +
+                "noteSelectionCenterX=$centerX, deltaOrangeCenterMinusCaretX=${centerX - caretCenterX}"
+        }
         fun showNoteCursor(left:Float,top:Float,width:Float,height:Float)=invalidate()
         fun hideCursor(){
             caretCenterX=Float.NaN; caretCenterY=Float.NaN; caretHalf=0f
@@ -5182,15 +5185,41 @@ class MainActivity : ComponentActivity() {
                 val scroll = actualScrollOffsets()
                 val scrollLayout = actualScrollOffsetsLayout()
                 val last = lastCaretPosition
+                val overlayLocation = IntArray(2)
+                val scoreLocation = IntArray(2)
+                overlay.getLocationOnScreen(overlayLocation)
+                score.getLocationOnScreen(scoreLocation)
+                val scoreXInOverlay = scoreLocation[0] - overlayLocation[0]
+                val scoreYInOverlay = scoreLocation[1] - overlayLocation[1]
+                val selectedCandidateNotes = single?.let { diagnosticItems(diagnosticMember(it, "notes")) }.orEmpty()
+                val selectedNoteBoundsEntry = selectedCandidateNotes.firstOrNull { entry ->
+                    diagnosticMember(entry, "note") === selectedNoteRef
+                } ?: selectedCandidateNotes.firstOrNull { entry ->
+                    val note = diagnosticMember(entry, "note")
+                    diagnosticMember(note, "string")?.toString() == alphaTabString(caret.stringIndex).toString()
+                }
+                val selectedNoteObject = selectedNoteBoundsEntry?.let { diagnosticMember(it, "note") }
+                val selectedNoteHead = selectedNoteBoundsEntry?.let { diagnosticMember(it, "noteHeadBounds") }
+                val selectedFret = selectedNoteObject?.let { diagnosticMember(it, "fret") }
+                val selectedHeadX = selectedNoteHead?.let { diagnosticMember(it, "x") }
+                val selectedHeadW = selectedNoteHead?.let { diagnosticMember(it, "w") }
+                val orangeCenterX = if (overlay.diagnosticNoteSelectionBounds().contains("noteSelectionCenterX=")) {
+                    // Parsed from the actual overlay rectangle by the explicit values below.
+                    Float.NaN
+                } else Float.NaN
 
                 report.appendLine("EARAM ALPHATAB BOUNDS DIAGNOSTIC")
                 report.appendLine("DEBUG only; drawing logic was not changed by this diagnostic.")
                 report.appendLine("versionName=${BuildConfig.VERSION_NAME}; versionCode=${BuildConfig.VERSION_CODE}; currentTrackIndex=$currentTrackIndex, measureIndex=${caret.measureIndex}, beatIndex=${caret.beatIndex}, voiceIndex=$currentVoiceIndex, stringIndex=${caret.stringIndex}")
-                report.appendLine("density=$density; displayScale=$displayScale; coordinateScale=$coordinateScale; originOverlayPx=(${origin.first}, ${origin.second})")
-                report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second})")
+                report.appendLine("screenPx=(width=${dm.widthPixels}, height=${dm.heightPixels}); density=$density")
+                report.appendLine("overlayPx=(width=${overlay.width}, height=${overlay.height}, screenX=${overlayLocation[0]}, screenY=${overlayLocation[1]})")
+                report.appendLine("alphaTabViewPx=(width=${score.width}, height=${score.height}, screenX=${scoreLocation[0]}, screenY=${scoreLocation[1]}, insideOverlayX=$scoreXInOverlay, insideOverlayY=$scoreYInOverlay)")
+                report.appendLine("displayScale=$displayScale; coordinateScale=$coordinateScale; originOverlayPx=(${origin.first}, ${origin.second})")
+                report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second}); score.scroll=(x=${score.scrollX}, y=${score.scrollY})")
+                report.appendLine("sameBeatX: rawX/onNotesX=${single?.let { diagnosticMember(it, "onNotesX") }}; beatRealBounds={${diagnosticBounds(diagnosticMember(single, "realBounds"))}}")
+                report.appendLine("selected fret note: selectionTarget=$selectionTarget; stringIndex=${caret.stringIndex}; alphaTabString=${alphaTabString(caret.stringIndex)}; fret=$selectedFret; noteHeadBounds.x=$selectedHeadX; noteHeadBounds.w=$selectedHeadW; selectedNoteRefMatched=${selectedNoteObject === selectedNoteRef}")
                 report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
-                report.appendLine("lastFinalCaret=(x=${last?.first}, y=${last?.second}, half=${last?.third}); lastCaretRect=$lastCaretRect")
-                report.appendLine("caretCenterX=${last?.first}; caretCenterY=${last?.second}")
+                report.appendLine("lastFinalCaret=(x=${last?.first}, y=${last?.second}, half=${last?.third}); caretCenterX=${last?.first}; caretCenterY=${last?.second}; lastCaretRect=$lastCaretRect")
                 report.appendLine("drawn orange selection: ${overlay.diagnosticNoteSelectionBounds()}")
                 report.appendLine("origin math: finalX = rawX * density * displayScale + originX; finalY = rawY * density * displayScale + originY")
                 report.appendLine("lookupPresent=${lookup != null}; selectedBeatPresent=${beat != null}; findBeatCount=${if (single == null) 0 else 1}; findBeatsCount=${many.size}")
