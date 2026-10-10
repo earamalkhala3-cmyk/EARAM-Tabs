@@ -3226,17 +3226,25 @@ class MainActivity : ComponentActivity() {
             val song = score.api.score ?: return
             val alphaString = alphaTabString(caret.stringIndex)
             val existing = beat.getNoteOnString(alphaString.toDouble())
-            if (existing != null) {
+            val writtenNote = if (existing != null) {
                 existing.fret = fret.toDouble()
                 existing.finish(score.settings, null)
+                existing
             } else {
-                val note = Note().apply {
+                Note().apply {
                     string = alphaString.toDouble()
                     this.fret = fret.toDouble()
+                    beat.addNote(this)
+                    finish(score.settings, null)
                 }
-                beat.addNote(note)
-                note.finish(score.settings, null)
             }
+
+            // The selection represents the actual note object, not a decorative
+            // caret. Immediately select the fret just written on this string/beat,
+            // so the orange outline follows the number as soon as it appears.
+            selectionTarget = SelectionTarget.NOTE
+            selectedNoteRef = writtenNote
+            tappedNoteBounds = null
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             song.finish(score.settings)
