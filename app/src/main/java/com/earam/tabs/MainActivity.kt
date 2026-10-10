@@ -578,7 +578,7 @@ class MainActivity : ComponentActivity() {
                         "Zoom 100%" to { score.settings.display.scale = 1.0; session.zoom = 1.0; score.api.updateSettings(); score.api.render() },
                         "Debug coordinates" to { editor.setDebugModeFromUi(!editor.isDebugMode()) }
                     )) }
-                )); if (BuildConfig.DEBUG) add("Diagnostics" to { editor.showBoundsDiagnosticDialog() }) })
+                )); if (BuildConfig.DEBUG) add("Diagnostics" to { editor.setDebugModeFromUi(true); editor.showBoundsDiagnosticDialog() }) })
             }
         }
 
