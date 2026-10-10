@@ -823,6 +823,7 @@ class MainActivity : ComponentActivity() {
         // Add AFTER AlphaTab so the orange note-selection disc is actually visible above the TAB.
         scoreLayer.addView(editorOverlay, FrameLayout.LayoutParams(-1, -1))
         editor = AlphaTabNoteEditor(this, score, status, editorOverlay)
+        editorOverlay.setScrollProvider { editor.actualScrollOffsets() }
         noteEditor = editor
         editor.attach()
         editor.attachAlphaTabCursorLayer()
@@ -1714,6 +1715,52 @@ class MainActivity : ComponentActivity() {
         private var debugEnabled=false
         private var scrollProvider:(()->Pair<Float,Float>)?=null
         private var contentOriginProvider:(()->Pair<Float,Float>)?=null
+        private var lastProviderScrollPx: Pair<Float,Float> = Float.NaN to Float.NaN
+        private var scrollInvalidateCount: Long = 0L
+        private var scrollPollingActive = false
+        private val scrollPollRunnable = object : Runnable {
+            override fun run() {
+                if (!isAttachedToWindow || scrollProvider == null) {
+                    scrollPollingActive = false
+                    return
+                }
+                val current = runCatching { scrollProvider?.invoke() }.getOrNull()
+                if (current != null) {
+                    val previous = lastProviderScrollPx
+                    if (!previous.first.isFinite() || !previous.second.isFinite() ||
+                        kotlin.math.abs(current.first - previous.first) > 0.5f ||
+                        kotlin.math.abs(current.second - previous.second) > 0.5f
+                    ) {
+                        lastProviderScrollPx = current
+                        scrollInvalidateCount++
+                        invalidate()
+                    }
+                }
+                postDelayed(this, 50L)
+            }
+        }
+        private fun startScrollPolling() {
+            if (!isAttachedToWindow || scrollPollingActive || scrollProvider == null) return
+            scrollPollingActive = true
+            lastProviderScrollPx = runCatching { scrollProvider?.invoke() }.getOrNull()
+                ?: (Float.NaN to Float.NaN)
+            removeCallbacks(scrollPollRunnable)
+            post(scrollPollRunnable)
+        }
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            startScrollPolling()
+        }
+        override fun onDetachedFromWindow() {
+            removeCallbacks(scrollPollRunnable)
+            scrollPollingActive = false
+            super.onDetachedFromWindow()
+        }
+        fun providerScrollDiagnostic(): String {
+            val current = runCatching { scrollProvider?.invoke() }.getOrNull()
+            return current?.let { "(${it.first}, ${it.second})" } ?: "UNAVAILABLE"
+        }
+        fun scrollInvalidationCount(): Long = scrollInvalidateCount
 
         private var caretCenterX = Float.NaN
         private var caretCenterY = Float.NaN
@@ -1737,7 +1784,11 @@ class MainActivity : ComponentActivity() {
         private var playbackTop = 0f
         private var playbackBottom = 0f
 
-        fun setScrollProvider(provider:()->Pair<Float,Float>){scrollProvider=provider}
+        fun setScrollProvider(provider:()->Pair<Float,Float>){
+            scrollProvider = provider
+            lastProviderScrollPx = runCatching { provider() }.getOrNull() ?: (Float.NaN to Float.NaN)
+            startScrollPolling()
+        }
         fun setContentOriginProvider(provider:()->Pair<Float,Float>){contentOriginProvider=provider}
         fun setDebugData(enabled:Boolean,bars:List<RectF>,label:String){debugEnabled=enabled;debugBars.clear();debugBars.addAll(bars);invalidate()}
         fun setDebugBanner(text:String){debugBanner=text;invalidate()}
@@ -5137,7 +5188,7 @@ class MainActivity : ComponentActivity() {
                     // AlphaTab hit-testing converts touch pixels with density * display.scale.
                     // Its rendered bounds and scroll must use that exact same transform.
                     val displayScale=score.settings.display.scale.toFloat().coerceIn(0.1f,4f)
-                    val coordinateScale=d*displayScale
+                    val coordinateScale=contentScalePxPerLayoutUnit()
                     val half=((spacing*.9f).coerceAtLeast(4f)/2f)*coordinateScale
                     val origin=alphaTabContentOriginInOverlay()
                     val finalXBeforeClamp=rawX*coordinateScale+origin.first
@@ -5207,7 +5258,7 @@ class MainActivity : ComponentActivity() {
             overlay.setDebugBanner("Bar1 raw x=$x y=$y w=$w h=$h\nBeat.onNotesX=$onNotesX caret=[$l,$t,$r,$b]\nAlphaTab scroll=(${scroll.first},${scroll.second})\nAlphaTabView screen=(${sl[0]},${sl[1]}) overlay screen=(${ol[0]},${ol[1]})")
         }
         fun logOfficialPlaybackCursor(playedBeat:Beat){
-            try{ val b=score.api.renderer.boundsLookup?.findBeat(playedBeat)?:return; val bar=score.api.renderer.boundsLookup?.findMasterBar(b.beat.voice.bar.masterBar)?.realBounds ?: b.barBounds.masterBarBounds.visualBounds; val o=alphaTabContentOriginInOverlay(); val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f); val displayScale=score.settings.display.scale.toFloat().coerceIn(0.1f,4f); val coordinateScale=d*displayScale; val rawX=b.onNotesX.toFloat(); val x=rawX*coordinateScale+o.first; val top=bar.y.toFloat()*coordinateScale+o.second; val bottom=(bar.y+bar.h).toFloat()*coordinateScale+o.second; overlay.showPlaybackCursorContent(x,top,bottom); if (BuildConfig.DEBUG && coordinateDebugEnabled) { val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets(); android.util.Log.d("EARAM_COORD","playback BAR1 raw barBounds.realBounds="+bar+" beatRealBounds="+b.realBounds+" onNotesX(rawLayout)="+rawX+" | density="+d+" displayScale="+displayScale+" coordinateScale="+coordinateScale+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+o.first+","+o.second+" | playbackFinalPx="+x+","+top+" playbackBottomPx="+bottom) } }catch(t:Throwable){if (BuildConfig.DEBUG && coordinateDebugEnabled) android.util.Log.e("EARAM_ALPHA_CURSOR","overlay playback cursor failed",t)}
+            try{ val b=score.api.renderer.boundsLookup?.findBeat(playedBeat)?:return; val bar=score.api.renderer.boundsLookup?.findMasterBar(b.beat.voice.bar.masterBar)?.realBounds ?: b.barBounds.masterBarBounds.visualBounds; val o=alphaTabContentOriginInOverlay(); val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f); val displayScale=score.settings.display.scale.toFloat().coerceIn(0.1f,4f); val coordinateScale=contentScalePxPerLayoutUnit(); val rawX=b.onNotesX.toFloat(); val x=rawX*coordinateScale+o.first; val top=bar.y.toFloat()*coordinateScale+o.second; val bottom=(bar.y+bar.h).toFloat()*coordinateScale+o.second; overlay.showPlaybackCursorContent(x,top,bottom); if (BuildConfig.DEBUG && coordinateDebugEnabled) { val scLayout=actualScrollOffsetsLayout(); val scPx=actualScrollOffsets(); android.util.Log.d("EARAM_COORD","playback BAR1 raw barBounds.realBounds="+bar+" beatRealBounds="+b.realBounds+" onNotesX(rawLayout)="+rawX+" | density="+d+" displayScale="+displayScale+" coordinateScale="+coordinateScale+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+o.first+","+o.second+" | playbackFinalPx="+x+","+top+" playbackBottomPx="+bottom) } }catch(t:Throwable){if (BuildConfig.DEBUG && coordinateDebugEnabled) android.util.Log.e("EARAM_ALPHA_CURSOR","overlay playback cursor failed",t)}
         }
         fun showPlaybackBeat(playedBeat:Beat)=logOfficialPlaybackCursor(playedBeat)
         fun hidePlaybackCursor(){
@@ -5245,7 +5296,7 @@ class MainActivity : ComponentActivity() {
                                 kotlin.math.abs(after.second - before.second) > 0.5f)) {
                         val density = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
                         val scale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
-                        val factor = density * scale
+                        val factor = contentScalePxPerLayoutUnit()
                         val pxBefore = before.first * factor to before.second * factor
                         val pxAfter = after.first * factor to after.second * factor
                         val p = lastCaretPosition
@@ -5268,8 +5319,13 @@ class MainActivity : ComponentActivity() {
             }
             overlay.post(poll)
         }
+        private fun contentScalePxPerLayoutUnit(): Float {
+            val density = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+            val displayScale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
+            return density * displayScale
+        }
         fun actualScrollOffsetsLayout():Pair<Float,Float>{return try{val s=score.api.uiFacade.getScrollContainer();Pair(s.scrollLeft.toFloat(),s.scrollTop.toFloat())}catch(t:Throwable){val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);Pair(score.scrollX.toFloat()/d,score.scrollY.toFloat()/d)}}
-        fun actualScrollOffsets():Pair<Float,Float>{val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);val scale=score.settings.display.scale.toFloat().coerceIn(0.1f,4f);val factor=d*scale;val raw=actualScrollOffsetsLayout();return Pair(raw.first*factor,raw.second*factor)}
+        fun actualScrollOffsets():Pair<Float,Float>{val factor=contentScalePxPerLayoutUnit();val raw=actualScrollOffsetsLayout();return Pair(raw.first*factor,raw.second*factor)}
         private fun diagnosticMember(obj: Any?, name: String): Any? {
             if (obj == null) return null
             val suffix = name.substring(0, 1).uppercase() + name.substring(1)
@@ -5326,10 +5382,21 @@ class MainActivity : ComponentActivity() {
                 val dm = activity.resources.displayMetrics
                 val density = dm.density.coerceAtLeast(0.01f)
                 val displayScale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
-                val coordinateScale = density * displayScale
+                val coordinateScale = contentScalePxPerLayoutUnit()
                 val origin = alphaTabContentOriginInOverlay()
                 val scroll = actualScrollOffsets()
                 val scrollLayout = actualScrollOffsetsLayout()
+                val scrollContainer = runCatching { score.api.uiFacade.getScrollContainer() }.getOrNull()
+                val scrollerClass = scrollContainer?.javaClass?.name ?: "UNAVAILABLE"
+                val scrollerAndroidView = scrollContainer as? View
+                val selectionWrapper = diagnosticMember(score, "selectionWrapper")
+                    ?: diagnosticMember(scrollContainer, "selectionWrapper")
+                val selectionWrapperClass = selectionWrapper?.javaClass?.name ?: "NOT_EXPOSED"
+                val selectionWrapperParent = when (selectionWrapper) {
+                    is View -> selectionWrapper.parent?.javaClass?.name ?: "NO_PARENT"
+                    null -> "NOT_EXPOSED"
+                    else -> diagnosticMember(selectionWrapper, "parent")?.javaClass?.name ?: "NOT_EXPOSED"
+                }
                 val last = lastCaretPosition
                 val overlayLocation = IntArray(2)
                 val scoreLocation = IntArray(2)
@@ -5356,7 +5423,8 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("overlayPx=(width=${overlay.width}, height=${overlay.height}, screenX=${overlayLocation[0]}, screenY=${overlayLocation[1]})")
                 report.appendLine("alphaTabViewPx=(width=${score.width}, height=${score.height}, screenX=${scoreLocation[0]}, screenY=${scoreLocation[1]}, insideOverlayX=$scoreXInOverlay, insideOverlayY=$scoreYInOverlay)")
                 report.appendLine("displayScale=$displayScale; coordinateScale=$coordinateScale; originOverlayPx=(${origin.first}, ${origin.second})")
-                report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second}); score.scroll=(x=${score.scrollX}, y=${score.scrollY})")
+                report.appendLine("SCROLL/HIERARCHY: scrollerClass=$scrollerClass; scrollerIsAndroidView=${scrollerAndroidView != null}; selectionWrapperClass=$selectionWrapperClass; selectionWrapperParentClass=$selectionWrapperParent; androidOnScrollChangeListenerAvailable=${scrollerAndroidView != null}")
+                report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second}); providerScrollPx=${overlay.providerScrollDiagnostic()}; scrollInvalidateCount=${overlay.scrollInvalidationCount()}; score.scroll=(x=${score.scrollX}, y=${score.scrollY})")
                 report.appendLine("sameBeatX: rawX/onNotesX=${single?.let { diagnosticMember(it, "onNotesX") }}; beatRealBounds={${diagnosticBounds(diagnosticMember(single, "realBounds"))}}")
                 report.appendLine("selected fret note: selectionTarget=$selectionTarget; stringIndex=${caret.stringIndex}; alphaTabString=${alphaTabString(caret.stringIndex)}; fret=$selectedFret; noteHeadBounds.x=$selectedHeadX; noteHeadBounds.w=$selectedHeadW; selectedNoteRefMatched=${selectedNoteObject === selectedNoteRef}")
                 report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
