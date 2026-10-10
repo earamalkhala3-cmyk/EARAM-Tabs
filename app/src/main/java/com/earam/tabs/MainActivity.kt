@@ -5004,23 +5004,22 @@ class MainActivity : ComponentActivity() {
                     val allBeatBounds = runCatching { lookup.findBeats(beat)?.toList().orEmpty() }
                         .getOrDefault(listOf(bb))
                     val expectedTabY = hitExpectedTabY(caret.measureIndex, caret.beatIndex, caret.stringIndex)
+                    val hit = beatHits.firstOrNull {
+                        it.measure == caret.measureIndex && it.beat == caret.beatIndex && !it.virtual
+                    }
+                    val fallbackTop = hit?.tabTopY ?: (rawBar.y.toFloat() + rawBar.h.toFloat() * 0.61f)
+                    val spacing = hit?.stringSpacing ?: stringSpacing
                     // AlphaTab NoteBounds.noteHeadBounds belongs to standard notation on
-                    // Score+TAB layouts; it is NOT the fret-number glyph rectangle. Never
-                    // use it for the orange TAB selection. Anchor selection to this beat's
-                    // rendered TAB column and the selected string's TAB row instead.
+                    // Score+TAB layouts; it is NOT the corresponding TAB fret glyph.
+                    // Anchor the orange outline to the selected string row and beat column.
                     val selectedNoteRect = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
                         val tabY = expectedTabY
-                            ?: (hitExpectedTabY(caret.measureIndex, caret.beatIndex, caret.stringIndex)
-                                ?: (hit?.tabTopY ?: (rawBar.y.toFloat() + rawBar.h.toFloat() * 0.61f)) +
-                                    (caret.stringIndex - 1).coerceAtLeast(0) * spacing)
+                            ?: (fallbackTop + (caret.stringIndex - 1).coerceAtLeast(0) * spacing)
                         val halfWidth = (spacing * 0.62f).coerceIn(5f, 11f)
                         val halfHeight = (spacing * 0.46f).coerceIn(4f, 8f)
                         RectF(rawX.toFloat() - halfWidth, tabY - halfHeight,
                             rawX.toFloat() + halfWidth, tabY + halfHeight)
                     } else null
-                    val hit=beatHits.firstOrNull{it.measure==caret.measureIndex&&it.beat==caret.beatIndex&&!it.virtual}
-                    val fallbackTop=hit?.tabTopY ?: (rawBar.y.toFloat()+rawBar.h.toFloat()*.58f)
-                    val spacing=hit?.stringSpacing ?: stringSpacing
                     val rawY = if (selectedNoteRect != null) {
                         selectedNoteRect.centerY()
                     } else {
@@ -5062,7 +5061,7 @@ class MainActivity : ComponentActivity() {
                         val scLayout=actualScrollOffsetsLayout()
                         val scPx=actualScrollOffsets()
                         overlay.setDiagnosticBanner("OK raw=("+rawX+","+rawY+") d="+d+" scale="+displayScale+" coordScale="+coordinateScale+" final=("+finalX+","+finalY+") scrollPx=("+scPx.first+","+scPx.second+") overlay="+overlay.width+"x"+overlay.height+" AlphaTabView="+score.width+"x"+score.height)
-                        android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" selectedNoteBounds="+selectedNoteBounds+" tabY(rawLayout)="+rawY+" | density="+d+" displayScale="+displayScale+" coordinateScale="+coordinateScale+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
+                        android.util.Log.d("EARAM_COORD","caret BAR1 raw barBounds.realBounds="+rawBar+" beatRealBounds="+bb.realBounds+" onNotesX(rawLayout)="+rawX+" selectedNoteRect="+selectedNoteRect+" tabY(rawLayout)="+rawY+" | density="+d+" displayScale="+displayScale+" coordinateScale="+coordinateScale+" | scrollLayout="+scLayout.first+","+scLayout.second+" scrollPx="+scPx.first+","+scPx.second+" | contentOriginPx="+origin.first+","+origin.second+" | caretFinalPx="+finalX+","+finalY+" halfPx="+half)
                     }
                     updateDebugOverlay()
                 } else overlay.hideCursor()
