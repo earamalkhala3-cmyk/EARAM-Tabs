@@ -24,6 +24,11 @@ android { namespace = "com.earam.tabs"; compileSdk = 36
     }
     signingConfigs {
         getByName("debug") {
+            storeFile = file("debug.keystore")
+            storeType = "JKS"
+            storePassword = "earam_debug_dev_only"
+            keyAlias = "earam_debug"
+            keyPassword = "earam_debug_dev_only"
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
