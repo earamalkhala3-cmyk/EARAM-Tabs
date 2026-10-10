@@ -43,9 +43,11 @@ android { namespace = "com.earam.tabs"; compileSdk = 36
         getByName("debug") {
             // Keep diagnostic builds side-by-side with the signed production app.
             applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "Earam DEBUG"
             signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
+            manifestPlaceholders["appLabel"] = "Earam"
             signingConfig = signingConfigs.getByName("release")
             isDebuggable = false
             isMinifyEnabled = false
