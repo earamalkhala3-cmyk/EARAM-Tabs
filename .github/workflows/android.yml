@@ -244,6 +244,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload DEBUG diagnostic APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Earam-Debug-Diagnostics-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Deterministic AlphaTab cursor screenshot test
         timeout-minutes: 5
         run: |
@@ -254,13 +264,16 @@ jobs:
           # renderer/overlay diagnostic test against a Debug APK instead, while the
           # separately validated and uploaded Release APK remains unchanged.
           gradle :app:assembleDebug --no-daemon --stacktrace
-          adb -s emulator-5554 uninstall com.earam.tabs || true
+          # Publish a separate DEBUG APK for on-device coordinate diagnostics.
+          # Its applicationIdSuffix is .debug, so it can coexist with the signed app.
+          sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/app-debug.apk.sha256
+          adb -s emulator-5554 uninstall com.earam.tabs.debug || true
           adb -s emulator-5554 install --no-incremental app/build/outputs/apk/debug/app-debug.apk
           timeout 10s adb -s emulator-5554 logcat -c || true
           # Start a fresh Activity and pass the CI trigger as an explicit Intent extra.
           # -S is intentional: it guarantees the old Activity/process cannot consume
           # the launch without receiving the new extra.
-          timeout 20s adb -s emulator-5554 shell am start -S -W -n com.earam.tabs/.MainActivity --ez earam_ci_cursor_test true > "$OUT/launch.log" 2>&1
+          timeout 20s adb -s emulator-5554 shell am start -S -W -n com.earam.tabs.debug/.MainActivity --ez earam_ci_cursor_test true > "$OUT/launch.log" 2>&1
           cat "$OUT/launch.log"
           # Never guess that AlphaTab is ready after N seconds. The application must
           # explicitly report fixture creation plus finite renderer-derived coordinates.
@@ -280,9 +293,9 @@ jobs:
             echo "----- CI/CURSOR LOG -----"
             grep -E 'EARAM_CI_CURSOR|EARAM_COORD|EARAM_ALPHA_CURSOR|EARAM_SCROLL|FATAL|AndroidRuntime' "$OUT/wait.log" || true
             echo "----- ACTIVITY STATE -----"
-            timeout 10s adb -s emulator-5554 shell dumpsys activity activities | grep -E 'mResumedActivity|MainActivity|com.earam.tabs' | tail -40 || true
+            timeout 10s adb -s emulator-5554 shell dumpsys activity activities | grep -E 'mResumedActivity|MainActivity|com.earam.tabs.debug' | tail -40 || true
             echo "----- PROCESS STATE -----"
-            timeout 10s adb -s emulator-5554 shell pidof com.earam.tabs || true
+            timeout 10s adb -s emulator-5554 shell pidof com.earam.tabs.debug || true
             exit 1
           fi
           # Capture directly through adb exec-out. This avoids Android 15 shell
