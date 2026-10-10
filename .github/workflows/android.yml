@@ -272,10 +272,12 @@ jobs:
           adb -s emulator-5554 uninstall com.earam.tabs.debug || true
           adb -s emulator-5554 install --no-incremental app/build/outputs/apk/debug/app-debug.apk
           timeout 10s adb -s emulator-5554 logcat -c || true
-          # Start a fresh Activity and pass the CI trigger as an explicit Intent extra.
-          # -S is intentional: it guarantees the old Activity/process cannot consume
-          # the launch without receiving the new extra.
-          timeout 20s adb -s emulator-5554 shell am start -S -W -n com.earam.tabs.debug/.MainActivity --ez earam_ci_cursor_test true > "$OUT/launch.log" 2>&1
+          # Start the app through its launcher intent instead of hard-coding a
+          # component class. applicationIdSuffix changes the installed package to
+          # com.earam.tabs.debug, while the Activity class remains in the namespace;
+          # a relative component name can therefore resolve to the wrong class.
+          # -S forces a fresh process and the explicit extra requests the fixture.
+          timeout 20s adb -s emulator-5554 shell am start -S -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p com.earam.tabs.debug --ez earam_ci_cursor_test true > "$OUT/launch.log" 2>&1
           cat "$OUT/launch.log"
           # Never guess that AlphaTab is ready after N seconds. The application must
           # explicitly report fixture creation plus finite renderer-derived coordinates.
