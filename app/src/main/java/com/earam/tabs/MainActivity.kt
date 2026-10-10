@@ -2272,8 +2272,7 @@ class MainActivity : ComponentActivity() {
             score.api.score?.finish(score.settings)
 
             currentVoiceIndex = snapshot.voiceIndex
-            caret = caret.copy(measureIndex = snapshot.barIndex, beatIndex = snapshot.beatIndex)
-            session.caret = caret
+            setSelection(SelectionTarget.BEAT, caret.copy(measureIndex = snapshot.barIndex, beatIndex = snapshot.beatIndex))
             armed = true
             pendingFret = ""
             renderAndLog("history")
@@ -2317,8 +2316,7 @@ class MainActivity : ComponentActivity() {
         fun resetSelection() {
             currentVoiceIndex = 0
             val track = 0.coerceAtMost((score.api.score?.tracks?.toList()?.size ?: 1) - 1)
-            caret = Caret(track, 0, 0, 1)
-            session.caret = caret
+            setSelection(SelectionTarget.BEAT, Caret(track, 0, 0, 1))
             armed = false
             pendingFret = ""
             updateCursor()
@@ -2334,6 +2332,49 @@ class MainActivity : ComponentActivity() {
         // The selection must refer to the exact AlphaTab Note object, not merely
         // the caret's string index. This is essential for deleting one note from a chord.
         private var selectedNoteRef: alphaTab.model.Note? = null
+        private var selectionInvariantViolationCount = 0
+
+        /**
+         * The only writer for the active selection state. NOTE selection is valid only
+         * when it points to the exact Note object inside the beat addressed by the caret.
+         * Debug violations are diagnostic-only: log and count them, never crash the editor.
+         */
+        private fun setSelection(
+            target: SelectionTarget,
+            targetCaret: Caret = caret,
+            note: alphaTab.model.Note? = null
+        ) {
+            caret = targetCaret
+            session.caret = targetCaret
+            selectionTarget = target
+            selectedNoteRef = if (target == SelectionTarget.NOTE) note else null
+            tappedNoteBounds = null
+
+            if (target == SelectionTarget.NOTE) {
+                val beat = selectedBeat()
+                val valid = note != null && beat != null && note.beat === beat &&
+                    beat.notes.toList().any { it === note }
+                if (BuildConfig.DEBUG && !valid) {
+                    selectionInvariantViolationCount++
+                    android.util.Log.e(
+                        "EARAM_SELECTION",
+                        "Selection invariant violation #" + selectionInvariantViolationCount +
+                            ": NOTE target does not belong to current beat; caret=" + caret +
+                            "; notePresent=" + (note != null) + "; beatPresent=" + (beat != null)
+                    )
+                }
+            }
+        }
+
+        private fun setSelectionFromCaretString(targetCaret: Caret = caret) {
+            val beat = score.api.score?.tracks?.toList()?.getOrNull(targetCaret.trackIndex)
+                ?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(targetCaret.measureIndex)
+                ?.voices?.toList()?.getOrNull(currentVoiceIndex)
+                ?.beats?.toList()?.getOrNull(targetCaret.beatIndex)
+            val note = beat?.getNoteOnString(alphaTabString(targetCaret.stringIndex).toDouble())
+            setSelection(if (note != null) SelectionTarget.NOTE else SelectionTarget.BEAT, targetCaret, note)
+        }
+
         private var lastRawCaretX = Float.NaN
         private var lastRawCaretY = Float.NaN
         fun alphaTabContentOriginInOverlay(): Pair<Float, Float> { return try { val sl=IntArray(2); val ol=IntArray(2); score.getLocationOnScreen(sl); overlay.getLocationOnScreen(ol); Pair((sl[0]-ol[0]).toFloat(),(sl[1]-ol[1]).toFloat()) } catch(t:Throwable){ 0f to 0f } }
@@ -2698,8 +2739,7 @@ class MainActivity : ComponentActivity() {
                     selectionFocusBeat = note.beat
                     selectionDragActive = false
                     selectionDragMoved = false
-                    selectionTarget = SelectionTarget.NOTE
-                    selectedNoteRef = note
+                    setSelection(SelectionTarget.NOTE, caret, note)
                     // Note model objects do not expose rendered bounds. Resolve the
                     // exact tapped note through AlphaTab's renderer bounds lookup instead.
                     val lookup = score.api.renderer.boundsLookup
@@ -3267,13 +3307,11 @@ class MainActivity : ComponentActivity() {
                                     contentX <= (r.x + r.w).toFloat() + 7f &&
                                     contentY >= r.y.toFloat() - 5f &&
                                     contentY <= (r.y + r.h).toFloat() + 5f) {
-                                    caret = Caret(currentTrackIndex, mi, bi, uiString)
-                                    session.caret = caret
+                                    currentVoiceIndex = beat.voice.index.toInt().coerceIn(0, 3)
+                                    setSelection(SelectionTarget.NOTE, Caret(currentTrackIndex, mi, bi, uiString), nb.note)
                                     // A direct TAB-number tap selects that exact NOTE.
                                     // Keep the model object itself: a chord may contain several
                                     // notes in one Beat, and Delete must remove only this one.
-                                    selectionTarget = SelectionTarget.NOTE
-                                    selectedNoteRef = nb.note
                                     tappedNoteBounds = RectF(
                                         r.x.toFloat(), r.y.toFloat(),
                                         (r.x + r.w).toFloat(), (r.y + r.h).toFloat()
@@ -3309,11 +3347,7 @@ class MainActivity : ComponentActivity() {
             // the exact visible measure, never on an inferred/nearest beat.
             val renderedBar = resolveRenderedBarAtPoint(x, y)
             if (renderedBar >= 0) {
-                caret = Caret(currentTrackIndex, renderedBar, 0, 1)
-                session.caret = caret
-                selectionTarget = SelectionTarget.BAR
-                selectedNoteRef = null
-                tappedNoteBounds = null
+                setSelection(SelectionTarget.BAR, Caret(currentTrackIndex, renderedBar, 0, 1))
                 overlay.hideNoteSelection()
                 armed = true
                 pendingFret = ""
@@ -3382,9 +3416,7 @@ class MainActivity : ComponentActivity() {
             // The selection represents the actual note object, not a decorative
             // caret. Immediately select the fret just written on this string/beat,
             // so the orange outline follows the number as soon as it appears.
-            selectionTarget = SelectionTarget.NOTE
-            selectedNoteRef = writtenNote
-            tappedNoteBounds = null
+            setSelection(SelectionTarget.NOTE, caret, writtenNote)
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             song.finish(score.settings)
@@ -3634,9 +3666,9 @@ class MainActivity : ComponentActivity() {
             }
             val beat = ensureRealBeatForCaret() ?: return
             pushUndoSnapshot()
-            val target = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
-            if (target == null) {
-                beat.addNote(Note().apply {
+            var pastedNote = beat.getNoteOnString(alphaTabString(currentStringIndex).toDouble())
+            if (pastedNote == null) {
+                pastedNote = Note().apply {
                     string = alphaTabString(currentStringIndex).toDouble()
                     fret = src.fret
                     isHammerPullOrigin = src.isHammerPullOrigin
@@ -3647,18 +3679,20 @@ class MainActivity : ComponentActivity() {
                     isStaccato = src.isStaccato
                     vibrato = src.vibrato
                     isLeftHandTapped = src.isLeftHandTapped
-                })
+                }
+                beat.addNote(pastedNote)
             } else {
-                target.fret = src.fret
-                target.isHammerPullOrigin = src.isHammerPullOrigin
-                target.isPalmMute = src.isPalmMute
-                target.isLetRing = src.isLetRing
-                target.isGhost = src.isGhost
-                target.isDead = src.isDead
-                target.isStaccato = src.isStaccato
-                target.vibrato = src.vibrato
-                target.isLeftHandTapped = src.isLeftHandTapped
+                pastedNote.fret = src.fret
+                pastedNote.isHammerPullOrigin = src.isHammerPullOrigin
+                pastedNote.isPalmMute = src.isPalmMute
+                pastedNote.isLetRing = src.isLetRing
+                pastedNote.isGhost = src.isGhost
+                pastedNote.isDead = src.isDead
+                pastedNote.isStaccato = src.isStaccato
+                pastedNote.vibrato = src.vibrato
+                pastedNote.isLeftHandTapped = src.isLeftHandTapped
             }
+            setSelection(SelectionTarget.NOTE, caret, pastedNote)
             beat.isEmpty = false
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
@@ -3679,6 +3713,7 @@ class MainActivity : ComponentActivity() {
             val target = ensureRealBeatForCaret() ?: return
             pushUndoSnapshot()
             applyClipboardBeat(target, src)
+            setSelection(SelectionTarget.BEAT, caret)
             score.api.score?.finish(score.settings)
             renderAndLog("paste-beat")
             updateStatus(
@@ -3750,9 +3785,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 score.api.score?.finish(score.settings)
-                caret = caret.copy(measureIndex = targetBarIndex, beatIndex = 0)
-                session.caret = caret
-                selectionTarget = SelectionTarget.BAR
+                setSelection(SelectionTarget.BAR, caret.copy(measureIndex = targetBarIndex, beatIndex = 0))
                 armed = true
                 pendingFret = ""
                 renderAndLog("paste-bar")
@@ -3819,11 +3852,10 @@ class MainActivity : ComponentActivity() {
 
             score.api.score?.finish(score.settings)
             renderAndLog("paste-range")
-            caret = caret.copy(
+            setSelection(SelectionTarget.BEAT, caret.copy(
                 measureIndex = startBar,
                 beatIndex = startBeat
-            )
-            session.caret = caret
+            ))
             pasteDestinationCaret = null
             awaitingPasteDestination = false
             updateCursor()
@@ -4912,11 +4944,7 @@ class MainActivity : ComponentActivity() {
                 if(b==bs.lastIndex) { if(!createNextMeasures(4)) return@repeat }
                 b++; beat=0
             }
-            caret=Caret(currentTrackIndex,b,beat,currentStringIndex); session.caret=caret
-            val movedBeat = bs.getOrNull(b)?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(beat)
-            val hasMovedNote = movedBeat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) != null
-            selectionTarget = if (hasMovedNote) SelectionTarget.NOTE else SelectionTarget.BEAT
-            tappedNoteBounds = null
+            setSelectionFromCaretString(Caret(currentTrackIndex,b,beat,currentStringIndex))
             armed=true; pendingFret=""
             updateCursor()
             if(lastRawCaretX.isFinite()&&lastRawCaretY.isFinite()) ensureCaretVisible(lastRawCaretX,lastRawCaretY)
@@ -4928,8 +4956,7 @@ class MainActivity : ComponentActivity() {
             if (bs.isEmpty()) return
             val targetBar = if (end) bs.lastIndex else 0
             val beats = bs[targetBar].voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
-            caret = Caret(currentTrackIndex, targetBar, if (end) (beats.size - 1).coerceAtLeast(0) else 0, currentStringIndex)
-            session.caret = caret
+            setSelectionFromCaretString(Caret(currentTrackIndex, targetBar, if (end) (beats.size - 1).coerceAtLeast(0) else 0, currentStringIndex))
             armed = true
             pendingFret = ""
             updateCursor()
@@ -4941,11 +4968,7 @@ class MainActivity : ComponentActivity() {
 
         /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
         private fun moveString(delta: Int) {
-            caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
-            session.caret = caret
-            val beat = currentBeat()
-            selectionTarget = if (beat?.getNoteOnString(alphaTabString(caret.stringIndex).toDouble()) != null) SelectionTarget.NOTE else SelectionTarget.BEAT
-            tappedNoteBounds = null
+            setSelectionFromCaretString(caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex())))
             armed = true
             pendingFret = ""
             updateCursor()
@@ -5099,9 +5122,7 @@ class MainActivity : ComponentActivity() {
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
-            selectedNoteRef = null
-            tappedNoteBounds = null
-            selectionTarget = SelectionTarget.BEAT
+            setSelection(SelectionTarget.BEAT, caret)
             overlay.hideNoteSelection()
             renderAndLog("delete-selected-note")
             updateCursor()
@@ -5418,6 +5439,7 @@ class MainActivity : ComponentActivity() {
                 val selectedHeadW = selectedNoteHead?.let { diagnosticMember(it, "w") }
                 report.appendLine("EARAM ALPHATAB BOUNDS DIAGNOSTIC")
                 report.appendLine("DEBUG only; drawing logic was not changed by this diagnostic.")
+            report.appendLine("selection invariant violations this editor session=$selectionInvariantViolationCount")
                 report.appendLine("versionName=${BuildConfig.VERSION_NAME}; versionCode=${BuildConfig.VERSION_CODE}; currentTrackIndex=$currentTrackIndex, measureIndex=${caret.measureIndex}, beatIndex=${caret.beatIndex}, voiceIndex=$currentVoiceIndex, stringIndex=${caret.stringIndex}")
                 report.appendLine("screenPx=(width=${dm.widthPixels}, height=${dm.heightPixels}); density=$density")
                 report.appendLine("overlayPx=(width=${overlay.width}, height=${overlay.height}, screenX=${overlayLocation[0]}, screenY=${overlayLocation[1]})")
