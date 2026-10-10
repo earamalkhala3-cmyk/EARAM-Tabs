@@ -537,7 +537,7 @@ class MainActivity : ComponentActivity() {
         val overflow = iconButton("⋮", "Open Earam menu", 42f).apply {
             textSize = 24f
             setOnClickListener {
-                showPanel("Earam", listOf(
+                showPanel("Earam", buildList { addAll(listOf(
                     "File" to { showFileMenu() },
                     "Edit" to { showPanel("EDIT", listOf(
                         "Undo  ↶" to { editor.undoFromUi() },
@@ -578,12 +578,24 @@ class MainActivity : ComponentActivity() {
                         "Zoom 100%" to { score.settings.display.scale = 1.0; session.zoom = 1.0; score.api.updateSettings(); score.api.render() },
                         "Debug coordinates" to { editor.setDebugModeFromUi(!editor.isDebugMode()) }
                     )) }
-                ))
+                )); if (BuildConfig.DEBUG) add("Diagnostics" to { editor.showBoundsDiagnosticDialog() }) })
             }
         }
 
+        val debugBadge = TextView(this).apply {
+            text = "DEBUG"
+            setTextColor(0xFFFFD7A3.toInt())
+            textSize = 9f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(dp(7f), dp(3f), dp(7f), dp(3f))
+            background = surface(0xFF633A12.toInt(), 6f)
+            visibility = if (BuildConfig.DEBUG) View.VISIBLE else View.GONE
+            contentDescription = "Debug build"
+        }
         header.addView(brandLogo, LinearLayout.LayoutParams(dp(46f), dp(42f)))
         header.addView(title, LinearLayout.LayoutParams(0, dp(42f), 1f))
+        header.addView(debugBadge, LinearLayout.LayoutParams(-2, dp(26f)).apply { rightMargin = dp(6f) })
         header.addView(overflow, LinearLayout.LayoutParams(dp(42f), dp(42f)))
 
         val status = TextView(this).apply {
@@ -2690,6 +2702,15 @@ class MainActivity : ComponentActivity() {
         }
 
         private var coordinateDebugEnabled = false
+        private var visualCursorRefreshCount = 0
+        private var debugScrollMonitorRunning = false
+        private var lastObservedScrollLayout: Pair<Float, Float>? = null
+        private var lastObservedRefreshCount = 0
+        private var lastFinalBeforeClampX = Float.NaN
+        private var lastFinalBeforeClampY = Float.NaN
+        private var lastFinalAfterClampX = Float.NaN
+        private var lastFinalAfterClampY = Float.NaN
+        private var lastFinalNoteRect: RectF? = null
         private val beatHits = mutableListOf<BeatHit>()
         private var stringSpacing: Float = 10f
         private var lastCaretPosition: Triple<Float, Float, Float>? = null
@@ -4983,6 +5004,7 @@ class MainActivity : ComponentActivity() {
         }
 
         fun refreshVisualCursor() {
+            visualCursorRefreshCount++
             try {
                 val lookup=score.api.renderer.boundsLookup; val song=score.api.score
                 val track=song?.tracks?.toList()?.getOrNull(currentTrackIndex); val staff=track?.staves?.firstOrNull()
@@ -5053,8 +5075,15 @@ class MainActivity : ComponentActivity() {
                     val coordinateScale=d*displayScale
                     val half=((spacing*.9f).coerceAtLeast(4f)/2f)*coordinateScale
                     val origin=alphaTabContentOriginInOverlay()
-                    val finalX=rawX*coordinateScale+origin.first
-                    val finalY=rawY*coordinateScale+origin.second
+                    val finalXBeforeClamp=rawX*coordinateScale+origin.first
+                    val finalYBeforeClamp=rawY*coordinateScale+origin.second
+                    // Diagnostic invariant: the cursor coordinates are intentionally not clamped.
+                    val finalX=finalXBeforeClamp
+                    val finalY=finalYBeforeClamp
+                    lastFinalBeforeClampX=finalXBeforeClamp
+                    lastFinalBeforeClampY=finalYBeforeClamp
+                    lastFinalAfterClampX=finalX
+                    lastFinalAfterClampY=finalY
                     val guideTop=rawBar.y.toFloat()*coordinateScale+origin.second
                     val guideBottom=(rawBar.y+rawBar.h).toFloat()*coordinateScale+origin.second
 
@@ -5067,8 +5096,10 @@ class MainActivity : ComponentActivity() {
                         val noteBottom = selectedNoteRect.bottom * coordinateScale + origin.second
                         diagnosticNoteLeft = noteLeft
                         diagnosticNoteRight = noteRight
+                        lastFinalNoteRect = RectF(noteLeft, noteTop, noteRight, noteBottom)
                         overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
                     } else {
+                        lastFinalNoteRect = null
                         overlay.hideNoteSelection()
                     }
 
@@ -5121,7 +5152,57 @@ class MainActivity : ComponentActivity() {
         fun restoreCaretFromSession(){caret=session.caret;currentVoiceIndex=0;armed=true;pendingFret="";updateStatus()}
         fun rebuildBeatHitsAfterLayout(){buildBeatHits()}
         fun isDebugMode():Boolean=coordinateDebugEnabled
-        fun setDebugModeFromUi(enabled:Boolean){if (!BuildConfig.DEBUG) return; coordinateDebugEnabled=enabled;buildBeatHits();updateDebugOverlay();updateStatus(if(enabled)"DEBUG ON • long-press title to disable" else "DEBUG OFF");refreshVisualCursor();logCoordinateDiagnostic("debug-toggle")}
+        fun setDebugModeFromUi(enabled:Boolean){
+            if (!BuildConfig.DEBUG) return
+            coordinateDebugEnabled=enabled
+            buildBeatHits()
+            updateDebugOverlay()
+            updateStatus(if(enabled)"DEBUG ON • Diagnostics menu / long-press title" else "DEBUG OFF")
+            refreshVisualCursor()
+            if (enabled) startDebugScrollMonitor()
+            logCoordinateDiagnostic("debug-toggle")
+        }
+        private fun startDebugScrollMonitor() {
+            if (!BuildConfig.DEBUG || debugScrollMonitorRunning) return
+            debugScrollMonitorRunning = true
+            lastObservedScrollLayout = actualScrollOffsetsLayout()
+            lastObservedRefreshCount = visualCursorRefreshCount
+            val poll = object : Runnable {
+                override fun run() {
+                    if (!coordinateDebugEnabled || !overlay.isAttachedToWindow) {
+                        debugScrollMonitorRunning = false
+                        return
+                    }
+                    val before = lastObservedScrollLayout
+                    val beforeRefresh = lastObservedRefreshCount
+                    val after = actualScrollOffsetsLayout()
+                    if (before != null && (kotlin.math.abs(after.first - before.first) > 0.5f ||
+                                kotlin.math.abs(after.second - before.second) > 0.5f)) {
+                        val density = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                        val scale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
+                        val factor = density * scale
+                        val pxBefore = before.first * factor to before.second * factor
+                        val pxAfter = after.first * factor to after.second * factor
+                        val p = lastCaretPosition
+                        val outside = p == null || p.first < 0f || p.second < 0f ||
+                            p.first > overlay.width || p.second > overlay.height
+                        android.util.Log.w(
+                            "EARAM_SCROLL_DIAG",
+                            "SCROLL_CHANGED layoutBefore=(${before.first},${before.second}) layoutAfter=(${after.first},${after.second}) " +
+                                "pxBefore=(${pxBefore.first},${pxBefore.second}) pxAfter=(${pxAfter.first},${pxAfter.second}) " +
+                                "refreshCountBefore=$beforeRefresh refreshCountAfter=$visualCursorRefreshCount " +
+                                "finalBeforeClamp=($lastFinalBeforeClampX,$lastFinalBeforeClampY) finalAfterClamp=($lastFinalAfterClampX,$lastFinalAfterClampY) " +
+                                "caretOutsideOverlay=$outside overlay=(${overlay.width},${overlay.height})"
+                        )
+                        logCoordinateDiagnostic("scroll-change-observed-no-forced-refresh")
+                    }
+                    lastObservedScrollLayout = after
+                    lastObservedRefreshCount = visualCursorRefreshCount
+                    overlay.postDelayed(this, 200L)
+                }
+            }
+            overlay.post(poll)
+        }
         fun actualScrollOffsetsLayout():Pair<Float,Float>{return try{val s=score.api.uiFacade.getScrollContainer();Pair(s.scrollLeft.toFloat(),s.scrollTop.toFloat())}catch(t:Throwable){val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);Pair(score.scrollX.toFloat()/d,score.scrollY.toFloat()/d)}}
         fun actualScrollOffsets():Pair<Float,Float>{val d=activity.resources.displayMetrics.density.coerceAtLeast(0.01f);val scale=score.settings.display.scale.toFloat().coerceIn(0.1f,4f);val factor=d*scale;val raw=actualScrollOffsetsLayout();return Pair(raw.first*factor,raw.second*factor)}
         private fun diagnosticMember(obj: Any?, name: String): Any? {
@@ -5216,7 +5297,18 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
                 report.appendLine("lastFinalCaret=(x=${last?.first}, y=${last?.second}, half=${last?.third}); caretCenterX=${last?.first}; caretCenterY=${last?.second}; lastCaretRect=$lastCaretRect")
                 report.appendLine("drawn orange selection: ${overlay.diagnosticNoteSelectionBounds()}")
-                report.appendLine("origin math: finalX = rawX * density * displayScale + originX; finalY = rawY * density * displayScale + originY")
+                val finalX = lastFinalAfterClampX
+                val finalY = lastFinalAfterClampY
+                val finalRect = lastFinalNoteRect
+                val caretOutside = !finalX.isFinite() || !finalY.isFinite() ||
+                    finalX < 0f || finalY < 0f || finalX > overlay.width || finalY > overlay.height
+                val noteOutside = finalRect?.let { r ->
+                    r.right < 0f || r.bottom < 0f || r.left > overlay.width || r.top > overlay.height
+                }
+                report.appendLine("origin math: origin is score.getLocationOnScreen() minus overlay.getLocationOnScreen(); internal AlphaTab scroll is NOT added in this function.")
+                report.appendLine("final coordinates: beforeClamp=(${lastFinalBeforeClampX}, ${lastFinalBeforeClampY}); afterClamp=(${lastFinalAfterClampX}, ${lastFinalAfterClampY}); clamp/coerce on finalX/finalY=NONE")
+                report.appendLine("overlay bounds local px=[0,0 .. ${overlay.width},${overlay.height}]; caretOutsideOverlay=$caretOutside; finalNoteRect=$finalRect; noteRectOutsideOverlay=$noteOutside; noteRectClamp=NONE")
+                report.appendLine("refreshVisualCursor call count=$visualCursorRefreshCount; debug scroll poll lastObservedLayout=$lastObservedScrollLayout; lastObservedRefreshCount=$lastObservedRefreshCount")
                 report.appendLine("lookupPresent=${lookup != null}; selectedBeatPresent=${beat != null}; findBeatCount=${if (single == null) 0 else 1}; findBeatsCount=${many.size}")
 
                 if (track != null) {
@@ -5319,7 +5411,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        fun logCoordinateDiagnostic(reason:String){if (!BuildConfig.DEBUG || !coordinateDebugEnabled) return; try{val s=score.api.uiFacade.getScrollContainer();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol);android.util.Log.d("EARAM_SCROLL","reason="+reason+" scroller="+s.javaClass.name+" actualScroll="+s.scrollLeft+","+s.scrollTop+" scoreScroll="+score.scrollX+","+score.scrollY+" scoreLoc="+sl[0]+","+sl[1]+" overlayLoc="+ol[0]+","+ol[1]);val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val bar=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(caret.measureIndex);val bb=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)?.let{lookup.findBeat(it)};val safeBarRect=bar?.let{lookup.findMasterBar(it.masterBar)?.realBounds}; android.util.Log.d("EARAM_SCROLL","raw barRect="+safeBarRect+" beatRect="+bb?.realBounds+" onNotesX="+bb?.onNotesX+" nativeCaretRect="+lastCaretRect+" parent=AlphaTab.selectionWrapper")}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","coordinate diagnostic failed",t)}}
+        fun logCoordinateDiagnostic(reason:String){if (!BuildConfig.DEBUG || !coordinateDebugEnabled) return; try{val s=score.api.uiFacade.getScrollContainer();val sl=IntArray(2);val ol=IntArray(2);score.getLocationOnScreen(sl);overlay.getLocationOnScreen(ol);val p=lastCaretPosition;val out=p==null||p.first<0f||p.second<0f||p.first>overlay.width||p.second>overlay.height;android.util.Log.d("EARAM_SCROLL","reason="+reason+" scroller="+s.javaClass.name+" actualScrollLayout="+s.scrollLeft+","+s.scrollTop+" scoreScroll="+score.scrollX+","+score.scrollY+" scoreLoc="+sl[0]+","+sl[1]+" overlayLoc="+ol[0]+","+ol[1]+" originNoScroll="+(sl[0]-ol[0])+","+(sl[1]-ol[1])+" finalBeforeClamp="+lastFinalBeforeClampX+","+lastFinalBeforeClampY+" finalAfterClamp="+lastFinalAfterClampX+","+lastFinalAfterClampY+" clamp=NONE caretOutsideOverlay="+out+" refreshCount="+visualCursorRefreshCount);val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val bar=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?.bars?.toList()?.getOrNull(caret.measureIndex);val bb=bar?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(caret.beatIndex)?.let{lookup.findBeat(it)};val safeBarRect=bar?.let{lookup.findMasterBar(it.masterBar)?.realBounds}; android.util.Log.d("EARAM_SCROLL","raw barRect="+safeBarRect+" beatRect="+bb?.realBounds+" onNotesX="+bb?.onNotesX+" nativeCaretRect="+lastCaretRect+" parent=AlphaTab.selectionWrapper")}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","coordinate diagnostic failed",t)}}
         private fun updateDebugOverlay(){val lookup=score.api.renderer.boundsLookup?:return;val song=score.api.score?:return;val staff=song.tracks.toList().getOrNull(currentTrackIndex)?.staves?.firstOrNull()?:return;val bars=staff.bars.toList().mapNotNull{bar->lookup.findMasterBar(bar.masterBar)?.realBounds?.let{RectF(it.x.toFloat(),it.y.toFloat(),(it.x+it.w).toFloat(),(it.y+it.h).toFloat())}};val sc=actualScrollOffsets();overlay.setDebugData(coordinateDebugEnabled,bars,"bar="+(caret.measureIndex+1)+" beat="+(caret.beatIndex+1)+" string="+caret.stringIndex+" cx="+(lastCaretPosition?.first?:-1f)+" cy="+(lastCaretPosition?.second?:-1f)+" scrollY="+sc.second);lastCaretRect?.let{r->val bb=currentBeat()?.let{score.api.renderer.boundsLookup?.findBeat(it)};val br=bb?.let{lookup.findMasterBar(it.beat.voice.bar.masterBar)?.realBounds};if(bb!=null&&br!=null)updateDebugBanner(br.x.toDouble(),br.y.toDouble(),br.w.toDouble(),br.h.toDouble(),bb.onNotesX.toDouble(),r.left,r.top,r.right,r.bottom)}}
         private fun ensureCaretVisible(contentX:Float,contentY:Float){try{val s=score.api.uiFacade.getScrollContainer();val mx=(s.width*.12).coerceAtLeast(24.0);val my=(s.height*.10).coerceAtLeast(24.0);var x=s.scrollLeft;var y=s.scrollTop;if(contentX-x<mx)x=(contentX-mx).coerceAtLeast(0.0)else if(contentX-x>s.width-mx)x=(contentX-s.width+mx).coerceAtLeast(0.0);if(contentY-y<my)y=(contentY-my).coerceAtLeast(0.0)else if(contentY-y>s.height-my)y=(contentY-s.height+my).coerceAtLeast(0.0);s.scrollLeft=x;s.scrollTop=y}catch(t:Throwable){android.util.Log.e("EARAM_SCROLL","official scroll failed",t)}}
         private fun updateCursor(){ refreshVisualCursor() }
