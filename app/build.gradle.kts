@@ -41,6 +41,8 @@ android { namespace = "com.earam.tabs"; compileSdk = 36
     }
     buildTypes {
         getByName("debug") {
+            // Keep diagnostic builds side-by-side with the signed production app.
+            applicationIdSuffix = ".debug"
             signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
