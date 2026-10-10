@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          BADGING="$ANDROID_HOME/build-tools/36.0.0/aapt dump badging "$APK""
+          BADGING="$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK")"
           echo "$BADGING" | grep -F "name='com.earam.tabs.debug'"
           APK_VERSION_CODE="$(echo "$BADGING" | sed -n "s/^package:.*versionCode='\\([^']*\\)'.*/\\1/p")"
           test -n "$APK_VERSION_CODE"
