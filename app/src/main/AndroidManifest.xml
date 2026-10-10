@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:theme="@style/AppTheme"
-        android:label="Earam"
+        android:label="${appLabel}"
         android:icon="@drawable/earam_logo"
         android:roundIcon="@drawable/earam_logo"
         android:testOnly="false"
