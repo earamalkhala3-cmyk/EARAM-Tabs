@@ -5055,11 +5055,15 @@ class MainActivity : ComponentActivity() {
                     val guideTop=rawBar.y.toFloat()*coordinateScale+origin.second
                     val guideBottom=(rawBar.y+rawBar.h).toFloat()*coordinateScale+origin.second
 
+                    var diagnosticNoteLeft = Float.NaN
+                    var diagnosticNoteRight = Float.NaN
                     if (selectionTarget == SelectionTarget.NOTE && selectedNoteRect != null) {
                         val noteLeft = selectedNoteRect.left * coordinateScale + origin.first
                         val noteTop = selectedNoteRect.top * coordinateScale + origin.second
                         val noteRight = selectedNoteRect.right * coordinateScale + origin.first
                         val noteBottom = selectedNoteRect.bottom * coordinateScale + origin.second
+                        diagnosticNoteLeft = noteLeft
+                        diagnosticNoteRight = noteRight
                         overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
                     } else {
                         overlay.hideNoteSelection()
@@ -5070,6 +5074,18 @@ class MainActivity : ComponentActivity() {
                     overlay.showBeatCaretContent(finalX,finalY,half)
                     lastCaretPosition=Triple(finalX,finalY,half)
                     lastCaretRect=RectF(finalX-half,finalY-half,finalX+half,finalY+half)
+
+                    // One diagnostic line per visual-cursor refresh; DEBUG only.
+                    // Logging does not alter cursor or selection calculations.
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "EARAM_X_DIAG",
+                            "rawX=$rawX density=$d displayScale=$displayScale coordinateScale=$coordinateScale " +
+                                "origin=(${origin.first},${origin.second}) finalX=$finalX " +
+                                "noteLeft=$diagnosticNoteLeft noteRight=$diagnosticNoteRight " +
+                                "caretCenterX=$finalX caretCenterY=$finalY"
+                        )
+                    }
 
                     if (BuildConfig.DEBUG && coordinateDebugEnabled) {
                         val scLayout=actualScrollOffsetsLayout()
@@ -5160,6 +5176,8 @@ class MainActivity : ComponentActivity() {
                 val many = if (lookup != null && beat != null) runCatching { lookup.findBeats(beat)?.toList().orEmpty() }.getOrDefault(emptyList()) else emptyList()
                 val dm = activity.resources.displayMetrics
                 val density = dm.density.coerceAtLeast(0.01f)
+                val displayScale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
+                val coordinateScale = density * displayScale
                 val origin = alphaTabContentOriginInOverlay()
                 val scroll = actualScrollOffsets()
                 val scrollLayout = actualScrollOffsetsLayout()
@@ -5168,12 +5186,13 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("EARAM ALPHATAB BOUNDS DIAGNOSTIC")
                 report.appendLine("DEBUG only; drawing logic was not changed by this diagnostic.")
                 report.appendLine("versionName=${BuildConfig.VERSION_NAME}; versionCode=${BuildConfig.VERSION_CODE}; currentTrackIndex=$currentTrackIndex, measureIndex=${caret.measureIndex}, beatIndex=${caret.beatIndex}, voiceIndex=$currentVoiceIndex, stringIndex=${caret.stringIndex}")
-                report.appendLine("density=$density; originOverlayPx=(${origin.first}, ${origin.second})")
+                report.appendLine("density=$density; displayScale=$displayScale; coordinateScale=$coordinateScale; originOverlayPx=(${origin.first}, ${origin.second})")
                 report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second})")
                 report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
                 report.appendLine("lastFinalCaret=(x=${last?.first}, y=${last?.second}, half=${last?.third}); lastCaretRect=$lastCaretRect")
+                report.appendLine("caretCenterX=${last?.first}; caretCenterY=${last?.second}")
                 report.appendLine("drawn orange selection: ${overlay.diagnosticNoteSelectionBounds()}")
-                report.appendLine("origin math: finalX = rawX * density + originX; finalY = rawY * density + originY")
+                report.appendLine("origin math: finalX = rawX * density * displayScale + originX; finalY = rawY * density * displayScale + originY")
                 report.appendLine("lookupPresent=${lookup != null}; selectedBeatPresent=${beat != null}; findBeatCount=${if (single == null) 0 else 1}; findBeatsCount=${many.size}")
 
                 if (track != null) {
