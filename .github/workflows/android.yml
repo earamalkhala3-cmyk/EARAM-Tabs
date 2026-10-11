@@ -504,7 +504,7 @@ jobs:
 
           if [ -n "$MATCHING_RELEASES" ]; then
             echo "ERROR: A Release with this tag or title already exists:"
-            printf '%s\\n' "$MATCHING_RELEASES"
+            printf '%s\n' "$MATCHING_RELEASES"
             exit 1
           fi
 
