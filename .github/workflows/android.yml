@@ -2,8 +2,6 @@ name: EARAM Tabs Android
 run-name: EARAM Tabs Android — release validation #${{ github.run_number }}
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -485,13 +483,38 @@ jobs:
         run: |
           set -euo pipefail
           TAG="v${VERSION_NAME}"
+          RELEASE_TITLE="Earam ${VERSION_NAME}"
+          export TAG RELEASE_TITLE
           SHA_FILE="$APK_PATH.sha256"
           sha256sum "$APK_PATH" > "$SHA_FILE"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --clobber
-          else
-            gh release create "$TAG" "$APK_PATH#Earam.apk" "$SHA_FILE#Earam.apk.sha256" --title "Earam ${VERSION_NAME}" --notes "Earam Android release ${VERSION_NAME}. GitHub Actions run #${{ github.run_number }}."
+
+          if git ls-remote --exit-code --tags origin \
+              "refs/tags/$TAG" "refs/tags/$TAG^{}" >/dev/null 2>&1; then
+            echo "ERROR: Tag $TAG already exists; refusing to reuse it."
+            exit 1
           fi
+
+          MATCHING_RELEASES="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[] | select(
+                .tag_name == env.TAG or .name == env.RELEASE_TITLE
+              ) | [.tag_name, .name, (.draft | tostring)] | @tsv'
+          )"
+
+          if [ -n "$MATCHING_RELEASES" ]; then
+            echo "ERROR: A Release with this tag or title already exists:"
+            printf '%s\n' "$MATCHING_RELEASES"
+            exit 1
+          fi
+
+          gh release create "$TAG" \
+            "$APK_PATH#Earam.apk" \
+            "$SHA_FILE#Earam.apk.sha256" \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TITLE" \
+            --notes "Earam Android release ${VERSION_NAME}. GitHub Actions run #${{ github.run_number }}."
 
       - name: Final SHA-256
         run: sha256sum "$APK_PATH"
