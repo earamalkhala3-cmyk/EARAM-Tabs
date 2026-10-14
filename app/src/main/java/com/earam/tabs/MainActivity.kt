@@ -2167,6 +2167,11 @@ class MainActivity : ComponentActivity() {
             )
             session.caret = caret
             selectedNoteRef = beat.getNoteOnString(alphaTabString(safeString).toDouble())
+            // Clear AlphaTab's previous range/bar tint; the fret overlay is the only
+            // edit-selection highlight for ordinary beat/string selection.
+            try { score.api.clearPlaybackRangeHighlight() } catch (t: Throwable) {
+                android.util.Log.e("EARAM_SEL", "failed to clear bar/range highlight", t)
+            }
             selectionTarget = target ?: if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
             logSelectionInput("tap")
         }
@@ -5739,9 +5744,9 @@ class MainActivity : ComponentActivity() {
                 val beats = bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
                 val first = beats.firstOrNull() ?: return
                 val last = beats.lastOrNull() ?: first
-                // Official AlphaTab selection API: highlight the real beat range that spans
-                // the whole selected measure. No coordinate overlay is involved.
-                score.api.highlightPlaybackRange(first, last)
+                // Keep BAR as an editing target for the explicit long-press gesture,
+                // but do not paint the entire measure yellow.
+                score.api.clearPlaybackRangeHighlight()
                 android.util.Log.d(
                     "EARAM_BAR_SELECTION",
                     "BAR selected index=" + selectedBarIndex +
