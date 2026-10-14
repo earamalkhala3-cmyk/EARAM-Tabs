@@ -4918,6 +4918,7 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun moveBeat(delta: Int) {
+            logSelectionInput("arrow-left-right delta=$delta")
             val bs=bars() ?: return
             if (bs.isEmpty()) return
             var b=currentBarIndex.coerceIn(0,bs.lastIndex); var beat=currentBeatIndex
@@ -4980,6 +4981,7 @@ class MainActivity : ComponentActivity() {
 
         /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
         private fun moveString(delta: Int) {
+            logSelectionInput("arrow-up-down delta=$delta")
             caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
             session.caret = caret
             val beat = currentBeat()
@@ -5040,6 +5042,7 @@ class MainActivity : ComponentActivity() {
             (maxStringIndex() + 1 - uiString).coerceIn(1, maxStringIndex())
 
         private fun writeFret(fret: Int) {
+            logSelectionInput("fret-entry fret=$fret")
             if (fret !in 0..24) return
             pushUndoSnapshot()
             try {
@@ -5161,6 +5164,24 @@ class MainActivity : ComponentActivity() {
         fun refreshVisualCursor() {
             visualCursorRefreshCount++
             try {
+                // Re-resolve the authoritative beat/string after each render. The selected
+                // beat identity survives boundsLookup rebuilds; geometry is always fresh.
+                val activeSelection = selected
+                val songForSelection = score.api.score
+                if (activeSelection != null && selectionTarget != SelectionTarget.BAR && selectionTarget != SelectionTarget.RANGE) {
+                    val staffForSelection = songForSelection?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()
+                    val match = staffForSelection?.bars?.toList()?.withIndex()?.firstNotNullOfOrNull { (mi, bar) ->
+                        bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.withIndex()
+                            ?.firstOrNull { (_, candidate) -> candidate.id.toString() == activeSelection.beatId }
+                            ?.let { (bi, candidate) -> Triple(mi, bi, candidate) }
+                    }
+                    if (match != null) {
+                        caret = caret.copy(measureIndex = match.first, beatIndex = match.second, stringIndex = activeSelection.stringNum)
+                        session.caret = caret
+                        selectedNoteRef = match.third.getNoteOnString(alphaTabString(activeSelection.stringNum).toDouble())
+                        selectionTarget = if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+                    }
+                }
                 val lookup=score.api.renderer.boundsLookup; val song=score.api.score
                 val track=song?.tracks?.toList()?.getOrNull(currentTrackIndex); val staff=track?.staves?.firstOrNull()
                 val bar=staff?.bars?.toList()?.getOrNull(caret.measureIndex)
@@ -5683,6 +5704,9 @@ class MainActivity : ComponentActivity() {
             // Always anchor it to beat 1 so every bar command resolves deterministically
             // against this exact measure.
             selectionTarget = SelectionTarget.BAR
+            selected = null
+            selectedNoteRef = null
+            overlay.hideNoteSelection()
             caret = caret.copy(measureIndex = index, beatIndex = 0)
             session.caret = caret
             armed = true
