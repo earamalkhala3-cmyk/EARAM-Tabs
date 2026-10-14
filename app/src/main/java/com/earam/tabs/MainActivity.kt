@@ -2157,7 +2157,12 @@ class MainActivity : ComponentActivity() {
             android.util.Log.d("EARAM_SEL", "$kind selected=$selected caret=$caret target=$selectionTarget")
         }
 
-        private fun selectBeatString(beat: Beat, stringNum: Int, target: SelectionTarget? = null) {
+        private fun selectBeatString(
+            beat: Beat,
+            stringNum: Int,
+            target: SelectionTarget? = null,
+            noteRef: Note? = null
+        ) {
             val safeString = stringNum.coerceIn(1, maxStringIndex())
             selected = Sel(beat.id.toString(), safeString)
             caret = caret.copy(
@@ -2166,7 +2171,9 @@ class MainActivity : ComponentActivity() {
                 stringIndex = safeString
             )
             session.caret = caret
-            selectedNoteRef = beat.getNoteOnString(alphaTabString(safeString).toDouble())
+            // All click paths commit selection through this function. Keep the exact
+            // AlphaTab Note when the renderer supplied one (important for chords).
+            selectedNoteRef = noteRef ?: beat.getNoteOnString(alphaTabString(safeString).toDouble())
             // Clear AlphaTab's previous range/bar tint; the fret overlay is the only
             // edit-selection highlight for ordinary beat/string selection.
             try { score.api.clearPlaybackRangeHighlight() } catch (t: Throwable) {
@@ -2734,9 +2741,7 @@ class MainActivity : ComponentActivity() {
                     selectionFocusBeat = note.beat
                     selectionDragActive = false
                     selectionDragMoved = false
-                    selected = Sel(note.beat.id.toString(), uiString)
-                    selectionTarget = SelectionTarget.NOTE
-                    selectedNoteRef = note
+                    selectBeatString(note.beat, uiString, SelectionTarget.NOTE, note)
                     logSelectionInput("note-tap")
                     // Note model objects do not expose rendered bounds. Resolve the
                     // exact tapped note through AlphaTab's renderer bounds lookup instead.
@@ -3310,9 +3315,7 @@ class MainActivity : ComponentActivity() {
                                     // A direct TAB-number tap selects that exact NOTE.
                                     // Keep the model object itself: a chord may contain several
                                     // notes in one Beat, and Delete must remove only this one.
-                                    selected = Sel(beat.id.toString(), uiString)
-                                    selectionTarget = SelectionTarget.NOTE
-                                    selectedNoteRef = nb.note
+                                    selectBeatString(beat, uiString, SelectionTarget.NOTE, nb.note)
                                     lastDirectTapSelectionAtMs = android.os.SystemClock.uptimeMillis()
                                     logSelectionInput("direct-note-tap")
                                     tappedNoteBounds = RectF(
