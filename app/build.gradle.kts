@@ -18,8 +18,11 @@ android { namespace = "com.earam.tabs"; compileSdk = 36
         val runNumberProvider = providers.environmentVariable("GITHUB_RUN_NUMBER")
         val runNumberText = runNumberProvider.getOrNull()
         val runNumber = runNumberText?.toIntOrNull() ?: 0
-        versionCode = 100000 + runNumber
-        versionName = if (runNumber > 0) "0.1.$runNumber" else "0.1.7-dev"
+        // Experimental Debug workflow may override versions without changing Release numbering.
+        val experimentalVersionCode = providers.environmentVariable("EARAM_VERSION_CODE").getOrNull()?.toIntOrNull()
+        val experimentalVersionName = providers.environmentVariable("EARAM_VERSION_NAME").getOrNull()
+        versionCode = experimentalVersionCode ?: (100000 + runNumber)
+        versionName = experimentalVersionName ?: if (runNumber > 0) "0.1.$runNumber" else "0.1.7-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
