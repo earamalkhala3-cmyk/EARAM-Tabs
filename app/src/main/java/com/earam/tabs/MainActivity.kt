@@ -54,6 +54,9 @@ data class Caret(
     val stringIndex: Int
 )
 
+/** Authoritative TAB edit selection, independent of AlphaTab's playback cursor. */
+data class Sel(val beatId: String, val stringNum: Int)
+
 private enum class SelectionTarget { NOTE, BEAT, BAR, RANGE }
 private enum class ClipboardKind { NOTE, BEAT, BAR, RANGE }
 
@@ -2146,6 +2149,27 @@ class MainActivity : ComponentActivity() {
 
         // The TAB is the editor surface. Commands always resolve against its current target.
         private var selectionTarget: SelectionTarget = SelectionTarget.BEAT
+        private var selected: Sel? = null
+        private var lastNoteMouseDownAtMs: Long = 0L
+        private var lastDirectTapSelectionAtMs: Long = 0L
+
+        private fun logSelectionInput(kind: String) {
+            android.util.Log.d("EARAM_SEL", "$kind selected=$selected caret=$caret target=$selectionTarget")
+        }
+
+        private fun selectBeatString(beat: Beat, stringNum: Int, target: SelectionTarget? = null) {
+            val safeString = stringNum.coerceIn(1, maxStringIndex())
+            selected = Sel(beat.id.toString(), safeString)
+            caret = caret.copy(
+                measureIndex = beat.voice.bar.staff.bars.toList().indexOf(beat.voice.bar),
+                beatIndex = beat.voice.beats.toList().indexOf(beat),
+                stringIndex = safeString
+            )
+            session.caret = caret
+            selectedNoteRef = beat.getNoteOnString(alphaTabString(safeString).toDouble())
+            selectionTarget = target ?: if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+            logSelectionInput("tap")
+        }
         private var selectionAnchorBeat: alphaTab.model.Beat? = null
         private var selectionFocusBeat: alphaTab.model.Beat? = null
         private var selectionDragActive = false
@@ -2617,6 +2641,12 @@ class MainActivity : ComponentActivity() {
             // so empty measures are selectable exactly like measures containing notes.
             score.api.beatMouseDown.on { beat ->
                 try {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastNoteMouseDownAtMs in 0L..180L ||
+                        now - lastDirectTapSelectionAtMs in 0L..180L) {
+                        android.util.Log.d("EARAM_SEL", "beatMouseDown ignored for same tap; selected=$selected")
+                        return@on
+                    }
                     val song = score.api.score ?: return@on
                     val clickedBar = beat.voice.bar
                     val clickedTrack = clickedBar.staff.track
@@ -2635,7 +2665,7 @@ class MainActivity : ComponentActivity() {
                         currentStringIndex.coerceIn(1, maxStringIndex())
                     )
                     session.caret = caret
-                    selectionTarget = SelectionTarget.BAR
+                    selectBeatString(beat, currentStringIndex)
                     selectionAnchorBeat = beat
                     selectionFocusBeat = beat
                     selectionDragActive = false
@@ -2662,8 +2692,8 @@ class MainActivity : ComponentActivity() {
                     updateCursor()
                     score.requestFocus()
                     updateStatus(
-                        "TAB BEAT SELECTED • B" + (barIndex + 1) +
-                            " • BEAT " + (beatIndex + 1)
+                        "TAB POSITION SELECTED • B" + (barIndex + 1) +
+                            " • BEAT " + (beatIndex + 1) + " • STRING " + currentStringIndex
                     )
                     onSelectionChanged?.invoke()
                 } catch (t: Throwable) {
@@ -2672,6 +2702,7 @@ class MainActivity : ComponentActivity() {
             }
 
             score.api.noteMouseDown.on { note ->
+                lastNoteMouseDownAtMs = android.os.SystemClock.uptimeMillis()
                 // Do NOT cancel the long-press timer here. noteMouseDown and beatMouseDown
                 // can both fire for the same TAB number. Release is handled centrally above,
                 // so holding directly on a fret can still promote the containing bar.
@@ -2698,8 +2729,10 @@ class MainActivity : ComponentActivity() {
                     selectionFocusBeat = note.beat
                     selectionDragActive = false
                     selectionDragMoved = false
+                    selected = Sel(note.beat.id.toString(), uiString)
                     selectionTarget = SelectionTarget.NOTE
                     selectedNoteRef = note
+                    logSelectionInput("note-tap")
                     // Note model objects do not expose rendered bounds. Resolve the
                     // exact tapped note through AlphaTab's renderer bounds lookup instead.
                     val lookup = score.api.renderer.boundsLookup
@@ -3272,8 +3305,11 @@ class MainActivity : ComponentActivity() {
                                     // A direct TAB-number tap selects that exact NOTE.
                                     // Keep the model object itself: a chord may contain several
                                     // notes in one Beat, and Delete must remove only this one.
+                                    selected = Sel(beat.id.toString(), uiString)
                                     selectionTarget = SelectionTarget.NOTE
                                     selectedNoteRef = nb.note
+                                    lastDirectTapSelectionAtMs = android.os.SystemClock.uptimeMillis()
+                                    logSelectionInput("direct-note-tap")
                                     tappedNoteBounds = RectF(
                                         r.x.toFloat(), r.y.toFloat(),
                                         (r.x + r.w).toFloat(), (r.y + r.h).toFloat()
@@ -3303,33 +3339,36 @@ class MainActivity : ComponentActivity() {
                 android.util.Log.w("EARAM_SELECTION", "direct TAB note hit-test failed", t)
             }
 
-            // A TAB tap that did not hit an actual note selects the WHOLE
-            // rendered measure. A measure is the primary editing target in Earam:
-            // Copy/Paste/Clear/Delete/Duplicate and all Bar actions must operate on
-            // the exact visible measure, never on an inferred/nearest beat.
-            val renderedBar = resolveRenderedBarAtPoint(x, y)
-            if (renderedBar >= 0) {
-                caret = Caret(currentTrackIndex, renderedBar, 0, 1)
-                session.caret = caret
-                selectionTarget = SelectionTarget.BAR
-                selectedNoteRef = null
-                tappedNoteBounds = null
-                overlay.hideNoteSelection()
-                armed = true
-                pendingFret = ""
-                pasteDestinationCaret = caret
-                pasteDestinationBeat = null
-                awaitingPasteDestination = false
-                android.util.Log.d(
-                    "EARAM_BAR_SELECTION",
-                    "DIRECT BAR TARGET index=" + (renderedBar + 1) +
-                        " totalBars=" + (bars()?.size ?: 0)
-                )
-                updateCursor()
-                updateStatus("SELECTED BAR • " + (renderedBar + 1))
-                onSelectionChanged?.invoke()
-                score.requestFocus()
-                return true
+            // A normal tap on a TAB string selects that beat/string position,
+            // including empty positions. BAR selection is reserved for the explicit
+            // long-press gesture handled by the touch listener.
+            val hit = hitTest(x, y)
+            if (hit != null) {
+                val beat = hit.beatRef ?: return false
+                val stringNum = ((contentY - hit.tabTopY) / hit.stringSpacing)
+                    .roundToInt().plus(1).coerceIn(1, maxStringIndex())
+                val staff = beat.voice.bar.staff
+                val barIndex = staff.bars.toList().indexOf(beat.voice.bar)
+                val beatIndex = beat.voice.beats.toList().indexOf(beat)
+                if (barIndex >= 0 && beatIndex >= 0) {
+                    caret = Caret(currentTrackIndex, barIndex, beatIndex, stringNum)
+                    session.caret = caret
+                    selectBeatString(beat, stringNum)
+                    tappedNoteBounds = null
+                    overlay.hideNoteSelection()
+                    lastDirectTapSelectionAtMs = android.os.SystemClock.uptimeMillis()
+                    armed = true
+                    pendingFret = ""
+                    pasteDestinationCaret = caret
+                    pasteDestinationBeat = beat
+                    awaitingPasteDestination = false
+                    updateCursor()
+                    updateStatus("TAB POSITION SELECTED • B" + (barIndex + 1) +
+                        " • BEAT " + (beatIndex + 1) + " • STRING " + stringNum)
+                    onSelectionChanged?.invoke()
+                    score.requestFocus()
+                    return true
+                }
             }
 
             // If the touch is not inside a real rendered measure, reject it.
