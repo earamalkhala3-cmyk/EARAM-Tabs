@@ -5270,11 +5270,22 @@ class MainActivity : ComponentActivity() {
                         }?.noteHeadBounds
 
                     if (BuildConfig.DEBUG) {
+                        val boundsLookupNoteCount = runCatching {
+                            staff?.bars?.toList().orEmpty().asSequence()
+                                .flatMap { it.voices.toList().asSequence() }
+                                .flatMap { it.beats.toList().asSequence() }
+                                .sumOf { candidateBeat ->
+                                    lookup.findBeats(candidateBeat)?.toList().orEmpty().sumOf { candidateBounds ->
+                                        candidateBounds.notes?.toList()?.size ?: 0
+                                    }
+                                }
+                        }.getOrDefault(-1)
                         android.util.Log.d(
                             "EARAM_SELECT",
                             "selectedNoteId=${selectedNoteId} selectedBeatId=${selectedBeatId} " +
-                                "boundsNoteCount=${allNoteBounds.size} idMatchCount=${idMatchedBounds.size} " +
-                                "referenceMatchCount=${referenceMatchedBounds.size} " +
+                                "boundsLookupNoteCount=${boundsLookupNoteCount} " +
+                                "selectedBeatBoundsNoteCount=${allNoteBounds.size} " +
+                                "idMatchCount=${idMatchedBounds.size} referenceMatchCount=${referenceMatchedBounds.size} " +
                                 "tappedNoteId=${tappedNoteId} tappedBeatId=${tappedNoteBeatId} " +
                                 "selectedPos=(${beat.voice.bar.index},${beat.index},${selectedAlphaString}) " +
                                 "tappedPos=(${tappedNoteBarIndex},${tappedNoteBeatIndex},${tappedNoteString})"
