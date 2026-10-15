@@ -5017,9 +5017,13 @@ class MainActivity : ComponentActivity() {
                 b++; beat=0
             }
             caret=Caret(currentTrackIndex,b,beat,currentStringIndex); session.caret=caret
-            val movedBeat = bs.getOrNull(b)?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(beat)
-            val hasMovedNote = movedBeat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) != null
-            selectionTarget = if (hasMovedNote) SelectionTarget.NOTE else SelectionTarget.BEAT
+            val movedBeat = currentBeat()
+            selected = movedBeat?.let { Sel(it.id.toString(), caret.stringIndex) }
+            selectedNoteRef = movedBeat?.getNoteOnString(
+                alphaTabString(caret.stringIndex).toDouble()
+            )
+            selectionTarget =
+                if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
             clearTappedNoteSelection()
             armed=true; pendingFret=""
             logArrowState("moveBeat:after-move")
@@ -5052,7 +5056,12 @@ class MainActivity : ComponentActivity() {
             caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
             session.caret = caret
             val beat = currentBeat()
-            selectionTarget = if (beat?.getNoteOnString(alphaTabString(caret.stringIndex).toDouble()) != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+            selected = beat?.let { Sel(it.id.toString(), caret.stringIndex) }
+            selectedNoteRef = beat?.getNoteOnString(
+                alphaTabString(caret.stringIndex).toDouble()
+            )
+            selectionTarget =
+                if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
             clearTappedNoteSelection()
             armed = true
             pendingFret = ""
