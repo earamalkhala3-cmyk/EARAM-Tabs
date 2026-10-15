@@ -47,6 +47,8 @@ import alphaTab.model.KeySignature
 import alphaTab.model.KeySignatureType
 import alphaTab.platform.IContainer
 
+private const val ENABLE_EARAM_SELECT_UI_DIAGNOSTIC = true
+
 data class Caret(
     val trackIndex: Int,
     val measureIndex: Int,
@@ -215,6 +217,7 @@ class MainActivity : ComponentActivity() {
     private var alphaTabView: AlphaTabView? = null
     private var noteEditor: AlphaTabNoteEditor? = null
     private var statusView: TextView? = null
+    private var selectionDiagnosticView: TextView? = null
     private var titleView: TextView? = null
     private var soundFontLoaded = false
     private var soundFontLoading = false
@@ -613,6 +616,21 @@ class MainActivity : ComponentActivity() {
         }
         statusView = status
 
+        // Temporary on-screen EARAM_SELECT diagnostics. Remove/disable via the constant above.
+        val selectionDiagnostic = TextView(this).apply {
+            text = "EARAM_SELECT • waiting for note selection"
+            setTextColor(0xFFF3F0E8.toInt())
+            textSize = 9f
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            setBackgroundColor(0xFF30343A.toInt())
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            visibility = if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) View.VISIBLE else View.GONE
+            contentDescription = "Temporary note selection diagnostic"
+        }
+        selectionDiagnosticView = selectionDiagnostic
+
         val transport = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -847,8 +865,8 @@ class MainActivity : ComponentActivity() {
         score.api.postRenderFinished.on {
             runOnUiThread {
                 try {
-                    // AlphaTab owns the rendered page and playback cursor. There is
-                    // intentionally no custom caret/coordinate redraw here.
+                    // Refresh selection diagnostics after render/zoom without starting another render.
+                    editor.refreshVisualCursor()
                     editor.logRenderState()
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_RENDER", "post-render editor overlay failed", t)
@@ -950,6 +968,7 @@ class MainActivity : ComponentActivity() {
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
         // Always visible: compact fret-entry keypad (0–9).
         root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(100f)))
+        root.addView(selectionDiagnostic, LinearLayout.LayoutParams(-1, dp(34f)))
         setContentView(root)
 
         // Initialize AlphaTab only after the complete view hierarchy is attached.
@@ -5261,13 +5280,14 @@ class MainActivity : ComponentActivity() {
                     ) {
                         allNoteBounds.filter { it.note === selectedNoteForBounds }
                     } else emptyList()
-                    val selectedTabNoteBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
-                        ?: allNoteBounds.firstOrNull { nb ->
-                            selectedNoteForBounds != null &&
-                                nb.note.beat.voice.bar.index == selectedNoteForBounds.beat.voice.bar.index &&
-                                nb.note.beat.index == selectedNoteForBounds.beat.index &&
-                                nb.note.string == selectedNoteForBounds.string
-                        }?.noteHeadBounds
+                    val positionMatchedBounds = allNoteBounds.firstOrNull { nb ->
+                        selectedNoteForBounds != null &&
+                            nb.note.beat.voice.bar.index == selectedNoteForBounds.beat.voice.bar.index &&
+                            nb.note.beat.index == selectedNoteForBounds.beat.index &&
+                            nb.note.string == selectedNoteForBounds.string
+                    }
+                    val selectedByIdBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
+                    val selectedTabNoteBounds = selectedByIdBounds ?: positionMatchedBounds?.noteHeadBounds
 
                     if (BuildConfig.DEBUG) {
                         val boundsLookupNoteCount = runCatching {
@@ -5321,6 +5341,30 @@ class MainActivity : ComponentActivity() {
                         fallbackMatchesSelection -> RectF(tappedBoundsForRect!!)
                         else -> null
                     }
+
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        val methodUsed = when {
+                            selectionTarget != SelectionTarget.NOTE -> "NO_NOTE"
+                            selectedNoteRect == null -> "NONE"
+                            fallbackMatchesSelection &&
+                                (selectedBoundsForRect == null ||
+                                    selectedBoundsForRect.w <= 0.0 ||
+                                    selectedBoundsForRect.h <= 0.0) -> "TAP_FALLBACK"
+                            selectedByIdBounds != null &&
+                                selectedBoundsForRect === selectedByIdBounds -> "ID"
+                            positionMatchedBounds != null &&
+                                selectedBoundsForRect === positionMatchedBounds.noteHeadBounds -> "POSITION"
+                            else -> "NONE"
+                        }
+                        val diagnosticText =
+                            "EARAM_SELECT id=${selectedNoteId ?: "—"} beat=${selectedBeatId ?: "—"} " +
+                                "idMatches=${idMatchedBounds.size} ===Matches=${referenceMatchedBounds.size}\n" +
+                                "positionMatches=${if (positionMatchedBounds != null) 1 else 0} used=$methodUsed"
+                        activity.selectionDiagnosticView?.post {
+                            activity.selectionDiagnosticView?.text = diagnosticText
+                        }
+                    }
+
                     val rawY = if (selectedNoteRect != null) {
                         selectedNoteRect.centerY()
                     } else {
