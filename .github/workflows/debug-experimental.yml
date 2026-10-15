@@ -2,9 +2,6 @@ name: EARAM Experimental Debug
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - fix/stage1-note-selection
 
 permissions:
   contents: read
