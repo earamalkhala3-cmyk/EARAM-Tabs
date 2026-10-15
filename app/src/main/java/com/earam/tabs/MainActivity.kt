@@ -2361,11 +2361,11 @@ class MainActivity : ComponentActivity() {
         // Exact AlphaTab bounds captured from the note the user actually tapped.
         // Used as a fallback if boundsLookup has not populated this note yet.
         private var tappedNoteBounds: RectF? = null
-        private var tappedNoteBeatId: Int? = null
-        private var tappedNoteId: Int? = null
-        private var tappedNoteBarIndex: Int? = null
-        private var tappedNoteBeatIndex: Int? = null
-        private var tappedNoteString: Int? = null
+        private var tappedNoteBeatId: Double? = null
+        private var tappedNoteId: Double? = null
+        private var tappedNoteBarIndex: Double? = null
+        private var tappedNoteBeatIndex: Double? = null
+        private var tappedNoteString: Double? = null
         private fun clearTappedNoteSelection() {
             tappedNoteBounds = null
             tappedNoteBeatId = null
@@ -5263,8 +5263,8 @@ class MainActivity : ComponentActivity() {
                     } else emptyList()
                     val selectedTabNoteBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
                         ?: allNoteBounds.firstOrNull { nb ->
-                            nb.note.beat.voice.bar.index == caret.measureIndex &&
-                                nb.note.beat.index == caret.beatIndex &&
+                            nb.note.beat.voice.bar.index == caret.measureIndex.toDouble() &&
+                                nb.note.beat.index == caret.beatIndex.toDouble() &&
                                 nb.note.string == selectedAlphaString
                         }?.noteHeadBounds
 
