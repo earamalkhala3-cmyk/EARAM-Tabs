@@ -5263,9 +5263,10 @@ class MainActivity : ComponentActivity() {
                     } else emptyList()
                     val selectedTabNoteBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
                         ?: allNoteBounds.firstOrNull { nb ->
-                            nb.note.beat.voice.bar.index == caret.measureIndex.toDouble() &&
-                                nb.note.beat.index == caret.beatIndex.toDouble() &&
-                                nb.note.string == selectedAlphaString
+                            selectedNoteForBounds != null &&
+                                nb.note.beat.voice.bar.index == selectedNoteForBounds.beat.voice.bar.index &&
+                                nb.note.beat.index == selectedNoteForBounds.beat.index &&
+                                nb.note.string == selectedNoteForBounds.string
                         }?.noteHeadBounds
 
                     if (BuildConfig.DEBUG) {
