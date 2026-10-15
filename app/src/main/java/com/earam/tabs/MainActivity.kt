@@ -2169,6 +2169,17 @@ class MainActivity : ComponentActivity() {
             android.util.Log.d("EARAM_SEL", "$kind selected=$selected caret=$caret target=$selectionTarget")
         }
 
+        private fun logArrowState(stage: String) {
+            val note = selectedNoteRef
+            android.util.Log.d(
+                "EARAM_ARROW",
+                "$stage caret=$caret currentBeatId=${currentBeat()?.id} selected=$selected " +
+                    "selectedNoteRefNoteId=${note?.id} " +
+                    "selectedNoteRefBeatId=${note?.beat?.id} " +
+                    "target=$selectionTarget"
+            )
+        }
+
         private fun selectBeatString(
             beat: Beat,
             stringNum: Int,
@@ -4964,9 +4975,16 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun moveBeat(delta: Int) {
+            logArrowState("moveBeat:before delta=$delta")
             logSelectionInput("arrow-left-right delta=$delta")
-            val bs=bars() ?: return
-            if (bs.isEmpty()) return
+            val bs=bars() ?: run {
+                logArrowState("moveBeat:abort-bars-null")
+                return
+            }
+            if (bs.isEmpty()) {
+                logArrowState("moveBeat:abort-bars-empty")
+                return
+            }
             var b=currentBarIndex.coerceIn(0,bs.lastIndex); var beat=currentBeatIndex
             val step=if(delta<0) -1 else 1
             repeat(kotlin.math.abs(delta)) {
@@ -5004,7 +5022,9 @@ class MainActivity : ComponentActivity() {
             selectionTarget = if (hasMovedNote) SelectionTarget.NOTE else SelectionTarget.BEAT
             clearTappedNoteSelection()
             armed=true; pendingFret=""
+            logArrowState("moveBeat:after-move")
             updateCursor()
+            logArrowState("moveBeat:after-refresh")
             if(lastRawCaretX.isFinite()&&lastRawCaretY.isFinite()) ensureCaretVisible(lastRawCaretX,lastRawCaretY)
             updateStatus(); onSelectionChanged?.invoke()
         }
@@ -5027,6 +5047,7 @@ class MainActivity : ComponentActivity() {
 
         /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
         private fun moveString(delta: Int) {
+            logArrowState("moveString:before delta=$delta")
             logSelectionInput("arrow-up-down delta=$delta")
             caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
             session.caret = caret
@@ -5035,7 +5056,9 @@ class MainActivity : ComponentActivity() {
             clearTappedNoteSelection()
             armed = true
             pendingFret = ""
+            logArrowState("moveString:after-move")
             updateCursor()
+            logArrowState("moveString:after-refresh")
             if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
                 ensureCaretVisible(lastRawCaretX, lastRawCaretY)
             }
