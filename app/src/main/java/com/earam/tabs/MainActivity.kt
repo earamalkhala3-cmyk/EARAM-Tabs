@@ -1901,29 +1901,22 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Exact note selection: a small rounded orange outline around the
-            // tapped TAB number. This is independent from the beat/playback cursor.
+            // Guitar Pro-style fret selection: highlight the tapped TAB digit
+            // with a compact rounded rectangle, not a circle or beat-wide tint.
             if (noteSelectionLeft.isFinite() &&
                 noteSelectionTop.isFinite() &&
                 noteSelectionRight > noteSelectionLeft &&
                 noteSelectionBottom > noteSelectionTop
             ) {
-                // Draw a true circular selection centered on the fret number.
-                // Fill is deliberately translucent; the digit remains legible.
-                val centerX = (noteSelectionLeft + noteSelectionRight) / 2f
-                val centerY = (noteSelectionTop + noteSelectionBottom) / 2f
-                val noteW = noteSelectionRight - noteSelectionLeft
-                val noteH = noteSelectionBottom - noteSelectionTop
-                val radius = (maxOf(noteW, noteH) * 0.72f + 3f * density)
-                    .coerceAtLeast(7f * density)
-                val selectionCircle = RectF(
-                    centerX - radius,
-                    centerY - radius,
-                    centerX + radius,
-                    centerY + radius
+                val selectionRect = RectF(
+                    noteSelectionLeft,
+                    noteSelectionTop,
+                    noteSelectionRight,
+                    noteSelectionBottom
                 )
-                canvas.drawOval(selectionCircle, noteSelectionFillPaint)
-                canvas.drawOval(selectionCircle, noteSelectionPaint)
+                val cornerRadius = 2.5f * density
+                canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionFillPaint)
+                canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionPaint)
             }
 
             // Earam string-level handle: hollow yellow square, 0.9 * string
