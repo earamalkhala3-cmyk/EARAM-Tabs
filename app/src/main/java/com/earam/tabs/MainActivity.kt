@@ -2156,6 +2156,7 @@ class MainActivity : ComponentActivity() {
             target: SelectionTarget? = null,
             noteRef: Note? = null
         ) {
+            clearTappedNoteSelection()
             val safeString = stringNum.coerceIn(1, maxStringIndex())
             selected = Sel(beat.id.toString(), safeString)
             caret = caret.copy(
@@ -2360,6 +2361,19 @@ class MainActivity : ComponentActivity() {
         // Exact AlphaTab bounds captured from the note the user actually tapped.
         // Used as a fallback if boundsLookup has not populated this note yet.
         private var tappedNoteBounds: RectF? = null
+        private var tappedNoteBeatId: Int? = null
+        private var tappedNoteId: Int? = null
+        private var tappedNoteBarIndex: Int? = null
+        private var tappedNoteBeatIndex: Int? = null
+        private var tappedNoteString: Int? = null
+        private fun clearTappedNoteSelection() {
+            tappedNoteBounds = null
+            tappedNoteBeatId = null
+            tappedNoteId = null
+            tappedNoteBarIndex = null
+            tappedNoteBeatIndex = null
+            tappedNoteString = null
+        }
         // The selection must refer to the exact AlphaTab Note object, not merely
         // the caret's string index. This is essential for deleting one note from a chord.
         private var selectedNoteRef: alphaTab.model.Note? = null
@@ -2764,6 +2778,13 @@ class MainActivity : ComponentActivity() {
                             (bounds.x + bounds.w).toFloat(),
                             (bounds.y + bounds.h).toFloat()
                         )
+                    }
+                    if (tappedNoteBounds != null) {
+                        tappedNoteBeatId = note.beat.id
+                        tappedNoteId = note.id
+                        tappedNoteBarIndex = note.beat.voice.bar.index
+                        tappedNoteBeatIndex = note.beat.index
+                        tappedNoteString = note.string
                     }
                     armed = true
                     pendingFret = ""
@@ -3315,6 +3336,11 @@ class MainActivity : ComponentActivity() {
                                         r.x.toFloat(), r.y.toFloat(),
                                         (r.x + r.w).toFloat(), (r.y + r.h).toFloat()
                                     )
+                                    tappedNoteBeatId = beat.id
+                                    tappedNoteId = nb.note.id
+                                    tappedNoteBarIndex = beat.voice.bar.index
+                                    tappedNoteBeatIndex = beat.index
+                                    tappedNoteString = nb.note.string
                                     armed = true
                                     pendingFret = ""
                                     try {
@@ -3355,7 +3381,7 @@ class MainActivity : ComponentActivity() {
                     caret = Caret(currentTrackIndex, barIndex, beatIndex, stringNum)
                     session.caret = caret
                     selectBeatString(beat, stringNum)
-                    tappedNoteBounds = null
+                    clearTappedNoteSelection()
                     overlay.hideNoteSelection()
                     lastDirectTapSelectionAtMs = android.os.SystemClock.uptimeMillis()
                     armed = true
@@ -3424,7 +3450,7 @@ class MainActivity : ComponentActivity() {
             // so the orange outline follows the number as soon as it appears.
             selectionTarget = SelectionTarget.NOTE
             selectedNoteRef = writtenNote
-            tappedNoteBounds = null
+            clearTappedNoteSelection()
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             song.finish(score.settings)
@@ -4957,7 +4983,7 @@ class MainActivity : ComponentActivity() {
             val movedBeat = bs.getOrNull(b)?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(beat)
             val hasMovedNote = movedBeat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) != null
             selectionTarget = if (hasMovedNote) SelectionTarget.NOTE else SelectionTarget.BEAT
-            tappedNoteBounds = null
+            clearTappedNoteSelection()
             armed=true; pendingFret=""
             updateCursor()
             if(lastRawCaretX.isFinite()&&lastRawCaretY.isFinite()) ensureCaretVisible(lastRawCaretX,lastRawCaretY)
@@ -4987,7 +5013,7 @@ class MainActivity : ComponentActivity() {
             session.caret = caret
             val beat = currentBeat()
             selectionTarget = if (beat?.getNoteOnString(alphaTabString(caret.stringIndex).toDouble()) != null) SelectionTarget.NOTE else SelectionTarget.BEAT
-            tappedNoteBounds = null
+            clearTappedNoteSelection()
             armed = true
             pendingFret = ""
             updateCursor()
@@ -5143,7 +5169,7 @@ class MainActivity : ComponentActivity() {
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
             selectedNoteRef = null
-            tappedNoteBounds = null
+            clearTappedNoteSelection()
             selectionTarget = SelectionTarget.BEAT
             overlay.hideNoteSelection()
             renderAndLog("delete-selected-note")
@@ -5215,33 +5241,74 @@ class MainActivity : ComponentActivity() {
                     // A Beat can expose separate NoteBounds for standard notation and TAB;
                     // choose the matching Note whose vertical center is closest to this
                     // note's expected TAB string row, then center the selection on its glyph.
-                    val selectedTabNoteBounds = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
-                        allBeatBounds.asSequence()
-                            .flatMap { it.notes?.toList().orEmpty().asSequence() }
-                            .filter { it.note === selectedNoteRef }
-                            .minByOrNull { nb ->
-                                val centerY = nb.noteHeadBounds.y.toDouble() + nb.noteHeadBounds.h.toDouble() / 2.0
-                                kotlin.math.abs(centerY - (expectedTabY?.toDouble() ?: centerY))
-                            }?.noteHeadBounds
-                    } else null
-                    val selectedNoteRect =
-                        if (selectionTarget == SelectionTarget.NOTE &&
-                            selectedNoteRef != null &&
-                            selectedTabNoteBounds != null &&
-                            selectedTabNoteBounds.w > 0.0 &&
-                            selectedTabNoteBounds.h > 0.0
-                        ) {
-                            val r = selectedTabNoteBounds
-                            val padX = 3f
-                            val padY = 2f
+                    val selectedNoteForBounds = selectedNoteRef
+                    val selectedNoteId = selectedNoteForBounds?.id
+                    val selectedBeatId = selectedNoteForBounds?.beat?.id
+                    val allNoteBounds = allBeatBounds.asSequence()
+                        .flatMap { it.notes?.toList().orEmpty().asSequence() }
+                        .toList()
+                    val idMatchedBounds = if (
+                        selectionTarget == SelectionTarget.NOTE &&
+                        selectedNoteId != null &&
+                        selectedBeatId != null
+                    ) {
+                        allNoteBounds.filter {
+                            it.note.id == selectedNoteId && it.note.beat.id == selectedBeatId
+                        }
+                    } else emptyList()
+                    val referenceMatchedBounds = if (
+                        selectionTarget == SelectionTarget.NOTE && selectedNoteForBounds != null
+                    ) {
+                        allNoteBounds.filter { it.note === selectedNoteForBounds }
+                    } else emptyList()
+                    val selectedTabNoteBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
+                        ?: allNoteBounds.firstOrNull { nb ->
+                            nb.note.beat.voice.bar.index == caret.measureIndex &&
+                                nb.note.beat.index == caret.beatIndex &&
+                                nb.note.string == selectedAlphaString
+                        }?.noteHeadBounds
 
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "EARAM_SELECT",
+                            "selectedNoteId=${selectedNoteId} selectedBeatId=${selectedBeatId} " +
+                                "boundsNoteCount=${allNoteBounds.size} idMatchCount=${idMatchedBounds.size} " +
+                                "referenceMatchCount=${referenceMatchedBounds.size} " +
+                                "tappedNoteId=${tappedNoteId} tappedBeatId=${tappedNoteBeatId} " +
+                                "selectedPos=(${beat.voice.bar.index},${beat.index},${selectedAlphaString}) " +
+                                "tappedPos=(${tappedNoteBarIndex},${tappedNoteBeatIndex},${tappedNoteString})"
+                        )
+                    }
+
+                    val selectedNoteForRect = selectedNoteRef
+                    val selectedBoundsForRect = selectedTabNoteBounds
+                    val tappedBoundsForRect = tappedNoteBounds
+                    val fallbackMatchesSelection =
+                        tappedBoundsForRect != null &&
+                        selectedNoteForRect != null &&
+                        tappedNoteId == selectedNoteForRect.id &&
+                        tappedNoteBeatId == selectedNoteForRect.beat.id &&
+                        tappedNoteBarIndex == selectedNoteForRect.beat.voice.bar.index &&
+                        tappedNoteBeatIndex == selectedNoteForRect.beat.index &&
+                        tappedNoteString == selectedNoteForRect.string
+
+                    val selectedNoteRect: RectF? = when {
+                        selectionTarget != SelectionTarget.NOTE -> null
+                        selectedNoteForRect == null -> null
+                        selectedBoundsForRect != null &&
+                            selectedBoundsForRect.w > 0.0 &&
+                            selectedBoundsForRect.h > 0.0 -> {
+                            val r = selectedBoundsForRect
                             RectF(
-                                r.x.toFloat() - padX,
-                                r.y.toFloat() - padY,
-                                (r.x + r.w).toFloat() + padX,
-                                (r.y + r.h).toFloat() + padY
+                                r.x.toFloat(),
+                                r.y.toFloat(),
+                                (r.x + r.w).toFloat(),
+                                (r.y + r.h).toFloat()
                             )
-                        } else null
+                        }
+                        fallbackMatchesSelection -> RectF(tappedBoundsForRect!!)
+                        else -> null
+                    }
                     val rawY = if (selectedNoteRect != null) {
                         selectedNoteRect.centerY()
                     } else {
@@ -5273,10 +5340,12 @@ class MainActivity : ComponentActivity() {
                     var diagnosticNoteLeft = Float.NaN
                     var diagnosticNoteRight = Float.NaN
                     if (selectionTarget == SelectionTarget.NOTE && selectedNoteRect != null) {
-                        val noteLeft = selectedNoteRect.left * coordinateScale + origin.first
-                        val noteTop = selectedNoteRect.top * coordinateScale + origin.second
-                        val noteRight = selectedNoteRect.right * coordinateScale + origin.first
-                        val noteBottom = selectedNoteRect.bottom * coordinateScale + origin.second
+                        val padX = d * 3f
+                        val padY = d * 2f
+                        val noteLeft = selectedNoteRect.left * coordinateScale + origin.first - padX
+                        val noteTop = selectedNoteRect.top * coordinateScale + origin.second - padY
+                        val noteRight = selectedNoteRect.right * coordinateScale + origin.first + padX
+                        val noteBottom = selectedNoteRect.bottom * coordinateScale + origin.second + padY
                         diagnosticNoteLeft = noteLeft
                         diagnosticNoteRight = noteRight
                         lastFinalNoteRect = RectF(noteLeft, noteTop, noteRight, noteBottom)
