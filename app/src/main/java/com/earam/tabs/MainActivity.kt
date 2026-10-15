@@ -5231,18 +5231,24 @@ class MainActivity : ComponentActivity() {
                                 kotlin.math.abs(centerY - (expectedTabY?.toDouble() ?: centerY))
                             }?.noteHeadBounds
                     } else null
-                    val selectedNoteRect = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
-                        val tabY = expectedTabY
-                            ?: (fallbackTop + (caret.stringIndex - 1).coerceAtLeast(0) * spacing)
-                        val noteBounds = selectedTabNoteBounds
-                        val selectionCenterX = if (noteBounds != null && noteBounds.w > 0.0)
-                            (noteBounds.x + noteBounds.w / 2.0).toFloat()
-                        else rawX.toFloat()
-                        val halfWidth = (spacing * 0.62f).coerceIn(5f, 11f)
-                        val halfHeight = (spacing * 0.46f).coerceIn(4f, 8f)
-                        RectF(selectionCenterX - halfWidth, tabY - halfHeight,
-                            selectionCenterX + halfWidth, tabY + halfHeight)
-                    } else null
+                    val selectedNoteRect =
+                        if (selectionTarget == SelectionTarget.NOTE &&
+                            selectedNoteRef != null &&
+                            selectedTabNoteBounds != null &&
+                            selectedTabNoteBounds.w > 0.0 &&
+                            selectedTabNoteBounds.h > 0.0
+                        ) {
+                            val r = selectedTabNoteBounds
+                            val padX = 3f
+                            val padY = 2f
+
+                            RectF(
+                                r.x.toFloat() - padX,
+                                r.y.toFloat() - padY,
+                                (r.x + r.w).toFloat() + padX,
+                                (r.y + r.h).toFloat() + padY
+                            )
+                        } else null
                     val rawY = if (selectedNoteRect != null) {
                         selectedNoteRect.centerY()
                     } else {
