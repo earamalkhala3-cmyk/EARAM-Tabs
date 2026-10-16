@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.WindowInsets
 import android.text.InputType
@@ -47,12 +48,17 @@ import alphaTab.model.KeySignature
 import alphaTab.model.KeySignatureType
 import alphaTab.platform.IContainer
 
+private const val ENABLE_EARAM_SELECT_UI_DIAGNOSTIC = true
+
 data class Caret(
     val trackIndex: Int,
     val measureIndex: Int,
     val beatIndex: Int,
     val stringIndex: Int
 )
+
+/** Authoritative TAB edit selection, independent of AlphaTab's playback cursor. */
+data class Sel(val beatId: String, val stringNum: Int)
 
 private enum class SelectionTarget { NOTE, BEAT, BAR, RANGE }
 private enum class ClipboardKind { NOTE, BEAT, BAR, RANGE }
@@ -212,12 +218,89 @@ class MainActivity : ComponentActivity() {
     private var alphaTabView: AlphaTabView? = null
     private var noteEditor: AlphaTabNoteEditor? = null
     private var statusView: TextView? = null
+    private var selectionDiagnosticView: TextView? = null
     private var titleView: TextView? = null
     private var soundFontLoaded = false
     private var soundFontLoading = false
     private var playerEngineReady = false
     private lateinit var session: EditorSessionViewModel
     private var pendingSaveAs = false
+
+    private val diagnosticLogReports = java.util.ArrayDeque<String>()
+    private var diagnosticLogStoredChars = 0
+    private val diagnosticLogMaxChars = 128 * 1024
+    private val diagnosticLogSeparator = "\n\n--- NEXT REPORT ---\n\n"
+    private var diagnosticLogStatusView: TextView? = null
+
+    private fun appendDiagnosticReport(tag: String, message: String) {
+        if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) return
+        // Preserve the original Logcat tag and write each event only once.
+        android.util.Log.d(tag, message)
+        val report = "[$tag]\n$message"
+        if (report.length + diagnosticLogSeparator.length > diagnosticLogMaxChars) {
+            val warning = "[EARAM_DIAGNOSTIC]\nREPORT_EXCLUDED reason=single_report_exceeds_buffer_limit " +
+                "tag=" + tag + " reportChars=" + report.length + " maxChars=" + diagnosticLogMaxChars
+            android.util.Log.w("EARAM_DIAGNOSTIC", warning.substringAfter('\n'))
+            storeDiagnosticReport(warning)
+            return
+        }
+        storeDiagnosticReport(report)
+    }
+
+    private fun storeDiagnosticReport(report: String) {
+        if (report.length + diagnosticLogSeparator.length > diagnosticLogMaxChars) return
+        diagnosticLogReports.addLast(report)
+        diagnosticLogStoredChars += report.length + diagnosticLogSeparator.length
+        var evicted = 0
+        while (diagnosticLogStoredChars > diagnosticLogMaxChars && diagnosticLogReports.isNotEmpty()) {
+            val oldest = diagnosticLogReports.removeFirst()
+            diagnosticLogStoredChars -= oldest.length + diagnosticLogSeparator.length
+            evicted++
+        }
+        if (evicted > 0) {
+            fun evictionWarning(count: Int) =
+                "[EARAM_DIAGNOSTIC]\nREPORTS_EXCLUDED reason=buffer_limit count=" + count +
+                    "; complete reports were evicted from the oldest end; maxChars=" + diagnosticLogMaxChars
+            var warning = evictionWarning(evicted)
+            while (diagnosticLogStoredChars + warning.length + diagnosticLogSeparator.length > diagnosticLogMaxChars &&
+                diagnosticLogReports.isNotEmpty()
+            ) {
+                val oldest = diagnosticLogReports.removeFirst()
+                diagnosticLogStoredChars -= oldest.length + diagnosticLogSeparator.length
+                evicted++
+                warning = evictionWarning(evicted)
+            }
+            diagnosticLogReports.addLast(warning)
+            diagnosticLogStoredChars += warning.length + diagnosticLogSeparator.length
+            android.util.Log.w("EARAM_DIAGNOSTIC", warning.substringAfter('\n'))
+        }
+        val reportCount = diagnosticLogReports.size
+        val storedChars = diagnosticLogStoredChars
+        runOnUiThread {
+            diagnosticLogStatusView?.text =
+                "Log: " + reportCount + " reports • " + storedChars + "/" + diagnosticLogMaxChars + " chars"
+        }
+    }
+
+    private fun clearDiagnosticLog() {
+        if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) return
+        diagnosticLogReports.clear()
+        diagnosticLogStoredChars = 0
+        diagnosticLogStatusView?.text = "Log cleared • 0 reports"
+        Toast.makeText(this, "Diagnostic log cleared", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copyDiagnosticLog() {
+        if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) return
+        if (diagnosticLogReports.isEmpty()) {
+            Toast.makeText(this, "Diagnostic log is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val copyText = diagnosticLogReports.joinToString(separator = diagnosticLogSeparator)
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Earam diagnostic log", copyText))
+        Toast.makeText(this, "Copied " + diagnosticLogReports.size + " diagnostic reports", Toast.LENGTH_SHORT).show()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -610,6 +693,59 @@ class MainActivity : ComponentActivity() {
         }
         statusView = status
 
+        // Temporary on-screen EARAM_SELECT diagnostics. Remove/disable via the constant above.
+        val selectionDiagnostic = TextView(this).apply {
+            text = "EARAM_SELECT • waiting for note selection"
+            setTextColor(0xFFF3F0E8.toInt())
+            textSize = 9f
+            gravity = Gravity.TOP
+            setPadding(dp(8f), dp(4f), dp(8f), dp(8f))
+            setBackgroundColor(0xFF30343A.toInt())
+            maxLines = 50
+            visibility = if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) View.VISIBLE else View.GONE
+            contentDescription = "Temporary note selection diagnostic"
+        }
+        selectionDiagnosticView = selectionDiagnostic
+
+        val diagnosticControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8f), dp(2f), dp(8f), dp(2f))
+            setBackgroundColor(0xFF202327.toInt())
+            visibility = if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) View.VISIBLE else View.GONE
+        }
+        val diagnosticLogStatus = TextView(this).apply {
+            text = "Log: 0 reports"
+            setTextColor(0xFFF3F0E8.toInt())
+            textSize = 9f
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+        }
+        diagnosticLogStatusView = diagnosticLogStatus
+        val copyDiagnosticButton = Button(this).apply {
+            text = "Copy log"
+            textSize = 10f
+            minimumHeight = dp(32f)
+            minimumWidth = 0
+            setPadding(dp(5f), 0, dp(5f), 0)
+            setOnClickListener { copyDiagnosticLog() }
+        }
+        val clearDiagnosticButton = Button(this).apply {
+            text = "Clear"
+            textSize = 10f
+            minimumHeight = dp(32f)
+            minimumWidth = 0
+            setPadding(dp(5f), 0, dp(5f), 0)
+            setOnClickListener { clearDiagnosticLog() }
+        }
+        diagnosticControls.addView(diagnosticLogStatus, LinearLayout.LayoutParams(0, dp(36f), 1f))
+        diagnosticControls.addView(copyDiagnosticButton, LinearLayout.LayoutParams(-2, dp(36f)).apply {
+            leftMargin = dp(4f)
+        })
+        diagnosticControls.addView(clearDiagnosticButton, LinearLayout.LayoutParams(-2, dp(36f)).apply {
+            leftMargin = dp(4f)
+        })
+
         val transport = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -844,8 +980,8 @@ class MainActivity : ComponentActivity() {
         score.api.postRenderFinished.on {
             runOnUiThread {
                 try {
-                    // AlphaTab owns the rendered page and playback cursor. There is
-                    // intentionally no custom caret/coordinate redraw here.
+                    // Refresh selection diagnostics after render/zoom without starting another render.
+                    editor.refreshVisualCursor()
                     editor.logRenderState()
                 } catch (t: Throwable) {
                     android.util.Log.e("EARAM_RENDER", "post-render editor overlay failed", t)
@@ -945,6 +1081,8 @@ class MainActivity : ComponentActivity() {
         root.addView(navigation, LinearLayout.LayoutParams(-1, dp(48f)))
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(selectionDiagnostic, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(diagnosticControls, LinearLayout.LayoutParams(-1, dp(40f)))
         // Always visible: compact fret-entry keypad (0–9).
         root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(100f)))
         setContentView(root)
@@ -1769,6 +1907,10 @@ class MainActivity : ComponentActivity() {
         private var noteSelectionTop = Float.NaN
         private var noteSelectionRight = Float.NaN
         private var noteSelectionBottom = Float.NaN
+        private var overlayDrawCount = 0L
+        private var noteSelectionDrawCount = 0L
+        private var lastDrawnNoteSelectionRect: RectF? = null
+        private var lastDrawHadValidNoteSelection = false
         // A translucent orange disc keeps the TAB fret number readable while
         // making the exact selected note obvious on a dense chord.
         private val noteSelectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1832,6 +1974,17 @@ class MainActivity : ComponentActivity() {
                 "noteSelectionRight=$noteSelectionRight, noteSelectionBottom=$noteSelectionBottom, " +
                 "noteSelectionCenterX=$centerX, deltaOrangeCenterMinusCaretX=${centerX - caretCenterX}"
         }
+        fun drawDiagnosticState(): String =
+            "onDraw=$overlayDrawCount selectionDraw=$noteSelectionDrawCount " +
+                "validAtLastDraw=$lastDrawHadValidNoteSelection " +
+                "lastDrawnLocalAfterScroll=$lastDrawnNoteSelectionRect " +
+                "storedRect=[$noteSelectionLeft,$noteSelectionTop,$noteSelectionRight,$noteSelectionBottom] " +
+                "visible=$visibility shown=$isShown alpha=$alpha " +
+                "elevation=$elevation translationZ=$translationZ z=$z " +
+                "strokeColor=${noteSelectionPaint.color.toUInt().toString(16)} " +
+                "strokeAlpha=${noteSelectionPaint.alpha} strokeWidth=${noteSelectionPaint.strokeWidth} " +
+                "fillColor=${noteSelectionFillPaint.color.toUInt().toString(16)} " +
+                "fillAlpha=${noteSelectionFillPaint.alpha}"
         fun showNoteCursor(left:Float,top:Float,width:Float,height:Float)=invalidate()
         fun hideCursor(){
             caretCenterX=Float.NaN; caretCenterY=Float.NaN; caretHalf=0f
@@ -1848,6 +2001,7 @@ class MainActivity : ComponentActivity() {
 
         override fun onDraw(canvas:Canvas){
             super.onDraw(canvas)
+            overlayDrawCount++
 
             // Diagnostic rectangles are available only in DEBUG builds and only
             // while the existing hidden coordinate-debug mode is enabled.
@@ -1865,6 +2019,12 @@ class MainActivity : ComponentActivity() {
             }
 
             val scroll=scrollProvider?.invoke() ?: (0f to 0f)
+            lastDrawHadValidNoteSelection =
+                noteSelectionLeft.isFinite() &&
+                noteSelectionTop.isFinite() &&
+                noteSelectionRight > noteSelectionLeft &&
+                noteSelectionBottom > noteSelectionTop
+            lastDrawnNoteSelectionRect = null
             canvas.save()
             canvas.translate(-scroll.first,-scroll.second)
 
@@ -1898,29 +2058,25 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Exact note selection: a small rounded orange outline around the
-            // tapped TAB number. This is independent from the beat/playback cursor.
+            // Guitar Pro-style fret selection: highlight the tapped TAB digit
+            // with a compact rounded rectangle, not a circle or beat-wide tint.
             if (noteSelectionLeft.isFinite() &&
                 noteSelectionTop.isFinite() &&
                 noteSelectionRight > noteSelectionLeft &&
                 noteSelectionBottom > noteSelectionTop
             ) {
-                // Draw a true circular selection centered on the fret number.
-                // Fill is deliberately translucent; the digit remains legible.
-                val centerX = (noteSelectionLeft + noteSelectionRight) / 2f
-                val centerY = (noteSelectionTop + noteSelectionBottom) / 2f
-                val noteW = noteSelectionRight - noteSelectionLeft
-                val noteH = noteSelectionBottom - noteSelectionTop
-                val radius = (maxOf(noteW, noteH) * 0.72f + 3f * density)
-                    .coerceAtLeast(7f * density)
-                val selectionCircle = RectF(
-                    centerX - radius,
-                    centerY - radius,
-                    centerX + radius,
-                    centerY + radius
+                noteSelectionDrawCount++
+                val selectionRect = RectF(
+                    noteSelectionLeft,
+                    noteSelectionTop,
+                    noteSelectionRight,
+                    noteSelectionBottom
                 )
-                canvas.drawOval(selectionCircle, noteSelectionFillPaint)
-                canvas.drawOval(selectionCircle, noteSelectionPaint)
+                selectionRect.offset(-scroll.first, -scroll.second)
+                lastDrawnNoteSelectionRect = RectF(selectionRect)
+                val cornerRadius = 2.5f * density
+                canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionFillPaint)
+                canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionPaint)
             }
 
             // Earam string-level handle: hollow yellow square, 0.9 * string
@@ -2146,6 +2302,79 @@ class MainActivity : ComponentActivity() {
 
         // The TAB is the editor surface. Commands always resolve against its current target.
         private var selectionTarget: SelectionTarget = SelectionTarget.BEAT
+        private var selected: Sel? = null
+        private var lastNoteMouseDownAtMs: Long = 0L
+        private var lastDirectTapSelectionAtMs: Long = 0L
+        private var lastSelectionDiagnosticStage: String = "STARTUP"
+
+        private fun logSelectionInput(kind: String) {
+            android.util.Log.d("EARAM_SEL", "$kind selected=$selected caret=$caret target=$selectionTarget")
+        }
+
+        // Read-only snapshot: currentBeat()/selectedBeat() only read the score at caret coordinates.
+        // This helper intentionally does not change the caret, selection, or selectedNoteRef.
+        private fun selectionStateSummary(stage: String): String {
+            val beat = currentBeat()
+            val maxStrings = maxStringIndex()
+            val uiString = caret.stringIndex
+            val alphaString = alphaTabString(uiString)
+            val notes = beat?.notes?.toList().orEmpty()
+            val noteList = notes.joinToString(",") {
+                "s${it.string.toInt()}/f${it.fret.toInt()}"
+            }.ifEmpty { "-" }
+            val stringOccupied = notes.any { it.string.toInt() == alphaString }
+            val state = when {
+                beat == null -> "NO_BEAT"
+                stringOccupied -> "NOTE_ON_STRING"
+                else -> "EMPTY_STRING"
+            }
+            return "$stage uiS=$uiString aS=$alphaString/$maxStrings " +
+                "beat=${beat?.id ?: "—"} n=${notes.size}\n" +
+                "$state notes=[$noteList]"
+        }
+
+        private fun logArrowState(stage: String) {
+            lastSelectionDiagnosticStage = stage
+            val summary = selectionStateSummary(stage)
+            val note = selectedNoteRef
+            android.util.Log.d(
+                "EARAM_ARROW",
+                "$summary caret=$caret currentBeatId=${currentBeat()?.id} selected=$selected " +
+                    "selectedNoteRefNoteId=${note?.id} " +
+                    "selectedNoteRefBeatId=${note?.beat?.id} " +
+                    "target=$selectionTarget"
+            )
+            activity.selectionDiagnosticView?.post {
+                activity.selectionDiagnosticView?.text = summary
+            }
+        }
+
+        private fun selectBeatString(
+            beat: Beat,
+            stringNum: Int,
+            target: SelectionTarget? = null,
+            noteRef: Note? = null
+        ) {
+            clearTappedNoteSelection()
+            val safeString = stringNum.coerceIn(1, maxStringIndex())
+            selected = Sel(beat.id.toString(), safeString)
+            caret = caret.copy(
+                measureIndex = beat.voice.bar.staff.bars.toList().indexOf(beat.voice.bar),
+                beatIndex = beat.voice.beats.toList().indexOf(beat),
+                stringIndex = safeString
+            )
+            session.caret = caret
+            // All click paths commit selection through this function. Keep the exact
+            // AlphaTab Note when the renderer supplied one (important for chords).
+            selectedNoteRef = noteRef ?: beat.getNoteOnString(alphaTabString(safeString).toDouble())
+            // Clear AlphaTab's previous range/bar tint; the fret overlay is the only
+            // edit-selection highlight for ordinary beat/string selection.
+            try { score.api.clearPlaybackRangeHighlight() } catch (t: Throwable) {
+                android.util.Log.e("EARAM_SEL", "failed to clear bar/range highlight", t)
+            }
+            selectionTarget = target ?: if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+            logSelectionInput("tap")
+        }
         private var selectionAnchorBeat: alphaTab.model.Beat? = null
         private var selectionFocusBeat: alphaTab.model.Beat? = null
         private var selectionDragActive = false
@@ -2331,6 +2560,19 @@ class MainActivity : ComponentActivity() {
         // Exact AlphaTab bounds captured from the note the user actually tapped.
         // Used as a fallback if boundsLookup has not populated this note yet.
         private var tappedNoteBounds: RectF? = null
+        private var tappedNoteBeatId: Double? = null
+        private var tappedNoteId: Double? = null
+        private var tappedNoteBarIndex: Double? = null
+        private var tappedNoteBeatIndex: Double? = null
+        private var tappedNoteString: Double? = null
+        private fun clearTappedNoteSelection() {
+            tappedNoteBounds = null
+            tappedNoteBeatId = null
+            tappedNoteId = null
+            tappedNoteBarIndex = null
+            tappedNoteBeatIndex = null
+            tappedNoteString = null
+        }
         // The selection must refer to the exact AlphaTab Note object, not merely
         // the caret's string index. This is essential for deleting one note from a chord.
         private var selectedNoteRef: alphaTab.model.Note? = null
@@ -2459,6 +2701,14 @@ class MainActivity : ComponentActivity() {
             score.setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     android.view.MotionEvent.ACTION_DOWN -> {
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            activity.appendDiagnosticReport(
+                                "EARAM_TOUCH_DIAG",
+                                "ACTION_DOWN eventTime=" + event.eventTime + " downTime=" + event.downTime +
+                                    " local=(" + event.x + "," + event.y + ") raw=(" + event.rawX + "," + event.rawY + ")" +
+                                    " pointerCount=" + event.pointerCount + " awaitingPasteDestination=" + awaitingPasteDestination
+                            )
+                        }
                         cancelBarLongPress()
                         barLongPressActivated = false
                         barDownX = event.x
@@ -2617,6 +2867,12 @@ class MainActivity : ComponentActivity() {
             // so empty measures are selectable exactly like measures containing notes.
             score.api.beatMouseDown.on { beat ->
                 try {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastNoteMouseDownAtMs in 0L..180L ||
+                        now - lastDirectTapSelectionAtMs in 0L..180L) {
+                        android.util.Log.d("EARAM_SEL", "beatMouseDown ignored for same tap; selected=$selected")
+                        return@on
+                    }
                     val song = score.api.score ?: return@on
                     val clickedBar = beat.voice.bar
                     val clickedTrack = clickedBar.staff.track
@@ -2635,7 +2891,7 @@ class MainActivity : ComponentActivity() {
                         currentStringIndex.coerceIn(1, maxStringIndex())
                     )
                     session.caret = caret
-                    selectionTarget = SelectionTarget.BAR
+                    selectBeatString(beat, currentStringIndex)
                     selectionAnchorBeat = beat
                     selectionFocusBeat = beat
                     selectionDragActive = false
@@ -2662,8 +2918,8 @@ class MainActivity : ComponentActivity() {
                     updateCursor()
                     score.requestFocus()
                     updateStatus(
-                        "TAB BEAT SELECTED • B" + (barIndex + 1) +
-                            " • BEAT " + (beatIndex + 1)
+                        "TAB POSITION SELECTED • B" + (barIndex + 1) +
+                            " • BEAT " + (beatIndex + 1) + " • STRING " + currentStringIndex
                     )
                     onSelectionChanged?.invoke()
                 } catch (t: Throwable) {
@@ -2672,6 +2928,7 @@ class MainActivity : ComponentActivity() {
             }
 
             score.api.noteMouseDown.on { note ->
+                lastNoteMouseDownAtMs = android.os.SystemClock.uptimeMillis()
                 // Do NOT cancel the long-press timer here. noteMouseDown and beatMouseDown
                 // can both fire for the same TAB number. Release is handled centrally above,
                 // so holding directly on a fret can still promote the containing bar.
@@ -2698,8 +2955,8 @@ class MainActivity : ComponentActivity() {
                     selectionFocusBeat = note.beat
                     selectionDragActive = false
                     selectionDragMoved = false
-                    selectionTarget = SelectionTarget.NOTE
-                    selectedNoteRef = note
+                    selectBeatString(note.beat, uiString, SelectionTarget.NOTE, note)
+                    logSelectionInput("note-tap")
                     // Note model objects do not expose rendered bounds. Resolve the
                     // exact tapped note through AlphaTab's renderer bounds lookup instead.
                     val lookup = score.api.renderer.boundsLookup
@@ -2729,6 +2986,14 @@ class MainActivity : ComponentActivity() {
                             (bounds.y + bounds.h).toFloat()
                         )
                     }
+                    if (tappedNoteBounds != null) {
+                        tappedNoteBeatId = note.beat.id
+                        tappedNoteId = note.id
+                        tappedNoteBarIndex = note.beat.voice.bar.index
+                        tappedNoteBeatIndex = note.beat.index
+                        tappedNoteString = note.string
+                    }
+                    logArrowState("TAP_FRET_SELECT alphaTab-noteMouseDown")
                     armed = true
                     pendingFret = ""
 
@@ -2772,6 +3037,9 @@ class MainActivity : ComponentActivity() {
         private var lastFinalAfterClampX = Float.NaN
         private var lastFinalAfterClampY = Float.NaN
         private var lastFinalNoteRect: RectF? = null
+        private var lastIdMatchDiagnostic: String = "not captured yet"
+        private var lastTransformDiagnostic: String = "not captured yet"
+        private var lastSelectedNoteRectNullReason: String = "not evaluated yet"
         private val beatHits = mutableListOf<BeatHit>()
 
         init {
@@ -3272,12 +3540,19 @@ class MainActivity : ComponentActivity() {
                                     // A direct TAB-number tap selects that exact NOTE.
                                     // Keep the model object itself: a chord may contain several
                                     // notes in one Beat, and Delete must remove only this one.
-                                    selectionTarget = SelectionTarget.NOTE
-                                    selectedNoteRef = nb.note
+                                    selectBeatString(beat, uiString, SelectionTarget.NOTE, nb.note)
+                                    lastDirectTapSelectionAtMs = android.os.SystemClock.uptimeMillis()
+                                    logSelectionInput("direct-note-tap")
                                     tappedNoteBounds = RectF(
                                         r.x.toFloat(), r.y.toFloat(),
                                         (r.x + r.w).toFloat(), (r.y + r.h).toFloat()
                                     )
+                                    tappedNoteBeatId = beat.id
+                                    tappedNoteId = nb.note.id
+                                    tappedNoteBarIndex = beat.voice.bar.index
+                                    tappedNoteBeatIndex = beat.index
+                                    tappedNoteString = nb.note.string
+                                    logArrowState("TAP_FRET_SELECT overlay-hit")
                                     armed = true
                                     pendingFret = ""
                                     try {
@@ -3303,33 +3578,36 @@ class MainActivity : ComponentActivity() {
                 android.util.Log.w("EARAM_SELECTION", "direct TAB note hit-test failed", t)
             }
 
-            // A TAB tap that did not hit an actual note selects the WHOLE
-            // rendered measure. A measure is the primary editing target in Earam:
-            // Copy/Paste/Clear/Delete/Duplicate and all Bar actions must operate on
-            // the exact visible measure, never on an inferred/nearest beat.
-            val renderedBar = resolveRenderedBarAtPoint(x, y)
-            if (renderedBar >= 0) {
-                caret = Caret(currentTrackIndex, renderedBar, 0, 1)
-                session.caret = caret
-                selectionTarget = SelectionTarget.BAR
-                selectedNoteRef = null
-                tappedNoteBounds = null
-                overlay.hideNoteSelection()
-                armed = true
-                pendingFret = ""
-                pasteDestinationCaret = caret
-                pasteDestinationBeat = null
-                awaitingPasteDestination = false
-                android.util.Log.d(
-                    "EARAM_BAR_SELECTION",
-                    "DIRECT BAR TARGET index=" + (renderedBar + 1) +
-                        " totalBars=" + (bars()?.size ?: 0)
-                )
-                updateCursor()
-                updateStatus("SELECTED BAR • " + (renderedBar + 1))
-                onSelectionChanged?.invoke()
-                score.requestFocus()
-                return true
+            // A normal tap on a TAB string selects that beat/string position,
+            // including empty positions. BAR selection is reserved for the explicit
+            // long-press gesture handled by the touch listener.
+            val hit = hitTest(x, y)
+            if (hit != null) {
+                val beat = hit.beatRef ?: return false
+                val stringNum = ((contentY - hit.tabTopY) / hit.stringSpacing)
+                    .roundToInt().plus(1).coerceIn(1, maxStringIndex())
+                val staff = beat.voice.bar.staff
+                val barIndex = staff.bars.toList().indexOf(beat.voice.bar)
+                val beatIndex = beat.voice.beats.toList().indexOf(beat)
+                if (barIndex >= 0 && beatIndex >= 0) {
+                    caret = Caret(currentTrackIndex, barIndex, beatIndex, stringNum)
+                    session.caret = caret
+                    selectBeatString(beat, stringNum)
+                    clearTappedNoteSelection()
+                    overlay.hideNoteSelection()
+                    lastDirectTapSelectionAtMs = android.os.SystemClock.uptimeMillis()
+                    armed = true
+                    pendingFret = ""
+                    pasteDestinationCaret = caret
+                    pasteDestinationBeat = beat
+                    awaitingPasteDestination = false
+                    updateCursor()
+                    updateStatus("TAB POSITION SELECTED • B" + (barIndex + 1) +
+                        " • BEAT " + (beatIndex + 1) + " • STRING " + stringNum)
+                    onSelectionChanged?.invoke()
+                    score.requestFocus()
+                    return true
+                }
             }
 
             // If the touch is not inside a real rendered measure, reject it.
@@ -3384,7 +3662,7 @@ class MainActivity : ComponentActivity() {
             // so the orange outline follows the number as soon as it appears.
             selectionTarget = SelectionTarget.NOTE
             selectedNoteRef = writtenNote
-            tappedNoteBounds = null
+            clearTappedNoteSelection()
             beat.isEmpty = beat.notes.toList().isEmpty()
             beat.finish(score.settings, null)
             song.finish(score.settings)
@@ -4879,8 +5157,16 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun moveBeat(delta: Int) {
-            val bs=bars() ?: return
-            if (bs.isEmpty()) return
+            logArrowState("moveBeat:before delta=$delta")
+            logSelectionInput("arrow-left-right delta=$delta")
+            val bs=bars() ?: run {
+                logArrowState("moveBeat:abort-bars-null")
+                return
+            }
+            if (bs.isEmpty()) {
+                logArrowState("moveBeat:abort-bars-empty")
+                return
+            }
             var b=currentBarIndex.coerceIn(0,bs.lastIndex); var beat=currentBeatIndex
             val step=if(delta<0) -1 else 1
             repeat(kotlin.math.abs(delta)) {
@@ -4913,12 +5199,18 @@ class MainActivity : ComponentActivity() {
                 b++; beat=0
             }
             caret=Caret(currentTrackIndex,b,beat,currentStringIndex); session.caret=caret
-            val movedBeat = bs.getOrNull(b)?.voices?.toList()?.getOrNull(currentVoiceIndex)?.beats?.toList()?.getOrNull(beat)
-            val hasMovedNote = movedBeat?.getNoteOnString(alphaTabString(currentStringIndex).toDouble()) != null
-            selectionTarget = if (hasMovedNote) SelectionTarget.NOTE else SelectionTarget.BEAT
-            tappedNoteBounds = null
+            val movedBeat = currentBeat()
+            selected = movedBeat?.let { Sel(it.id.toString(), caret.stringIndex) }
+            selectedNoteRef = movedBeat?.getNoteOnString(
+                alphaTabString(caret.stringIndex).toDouble()
+            )
+            selectionTarget =
+                if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+            clearTappedNoteSelection()
             armed=true; pendingFret=""
+            logArrowState("moveBeat:after-move")
             updateCursor()
+            logArrowState("moveBeat:after-refresh")
             if(lastRawCaretX.isFinite()&&lastRawCaretY.isFinite()) ensureCaretVisible(lastRawCaretX,lastRawCaretY)
             updateStatus(); onSelectionChanged?.invoke()
         }
@@ -4941,14 +5233,23 @@ class MainActivity : ComponentActivity() {
 
         /** Up/down changes the TAB string only; it never changes the rhythmic beat. */
         private fun moveString(delta: Int) {
+            logArrowState("moveString:before delta=$delta")
+            logSelectionInput("arrow-up-down delta=$delta")
             caret = caret.copy(stringIndex = (caret.stringIndex + delta).coerceIn(1, maxStringIndex()))
             session.caret = caret
             val beat = currentBeat()
-            selectionTarget = if (beat?.getNoteOnString(alphaTabString(caret.stringIndex).toDouble()) != null) SelectionTarget.NOTE else SelectionTarget.BEAT
-            tappedNoteBounds = null
+            selected = beat?.let { Sel(it.id.toString(), caret.stringIndex) }
+            selectedNoteRef = beat?.getNoteOnString(
+                alphaTabString(caret.stringIndex).toDouble()
+            )
+            selectionTarget =
+                if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+            clearTappedNoteSelection()
             armed = true
             pendingFret = ""
+            logArrowState("moveString:after-move")
             updateCursor()
+            logArrowState("moveString:after-refresh")
             if (lastRawCaretX.isFinite() && lastRawCaretY.isFinite()) {
                 ensureCaretVisible(lastRawCaretX, lastRawCaretY)
             }
@@ -5001,6 +5302,8 @@ class MainActivity : ComponentActivity() {
             (maxStringIndex() + 1 - uiString).coerceIn(1, maxStringIndex())
 
         private fun writeFret(fret: Int) {
+            logArrowState("KEYPAD_FRET_PRE_WRITE fret=$fret")
+            logSelectionInput("fret-entry fret=$fret")
             if (fret !in 0..24) return
             pushUndoSnapshot()
             try {
@@ -5100,7 +5403,7 @@ class MainActivity : ComponentActivity() {
             beat.finish(score.settings, null)
             score.api.score?.finish(score.settings)
             selectedNoteRef = null
-            tappedNoteBounds = null
+            clearTappedNoteSelection()
             selectionTarget = SelectionTarget.BEAT
             overlay.hideNoteSelection()
             renderAndLog("delete-selected-note")
@@ -5122,6 +5425,28 @@ class MainActivity : ComponentActivity() {
         fun refreshVisualCursor() {
             visualCursorRefreshCount++
             try {
+                val summary = selectionStateSummary(lastSelectionDiagnosticStage)
+                activity.selectionDiagnosticView?.post {
+                    activity.selectionDiagnosticView?.text = summary
+                }
+                // Re-resolve the authoritative beat/string after each render. The selected
+                // beat identity survives boundsLookup rebuilds; geometry is always fresh.
+                val activeSelection = selected
+                val songForSelection = score.api.score
+                if (activeSelection != null && selectionTarget != SelectionTarget.BAR && selectionTarget != SelectionTarget.RANGE) {
+                    val staffForSelection = songForSelection?.tracks?.toList()?.getOrNull(currentTrackIndex)?.staves?.firstOrNull()
+                    val match = staffForSelection?.bars?.toList()?.withIndex()?.firstNotNullOfOrNull { (mi, bar) ->
+                        bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList()?.withIndex()
+                            ?.firstOrNull { (_, candidate) -> candidate.id.toString() == activeSelection.beatId }
+                            ?.let { (bi, candidate) -> Triple(mi, bi, candidate) }
+                    }
+                    if (match != null) {
+                        caret = caret.copy(measureIndex = match.first, beatIndex = match.second, stringIndex = activeSelection.stringNum)
+                        session.caret = caret
+                        selectedNoteRef = match.third.getNoteOnString(alphaTabString(activeSelection.stringNum).toDouble())
+                        selectionTarget = if (selectedNoteRef != null) SelectionTarget.NOTE else SelectionTarget.BEAT
+                    }
+                }
                 val lookup=score.api.renderer.boundsLookup; val song=score.api.score
                 val track=song?.tracks?.toList()?.getOrNull(currentTrackIndex); val staff=track?.staves?.firstOrNull()
                 val bar=staff?.bars?.toList()?.getOrNull(caret.measureIndex)
@@ -5154,27 +5479,182 @@ class MainActivity : ComponentActivity() {
                     // A Beat can expose separate NoteBounds for standard notation and TAB;
                     // choose the matching Note whose vertical center is closest to this
                     // note's expected TAB string row, then center the selection on its glyph.
-                    val selectedTabNoteBounds = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
-                        allBeatBounds.asSequence()
-                            .flatMap { it.notes?.toList().orEmpty().asSequence() }
-                            .filter { it.note === selectedNoteRef }
-                            .minByOrNull { nb ->
-                                val centerY = nb.noteHeadBounds.y.toDouble() + nb.noteHeadBounds.h.toDouble() / 2.0
-                                kotlin.math.abs(centerY - (expectedTabY?.toDouble() ?: centerY))
-                            }?.noteHeadBounds
-                    } else null
-                    val selectedNoteRect = if (selectionTarget == SelectionTarget.NOTE && selectedNoteRef != null) {
-                        val tabY = expectedTabY
-                            ?: (fallbackTop + (caret.stringIndex - 1).coerceAtLeast(0) * spacing)
-                        val noteBounds = selectedTabNoteBounds
-                        val selectionCenterX = if (noteBounds != null && noteBounds.w > 0.0)
-                            (noteBounds.x + noteBounds.w / 2.0).toFloat()
-                        else rawX.toFloat()
-                        val halfWidth = (spacing * 0.62f).coerceIn(5f, 11f)
-                        val halfHeight = (spacing * 0.46f).coerceIn(4f, 8f)
-                        RectF(selectionCenterX - halfWidth, tabY - halfHeight,
-                            selectionCenterX + halfWidth, tabY + halfHeight)
-                    } else null
+                    val selectedNoteForBounds = selectedNoteRef
+                    val selectedNoteId = selectedNoteForBounds?.id
+                    val selectedBeatId = selectedNoteForBounds?.beat?.id
+                    val allNoteBounds = allBeatBounds.asSequence()
+                        .flatMap { it.notes?.toList().orEmpty().asSequence() }
+                        .toList()
+                    val idMatchedBounds = if (
+                        selectionTarget == SelectionTarget.NOTE &&
+                        selectedNoteId != null &&
+                        selectedBeatId != null
+                    ) {
+                        allNoteBounds.filter {
+                            it.note.id == selectedNoteId && it.note.beat.id == selectedBeatId
+                        }
+                    } else emptyList()
+                    val referenceMatchedBounds = if (
+                        selectionTarget == SelectionTarget.NOTE && selectedNoteForBounds != null
+                    ) {
+                        allNoteBounds.filter { it.note === selectedNoteForBounds }
+                    } else emptyList()
+                    val positionMatchedBounds = allNoteBounds.firstOrNull { nb ->
+                        selectedNoteForBounds != null &&
+                            nb.note.beat.voice.bar.index == selectedNoteForBounds.beat.voice.bar.index &&
+                            nb.note.beat.index == selectedNoteForBounds.beat.index &&
+                            nb.note.string == selectedNoteForBounds.string
+                    }
+                    val tabY = expectedTabY
+                    val selectedByIdBounds = if (tabY != null) {
+                        idMatchedBounds.minByOrNull { nb ->
+                            val bounds = nb.noteHeadBounds
+                            val centerY = bounds.y + bounds.h / 2.0
+                            kotlin.math.abs(centerY - tabY.toDouble())
+                        }?.noteHeadBounds
+                    } else {
+                        idMatchedBounds.firstOrNull()?.noteHeadBounds
+                    }
+                    val selectedTabNoteBounds = selectedByIdBounds ?: positionMatchedBounds?.noteHeadBounds
+
+                    val idMatchScreenLines = mutableListOf<String>()
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        allBeatBounds.forEachIndexed { beatBoundsIndex, beatBounds ->
+                            beatBounds.notes?.toList().orEmpty().forEachIndexed { noteBoundsIndex, candidate ->
+                                if (idMatchedBounds.any { it === candidate }) {
+                                    val raw = candidate.noteHeadBounds
+                                    val centerY = raw.y + raw.h / 2.0
+                                    val tabDistance = expectedTabY?.let { kotlin.math.abs(centerY - it.toDouble()) }
+                                    val candidateBarObject = diagnosticMember(
+                                        diagnosticMember(beatBounds, "barBounds"),
+                                        "bar"
+                                    )
+                                    val candidateStaffDescription =
+                                        songForSelection?.tracks?.toList()?.withIndex()
+                                            ?.firstNotNullOfOrNull { (trackIndex, candidateTrack) ->
+                                                candidateTrack.staves.toList().withIndex()
+                                                    .firstNotNullOfOrNull { (staffIndex, candidateStaff) ->
+                                                        if (candidateStaff.bars.toList().any { it === candidateBarObject }) {
+                                                            "track=$trackIndex staff=$staffIndex " +
+                                                                "tab=${candidateStaff.showTablature} " +
+                                                                "score=${candidateStaff.showStandardNotation}"
+                                                        } else null
+                                                    }
+                                            } ?: "UNRESOLVED"
+                                    val idMatchLine = "beatBounds[$beatBoundsIndex].notes[$noteBoundsIndex] " +
+                                        "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
+                                        "string=${candidate.note.string} fret=${candidate.note.fret} " +
+                                        "staff=$candidateStaffDescription rawHead=(x=${raw.x},y=${raw.y},w=${raw.w},h=${raw.h}) " +
+                                        "centerY=$centerY expectedTabY=$expectedTabY distanceToTabRow=$tabDistance " +
+                                        "selected=${raw === selectedByIdBounds}"
+                                    idMatchScreenLines.add(idMatchLine)
+                                    activity.appendDiagnosticReport(
+                                        "EARAM_NOTE_RECT",
+                                        "ID_MATCH $idMatchLine " +
+                                            "parentStaffBounds={${diagnosticBounds(diagnosticMember(beatBounds, "staffBounds"))}} " +
+                                            "parentBarBounds={${diagnosticBounds(diagnosticMember(beatBounds, "barBounds"))}}"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        lastIdMatchDiagnostic = if (idMatchScreenLines.isEmpty()) {
+                            "no ID-matched bounds captured"
+                        } else {
+                            idMatchScreenLines.joinToString(" || ")
+                        }
+                    }
+
+                    if (BuildConfig.DEBUG) {
+                        val boundsLookupNoteCount = runCatching {
+                            staff?.bars?.toList().orEmpty().asSequence()
+                                .flatMap { it.voices.toList().asSequence() }
+                                .flatMap { it.beats.toList().asSequence() }
+                                .sumOf { candidateBeat ->
+                                    lookup.findBeats(candidateBeat)?.toList().orEmpty().sumOf { candidateBounds ->
+                                        candidateBounds.notes?.toList()?.size ?: 0
+                                    }
+                                }
+                        }.getOrDefault(-1)
+                        android.util.Log.d(
+                            "EARAM_SELECT",
+                            "selectedNoteId=${selectedNoteId} selectedBeatId=${selectedBeatId} " +
+                                "boundsLookupNoteCount=${boundsLookupNoteCount} " +
+                                "selectedBeatBoundsNoteCount=${allNoteBounds.size} " +
+                                "idMatchCount=${idMatchedBounds.size} referenceMatchCount=${referenceMatchedBounds.size} " +
+                                "tappedNoteId=${tappedNoteId} tappedBeatId=${tappedNoteBeatId} " +
+                                "selectedPos=(${beat.voice.bar.index},${beat.index},${selectedAlphaString}) " +
+                                "tappedPos=(${tappedNoteBarIndex},${tappedNoteBeatIndex},${tappedNoteString})"
+                        )
+                    }
+
+                    val selectedNoteForRect = selectedNoteRef
+                    val selectedBoundsForRect = selectedTabNoteBounds
+                    val tappedBoundsForRect = tappedNoteBounds
+                    val fallbackMatchesSelection =
+                        tappedBoundsForRect != null &&
+                        selectedNoteForRect != null &&
+                        tappedNoteId == selectedNoteForRect.id &&
+                        tappedNoteBeatId == selectedNoteForRect.beat.id &&
+                        tappedNoteBarIndex == selectedNoteForRect.beat.voice.bar.index &&
+                        tappedNoteBeatIndex == selectedNoteForRect.beat.index &&
+                        tappedNoteString == selectedNoteForRect.string
+
+                    val selectedNoteRect: RectF? = when {
+                        selectionTarget != SelectionTarget.NOTE -> null
+                        selectedNoteForRect == null -> null
+                        selectedBoundsForRect != null &&
+                            selectedBoundsForRect.w > 0.0 &&
+                            selectedBoundsForRect.h > 0.0 -> {
+                            val r = selectedBoundsForRect
+                            RectF(
+                                r.x.toFloat(),
+                                r.y.toFloat(),
+                                (r.x + r.w).toFloat(),
+                                (r.y + r.h).toFloat()
+                            )
+                        }
+                        fallbackMatchesSelection -> RectF(tappedBoundsForRect!!)
+                        else -> null
+                    }
+
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        lastSelectedNoteRectNullReason = if (selectedNoteRect != null) {
+                            "selectedNoteRect is non-null"
+                        } else when {
+                            selectionTarget != SelectionTarget.NOTE -> "selectionTarget=$selectionTarget, not NOTE"
+                            selectedNoteForRect == null -> "selectedNoteRef is null"
+                            selectedBoundsForRect == null -> "selectedTabNoteBounds is null; idMatches=${idMatchedBounds.size}; positionMatch=${positionMatchedBounds != null}; fallbackMatchesSelection=$fallbackMatchesSelection"
+                            selectedBoundsForRect.w <= 0.0 || selectedBoundsForRect.h <= 0.0 -> "selected bounds have non-positive size w=${selectedBoundsForRect.w}, h=${selectedBoundsForRect.h}; fallbackMatchesSelection=$fallbackMatchesSelection"
+                            else -> "no selectedNoteRect branch matched; fallbackMatchesSelection=$fallbackMatchesSelection"
+                        }
+                    }
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        activity.appendDiagnosticReport("EARAM_NOTE_RECT", "selectedNoteRectNullCause=$lastSelectedNoteRectNullReason")
+                        val methodUsed = when {
+                            selectionTarget != SelectionTarget.NOTE -> "NO_NOTE"
+                            selectedNoteRect == null -> "NONE"
+                            fallbackMatchesSelection &&
+                                (selectedBoundsForRect == null ||
+                                    selectedBoundsForRect.w <= 0.0 ||
+                                    selectedBoundsForRect.h <= 0.0) -> "TAP_FALLBACK"
+                            selectedByIdBounds != null &&
+                                selectedBoundsForRect === selectedByIdBounds -> "ID"
+                            positionMatchedBounds != null &&
+                                selectedBoundsForRect === positionMatchedBounds.noteHeadBounds -> "POSITION"
+                            else -> "NONE"
+                        }
+                        val diagnosticText =
+                            selectionStateSummary(lastSelectionDiagnosticStage) + "\n" +
+                                "id=${selectedNoteId ?: "—"} beat=${selectedBeatId ?: "—"} " +
+                                "idM=${idMatchedBounds.size} refM=${referenceMatchedBounds.size} " +
+                                "posM=${if (positionMatchedBounds != null) 1 else 0} used=$methodUsed"
+                        activity.selectionDiagnosticView?.post {
+                            activity.selectionDiagnosticView?.text = diagnosticText
+                        }
+                    }
+
                     val rawY = if (selectedNoteRect != null) {
                         selectedNoteRect.centerY()
                     } else {
@@ -5206,16 +5686,59 @@ class MainActivity : ComponentActivity() {
                     var diagnosticNoteLeft = Float.NaN
                     var diagnosticNoteRight = Float.NaN
                     if (selectionTarget == SelectionTarget.NOTE && selectedNoteRect != null) {
-                        val noteLeft = selectedNoteRect.left * coordinateScale + origin.first
-                        val noteTop = selectedNoteRect.top * coordinateScale + origin.second
-                        val noteRight = selectedNoteRect.right * coordinateScale + origin.first
-                        val noteBottom = selectedNoteRect.bottom * coordinateScale + origin.second
+                        val padX = d * 3f
+                        val padY = d * 2f
+                        val noteLeft = selectedNoteRect.left * coordinateScale + origin.first - padX
+                        val noteTop = selectedNoteRect.top * coordinateScale + origin.second - padY
+                        val noteRight = selectedNoteRect.right * coordinateScale + origin.first + padX
+                        val noteBottom = selectedNoteRect.bottom * coordinateScale + origin.second + padY
                         diagnosticNoteLeft = noteLeft
                         diagnosticNoteRight = noteRight
                         lastFinalNoteRect = RectF(noteLeft, noteTop, noteRight, noteBottom)
                         overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
+
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            lastTransformDiagnostic = "raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
+                                "finalOverlayRect=$lastFinalNoteRect; scrollPx=${actualScrollOffsets()}; " +
+                                "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
+                            val scroll = actualScrollOffsets()
+                            val overlayOnScreen = IntArray(2)
+                            val scoreOnScreen = IntArray(2)
+                            overlay.getLocationOnScreen(overlayOnScreen)
+                            score.getLocationOnScreen(scoreOnScreen)
+                            val originFromDiagnosticSnapshot = Pair(
+                                (scoreOnScreen[0] - overlayOnScreen[0]).toFloat(),
+                                (scoreOnScreen[1] - overlayOnScreen[1]).toFloat()
+                            )
+                            val originDelta = Pair(
+                                originFromDiagnosticSnapshot.first - origin.first,
+                                originFromDiagnosticSnapshot.second - origin.second
+                            )
+                            val paintedLocal = RectF(noteLeft, noteTop, noteRight, noteBottom).apply {
+                                offset(-scroll.first, -scroll.second)
+                            }
+                            val paintedScreen = RectF(paintedLocal).apply {
+                                offset(overlayOnScreen[0].toFloat(), overlayOnScreen[1].toFloat())
+                            }
+                            activity.appendDiagnosticReport(
+                                "EARAM_NOTE_RECT",
+                                "TRANSFORM raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
+                                    "scrollPx=$scroll finalOverlayRect=$lastFinalNoteRect " +
+                                    "paintedLocalAfterScroll=$paintedLocal paintedScreen=$paintedScreen " +
+                                    "overlay=${overlay.width}x${overlay.height} overlayScreen=${overlayOnScreen.contentToString()} " +
+                                    "score=${score.width}x${score.height} scoreScreen=${scoreOnScreen.contentToString()} " +
+                                    "originFromDiagnosticSnapshot=$originFromDiagnosticSnapshot originDelta=$originDelta " +
+                                    "targetScreenApprox=(348,1117)"
+                            )
+                        }
                     } else {
                         lastFinalNoteRect = null
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            lastTransformDiagnostic = "TRANSFORM unavailable: selectedNoteRect=null; reason=$lastSelectedNoteRectNullReason; " +
+                                "coordinateScale=$coordinateScale origin=$origin scrollPx=${actualScrollOffsets()}; " +
+                                "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
+                            activity.appendDiagnosticReport("EARAM_NOTE_RECT", lastTransformDiagnostic)
+                        }
                         overlay.hideNoteSelection()
                     }
 
@@ -5224,6 +5747,70 @@ class MainActivity : ComponentActivity() {
                     overlay.showBeatCaretContent(finalX,finalY,half)
                     lastCaretPosition=Triple(finalX,finalY,half)
                     lastCaretRect=RectF(finalX-half,finalY-half,finalX+half,finalY+half)
+
+                    // Diagnostic only: compare every ID-matched candidate in the exact same
+                    // layout-to-overlay transform used for the final selection rectangle.
+                    // Bounds do not expose a documented renderer/layer back-reference; the
+                    // reflective probes report availability/failure without asserting identity.
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        idMatchedBounds.forEachIndexed { index, candidate ->
+                            val b = candidate.noteHeadBounds
+                            val transformed = RectF(
+                                b.x.toFloat() * coordinateScale + origin.first,
+                                b.y.toFloat() * coordinateScale + origin.second,
+                                (b.x + b.w).toFloat() * coordinateScale + origin.first,
+                                (b.y + b.h).toFloat() * coordinateScale + origin.second
+                            )
+                            val beatBounds = allBeatBounds.firstOrNull { bb ->
+                                bb.notes?.toList().orEmpty().any { it === candidate }
+                            }
+                            val barBounds = diagnosticMember(beatBounds, "barBounds")
+                            val barObject = diagnosticMember(barBounds, "bar")
+                            val staffObject = diagnosticMember(barObject, "staff")
+                            activity.appendDiagnosticReport(
+                                "EARAM_NOTE_RECT",
+                                "CANDIDATE_FINAL_SPACE index=$index " +
+                                    "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
+                                    "string=${candidate.note.string} fret=${candidate.note.fret} " +
+                                    "noteBoundsClass=${candidate.javaClass.name} " +
+                                    "noteIdentity=${System.identityHashCode(candidate.note)} " +
+                                    "noteBoundsIdentity=${System.identityHashCode(candidate)} " +
+                                    "headBoundsIdentity=${System.identityHashCode(b)} " +
+                                    "modelBarIdentity=${barObject?.let { System.identityHashCode(it) }} " +
+                                    "modelStaffIdentity=${staffObject?.let { System.identityHashCode(it) }} " +
+                                    "barLocation=${barObject?.let { diagnosticLocateBar(it) } ?: "UNAVAILABLE"} " +
+                                    "rawLayoutBounds={${diagnosticBounds(b)}} " +
+                                    "overlayBoundsNoPadding=$transformed " +
+                                    "sameAsSelectedById=${b === selectedByIdBounds} " +
+                                    "probes(noteBounds.renderer=${diagnosticProbe(candidate, "renderer")}; " +
+                                    "noteBounds.glyph=${diagnosticProbe(candidate, "glyph")}; " +
+                                    "noteBounds.layer=${diagnosticProbe(candidate, "layer")}; " +
+                                    "beatBounds.renderer=${diagnosticProbe(beatBounds, "renderer")}; " +
+                                    "bar.staff=${diagnosticProbe(barObject, "staff")}; " +
+                                    "staff.renderer=${diagnosticProbe(staffObject, "renderer")})"
+                            )
+                        }
+                        val finalMethod = when {
+                            selectionTarget != SelectionTarget.NOTE -> "NO_NOTE"
+                            selectedNoteRect == null -> "NONE"
+                            fallbackMatchesSelection && (selectedBoundsForRect == null ||
+                                selectedBoundsForRect.w <= 0.0 || selectedBoundsForRect.h <= 0.0) -> "TAP_FALLBACK"
+                            selectedByIdBounds != null && selectedBoundsForRect === selectedByIdBounds -> "ID"
+                            positionMatchedBounds != null && selectedBoundsForRect === positionMatchedBounds.noteHeadBounds -> "POSITION"
+                            else -> "NONE"
+                        }
+                        activity.appendDiagnosticReport(
+                            "EARAM_NOTE_RECT",
+                            "FINAL_SELECTION " +
+                                "target=$selectionTarget noteId=$selectedNoteId beatId=$selectedBeatId " +
+                                "method=$finalMethod " +
+                                "selectedSourceBounds=${selectedBoundsForRect?.let { diagnosticBounds(it) } ?: "null"} " +
+                                "selectedRectLayout=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
+                                "finalOverlayRect=${lastFinalNoteRect ?: "null"} " +
+                                "fallbackMatchesSelection=$fallbackMatchesSelection " +
+                                "nullReason=$lastSelectedNoteRectNullReason"
+                        )
+                    }
 
                     // One diagnostic line per visual-cursor refresh; DEBUG only.
                     // Logging does not alter cursor or selection calculations.
@@ -5345,6 +5932,63 @@ class MainActivity : ComponentActivity() {
             return null
         }
 
+        private fun diagnosticProbe(obj: Any?, name: String): String {
+            if (obj == null) return "UNAVAILABLE(object=null)"
+            val suffix = name.substring(0, 1).uppercase() + name.substring(1)
+            val getter = runCatching {
+                obj.javaClass.methods.firstOrNull {
+                    it.parameterCount == 0 &&
+                        (it.name == "get$suffix" || it.name == "is$suffix" || it.name == name)
+                }
+            }.getOrElse {
+                return "ERROR(method lookup ${it.javaClass.simpleName}: ${it.message})"
+            }
+            if (getter != null) {
+                return runCatching {
+                    "FOUND(method=${getter.name}, value=${getter.invoke(obj)})"
+                }.getOrElse {
+                    "ERROR(method=${getter.name}, ${it.javaClass.simpleName}: ${it.message})"
+                }
+            }
+            var type: Class<*>? = obj.javaClass
+            while (type != null) {
+                val currentType = type
+                val field = runCatching { currentType.getDeclaredField(name) }.getOrNull()
+                if (field != null) {
+                    return runCatching {
+                        field.isAccessible = true
+                        "FOUND(field=${currentType.simpleName}.$name, value=${field.get(obj)})"
+                    }.getOrElse {
+                        "ERROR(field=${currentType.simpleName}.$name, ${it.javaClass.simpleName}: ${it.message})"
+                    }
+                }
+                type = currentType.superclass
+            }
+            return "UNAVAILABLE(member '$name' not found on ${obj.javaClass.name})"
+        }
+
+        private fun diagnosticLocateBar(barObject: Any): String {
+            val song = score.api.score ?: return "UNAVAILABLE(score=null)"
+            return runCatching {
+                val matches = mutableListOf<String>()
+                song.tracks.toList().forEachIndexed { ti, track ->
+                    track.staves.toList().forEachIndexed { si, staff ->
+                        staff.bars.toList().forEachIndexed { bi, bar ->
+                            if (bar === barObject) {
+                                matches.add(
+                                    "track=$ti,staff=$si,bar=$bi," +
+                                        "tab=${staff.showTablature},score=${staff.showStandardNotation}"
+                                )
+                            }
+                        }
+                    }
+                }
+                matches.joinToString("; ").ifEmpty { "NO_MODEL_IDENTITY_MATCH" }
+            }.getOrElse {
+                "ERROR(${it.javaClass.simpleName}: ${it.message})"
+            }
+        }
+
         private fun diagnosticBounds(bounds: Any?): String {
             if (bounds == null) return "null"
             return "x=${diagnosticMember(bounds, "x")}, y=${diagnosticMember(bounds, "y")}, " +
@@ -5422,6 +6066,13 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("screenPx=(width=${dm.widthPixels}, height=${dm.heightPixels}); density=$density")
                 report.appendLine("overlayPx=(width=${overlay.width}, height=${overlay.height}, screenX=${overlayLocation[0]}, screenY=${overlayLocation[1]})")
                 report.appendLine("alphaTabViewPx=(width=${score.width}, height=${score.height}, screenX=${scoreLocation[0]}, screenY=${scoreLocation[1]}, insideOverlayX=$scoreXInOverlay, insideOverlayY=$scoreYInOverlay)")
+                val overlayParent = overlay.parent as? ViewGroup
+                report.appendLine(
+                    "overlayState: ${overlay.drawDiagnosticState()}; " +
+                        "parent=${overlayParent?.javaClass?.name}; " +
+                        "childIndex=${overlayParent?.indexOfChild(overlay)}; " +
+                        "scoreChildIndex=${overlayParent?.indexOfChild(score)}"
+                )
                 report.appendLine("displayScale=$displayScale; coordinateScale=$coordinateScale; originOverlayPx=(${origin.first}, ${origin.second})")
                 report.appendLine("SCROLL/HIERARCHY: scrollerClass=$scrollerClass; scrollerIsAndroidView=${scrollerAndroidView != null}; selectionWrapperClass=$selectionWrapperClass; selectionWrapperParentClass=$selectionWrapperParent; androidOnScrollChangeListenerAvailable=${scrollerAndroidView != null}")
                 report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second}); providerScrollPx=${overlay.providerScrollDiagnostic()}; scrollInvalidateCount=${overlay.scrollInvalidationCount()}; score.scroll=(x=${score.scrollX}, y=${score.scrollY})")
@@ -5430,6 +6081,9 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
                 report.appendLine("lastFinalCaret=(x=${last?.first}, y=${last?.second}, half=${last?.third}); caretCenterX=${last?.first}; caretCenterY=${last?.second}; lastCaretRect=$lastCaretRect")
                 report.appendLine("drawn orange selection: ${overlay.diagnosticNoteSelectionBounds()}")
+                report.appendLine("ID_MATCH (last cursor refresh): $lastIdMatchDiagnostic")
+                report.appendLine("TRANSFORM (last cursor refresh): $lastTransformDiagnostic")
+                report.appendLine("selectedNoteRect null cause: $lastSelectedNoteRectNullReason")
                 val finalX = lastFinalAfterClampX
                 val finalY = lastFinalAfterClampY
                 val finalRect = lastFinalNoteRect
@@ -5644,6 +6298,9 @@ class MainActivity : ComponentActivity() {
             // Always anchor it to beat 1 so every bar command resolves deterministically
             // against this exact measure.
             selectionTarget = SelectionTarget.BAR
+            selected = null
+            selectedNoteRef = null
+            overlay.hideNoteSelection()
             caret = caret.copy(measureIndex = index, beatIndex = 0)
             session.caret = caret
             armed = true
@@ -5676,9 +6333,9 @@ class MainActivity : ComponentActivity() {
                 val beats = bar.voices.toList().getOrNull(currentVoiceIndex)?.beats?.toList().orEmpty()
                 val first = beats.firstOrNull() ?: return
                 val last = beats.lastOrNull() ?: first
-                // Official AlphaTab selection API: highlight the real beat range that spans
-                // the whole selected measure. No coordinate overlay is involved.
-                score.api.highlightPlaybackRange(first, last)
+                // Keep BAR as an editing target for the explicit long-press gesture,
+                // but do not paint the entire measure yellow.
+                score.api.clearPlaybackRangeHighlight()
                 android.util.Log.d(
                     "EARAM_BAR_SELECTION",
                     "BAR selected index=" + selectedBarIndex +
