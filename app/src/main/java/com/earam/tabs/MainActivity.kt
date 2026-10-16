@@ -624,8 +624,7 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
             setBackgroundColor(0xFF30343A.toInt())
-            maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxLines = 50
             visibility = if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) View.VISIBLE else View.GONE
             contentDescription = "Temporary note selection diagnostic"
         }
@@ -2164,20 +2163,48 @@ class MainActivity : ComponentActivity() {
         private var selected: Sel? = null
         private var lastNoteMouseDownAtMs: Long = 0L
         private var lastDirectTapSelectionAtMs: Long = 0L
+        private var lastSelectionDiagnosticStage: String = "STARTUP"
 
         private fun logSelectionInput(kind: String) {
             android.util.Log.d("EARAM_SEL", "$kind selected=$selected caret=$caret target=$selectionTarget")
         }
 
+        // Read-only snapshot: currentBeat()/selectedBeat() only read the score at caret coordinates.
+        // This helper intentionally does not change the caret, selection, or selectedNoteRef.
+        private fun selectionStateSummary(stage: String): String {
+            val beat = currentBeat()
+            val maxStrings = maxStringIndex()
+            val uiString = caret.stringIndex
+            val alphaString = alphaTabString(uiString)
+            val notes = beat?.notes?.toList().orEmpty()
+            val noteList = notes.joinToString(",") {
+                "s${it.string.toInt()}/f${it.fret.toInt()}"
+            }.ifEmpty { "-" }
+            val stringOccupied = notes.any { it.string.toInt() == alphaString }
+            val state = when {
+                beat == null -> "NO_BEAT"
+                stringOccupied -> "NOTE_ON_STRING"
+                else -> "EMPTY_STRING"
+            }
+            return "$stage uiS=$uiString aS=$alphaString/$maxStrings " +
+                "beat=${beat?.id ?: "—"} n=${notes.size}\n" +
+                "$state notes=[$noteList]"
+        }
+
         private fun logArrowState(stage: String) {
+            lastSelectionDiagnosticStage = stage
+            val summary = selectionStateSummary(stage)
             val note = selectedNoteRef
             android.util.Log.d(
                 "EARAM_ARROW",
-                "$stage caret=$caret currentBeatId=${currentBeat()?.id} selected=$selected " +
+                "$summary caret=$caret currentBeatId=${currentBeat()?.id} selected=$selected " +
                     "selectedNoteRefNoteId=${note?.id} " +
                     "selectedNoteRefBeatId=${note?.beat?.id} " +
                     "target=$selectionTarget"
             )
+            activity.selectionDiagnosticView?.post {
+                activity.selectionDiagnosticView?.text = summary
+            }
         }
 
         private fun selectBeatString(
@@ -2816,6 +2843,7 @@ class MainActivity : ComponentActivity() {
                         tappedNoteBeatIndex = note.beat.index
                         tappedNoteString = note.string
                     }
+                    logArrowState("TAP_FRET_SELECT alphaTab-noteMouseDown")
                     armed = true
                     pendingFret = ""
 
@@ -3371,6 +3399,7 @@ class MainActivity : ComponentActivity() {
                                     tappedNoteBarIndex = beat.voice.bar.index
                                     tappedNoteBeatIndex = beat.index
                                     tappedNoteString = nb.note.string
+                                    logArrowState("TAP_FRET_SELECT overlay-hit")
                                     armed = true
                                     pendingFret = ""
                                     try {
@@ -5120,6 +5149,7 @@ class MainActivity : ComponentActivity() {
             (maxStringIndex() + 1 - uiString).coerceIn(1, maxStringIndex())
 
         private fun writeFret(fret: Int) {
+            logArrowState("KEYPAD_FRET_PRE_WRITE fret=$fret")
             logSelectionInput("fret-entry fret=$fret")
             if (fret !in 0..24) return
             pushUndoSnapshot()
@@ -5242,6 +5272,10 @@ class MainActivity : ComponentActivity() {
         fun refreshVisualCursor() {
             visualCursorRefreshCount++
             try {
+                val summary = selectionStateSummary(lastSelectionDiagnosticStage)
+                activity.selectionDiagnosticView?.post {
+                    activity.selectionDiagnosticView?.text = summary
+                }
                 // Re-resolve the authoritative beat/string after each render. The selected
                 // beat identity survives boundsLookup rebuilds; geometry is always fresh.
                 val activeSelection = selected
@@ -5389,9 +5423,10 @@ class MainActivity : ComponentActivity() {
                             else -> "NONE"
                         }
                         val diagnosticText =
-                            "EARAM_SELECT id=${selectedNoteId ?: "—"} beat=${selectedBeatId ?: "—"} " +
-                                "idMatches=${idMatchedBounds.size} ===Matches=${referenceMatchedBounds.size}\n" +
-                                "positionMatches=${if (positionMatchedBounds != null) 1 else 0} used=$methodUsed"
+                            selectionStateSummary(lastSelectionDiagnosticStage) + "\n" +
+                                "id=${selectedNoteId ?: "—"} beat=${selectedBeatId ?: "—"} " +
+                                "idM=${idMatchedBounds.size} refM=${referenceMatchedBounds.size} " +
+                                "posM=${if (positionMatchedBounds != null) 1 else 0} used=$methodUsed"
                         activity.selectionDiagnosticView?.post {
                             activity.selectionDiagnosticView?.text = diagnosticText
                         }
