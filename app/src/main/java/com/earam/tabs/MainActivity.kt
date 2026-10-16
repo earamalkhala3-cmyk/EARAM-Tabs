@@ -5381,7 +5381,16 @@ class MainActivity : ComponentActivity() {
                             nb.note.beat.index == selectedNoteForBounds.beat.index &&
                             nb.note.string == selectedNoteForBounds.string
                     }
-                    val selectedByIdBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
+                    val tabY = expectedTabY
+                    val selectedByIdBounds = if (tabY != null) {
+                        idMatchedBounds.minByOrNull { nb ->
+                            val bounds = nb.noteHeadBounds
+                            val centerY = bounds.y + bounds.h / 2.0
+                            kotlin.math.abs(centerY - tabY.toDouble())
+                        }?.noteHeadBounds
+                    } else {
+                        idMatchedBounds.firstOrNull()?.noteHeadBounds
+                    }
                     val selectedTabNoteBounds = selectedByIdBounds ?: positionMatchedBounds?.noteHeadBounds
 
                     val idMatchScreenLines = mutableListOf<String>()
