@@ -621,8 +621,8 @@ class MainActivity : ComponentActivity() {
             text = "EARAM_SELECT • waiting for note selection"
             setTextColor(0xFFF3F0E8.toInt())
             textSize = 9f
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            gravity = Gravity.TOP
+            setPadding(dp(8f), dp(4f), dp(8f), dp(8f))
             setBackgroundColor(0xFF30343A.toInt())
             maxLines = 50
             visibility = if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) View.VISIBLE else View.GONE
@@ -965,9 +965,9 @@ class MainActivity : ComponentActivity() {
         root.addView(navigation, LinearLayout.LayoutParams(-1, dp(48f)))
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(selectionDiagnostic, LinearLayout.LayoutParams(-1, dp(52f)))
         // Always visible: compact fret-entry keypad (0–9).
         root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(100f)))
-        root.addView(selectionDiagnostic, LinearLayout.LayoutParams(-1, dp(34f)))
         setContentView(root)
 
         // Initialize AlphaTab only after the complete view hierarchy is attached.
@@ -1790,6 +1790,10 @@ class MainActivity : ComponentActivity() {
         private var noteSelectionTop = Float.NaN
         private var noteSelectionRight = Float.NaN
         private var noteSelectionBottom = Float.NaN
+        private var overlayDrawCount = 0L
+        private var noteSelectionDrawCount = 0L
+        private var lastDrawnNoteSelectionRect: RectF? = null
+        private var lastDrawHadValidNoteSelection = false
         // A translucent orange disc keeps the TAB fret number readable while
         // making the exact selected note obvious on a dense chord.
         private val noteSelectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1853,6 +1857,17 @@ class MainActivity : ComponentActivity() {
                 "noteSelectionRight=$noteSelectionRight, noteSelectionBottom=$noteSelectionBottom, " +
                 "noteSelectionCenterX=$centerX, deltaOrangeCenterMinusCaretX=${centerX - caretCenterX}"
         }
+        fun drawDiagnosticState(): String =
+            "onDraw=$overlayDrawCount selectionDraw=$noteSelectionDrawCount " +
+                "validAtLastDraw=$lastDrawHadValidNoteSelection " +
+                "lastDrawnLocalAfterScroll=$lastDrawnNoteSelectionRect " +
+                "storedRect=[$noteSelectionLeft,$noteSelectionTop,$noteSelectionRight,$noteSelectionBottom] " +
+                "visible=$visibility shown=$isShown alpha=$alpha " +
+                "elevation=$elevation translationZ=$translationZ z=$z " +
+                "strokeColor=${noteSelectionPaint.color.toUInt().toString(16)} " +
+                "strokeAlpha=${noteSelectionPaint.alpha} strokeWidth=${noteSelectionPaint.strokeWidth} " +
+                "fillColor=${noteSelectionFillPaint.color.toUInt().toString(16)} " +
+                "fillAlpha=${noteSelectionFillPaint.alpha}"
         fun showNoteCursor(left:Float,top:Float,width:Float,height:Float)=invalidate()
         fun hideCursor(){
             caretCenterX=Float.NaN; caretCenterY=Float.NaN; caretHalf=0f
@@ -1869,6 +1884,7 @@ class MainActivity : ComponentActivity() {
 
         override fun onDraw(canvas:Canvas){
             super.onDraw(canvas)
+            overlayDrawCount++
 
             // Diagnostic rectangles are available only in DEBUG builds and only
             // while the existing hidden coordinate-debug mode is enabled.
@@ -1886,6 +1902,12 @@ class MainActivity : ComponentActivity() {
             }
 
             val scroll=scrollProvider?.invoke() ?: (0f to 0f)
+            lastDrawHadValidNoteSelection =
+                noteSelectionLeft.isFinite() &&
+                noteSelectionTop.isFinite() &&
+                noteSelectionRight > noteSelectionLeft &&
+                noteSelectionBottom > noteSelectionTop
+            lastDrawnNoteSelectionRect = null
             canvas.save()
             canvas.translate(-scroll.first,-scroll.second)
 
@@ -1926,12 +1948,15 @@ class MainActivity : ComponentActivity() {
                 noteSelectionRight > noteSelectionLeft &&
                 noteSelectionBottom > noteSelectionTop
             ) {
+                noteSelectionDrawCount++
                 val selectionRect = RectF(
                     noteSelectionLeft,
                     noteSelectionTop,
                     noteSelectionRight,
                     noteSelectionBottom
                 )
+                selectionRect.offset(-scroll.first, -scroll.second)
+                lastDrawnNoteSelectionRect = RectF(selectionRect)
                 val cornerRadius = 2.5f * density
                 canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionFillPaint)
                 canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionPaint)
@@ -5355,6 +5380,29 @@ class MainActivity : ComponentActivity() {
                     val selectedByIdBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
                     val selectedTabNoteBounds = selectedByIdBounds ?: positionMatchedBounds?.noteHeadBounds
 
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        allBeatBounds.forEachIndexed { beatBoundsIndex, beatBounds ->
+                            beatBounds.notes?.toList().orEmpty().forEachIndexed { noteBoundsIndex, candidate ->
+                                if (idMatchedBounds.any { it === candidate }) {
+                                    val raw = candidate.noteHeadBounds
+                                    val centerY = raw.y + raw.h / 2.0
+                                    val tabDistance = kotlin.math.abs(centerY - expectedTabY.toDouble())
+                                    android.util.Log.d(
+                                        "EARAM_NOTE_RECT",
+                                        "ID_MATCH beatBounds[$beatBoundsIndex].notes[$noteBoundsIndex] " +
+                                            "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
+                                            "string=${candidate.note.string} fret=${candidate.note.fret} " +
+                                            "rawHead=(x=${raw.x},y=${raw.y},w=${raw.w},h=${raw.h}) " +
+                                            "parentStaffBounds={${diagnosticBounds(diagnosticMember(beatBounds, "staffBounds"))}} " +
+                                            "parentBarBounds={${diagnosticBounds(diagnosticMember(beatBounds, "barBounds"))}} " +
+                                            "centerY=$centerY expectedTabY=$expectedTabY distanceToTabRow=$tabDistance " +
+                                            "selected=${raw === selectedByIdBounds}"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     if (BuildConfig.DEBUG) {
                         val boundsLookupNoteCount = runCatching {
                             staff?.bars?.toList().orEmpty().asSequence()
@@ -5473,6 +5521,29 @@ class MainActivity : ComponentActivity() {
                         diagnosticNoteRight = noteRight
                         lastFinalNoteRect = RectF(noteLeft, noteTop, noteRight, noteBottom)
                         overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
+
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            val scroll = actualScrollOffsets()
+                            val overlayOnScreen = IntArray(2)
+                            val scoreOnScreen = IntArray(2)
+                            overlay.getLocationOnScreen(overlayOnScreen)
+                            score.getLocationOnScreen(scoreOnScreen)
+                            val paintedLocal = RectF(noteLeft, noteTop, noteRight, noteBottom).apply {
+                                offset(-scroll.first, -scroll.second)
+                            }
+                            val paintedScreen = RectF(paintedLocal).apply {
+                                offset(overlayOnScreen[0].toFloat(), overlayOnScreen[1].toFloat())
+                            }
+                            android.util.Log.d(
+                                "EARAM_NOTE_RECT",
+                                "TRANSFORM raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
+                                    "scrollPx=$scroll finalOverlayRect=$lastFinalNoteRect " +
+                                    "paintedLocalAfterScroll=$paintedLocal paintedScreen=$paintedScreen " +
+                                    "overlay=${overlay.width}x${overlay.height} overlayScreen=${overlayOnScreen.contentToString()} " +
+                                    "score=${score.width}x${score.height} scoreScreen=${scoreOnScreen.contentToString()} " +
+                                    "targetScreenApprox=(348,1117)"
+                            )
+                        }
                     } else {
                         lastFinalNoteRect = null
                         overlay.hideNoteSelection()
@@ -5681,6 +5752,13 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("screenPx=(width=${dm.widthPixels}, height=${dm.heightPixels}); density=$density")
                 report.appendLine("overlayPx=(width=${overlay.width}, height=${overlay.height}, screenX=${overlayLocation[0]}, screenY=${overlayLocation[1]})")
                 report.appendLine("alphaTabViewPx=(width=${score.width}, height=${score.height}, screenX=${scoreLocation[0]}, screenY=${scoreLocation[1]}, insideOverlayX=$scoreXInOverlay, insideOverlayY=$scoreYInOverlay)")
+                val overlayParent = overlay.parent as? ViewGroup
+                report.appendLine(
+                    "overlayState: ${overlay.drawDiagnosticState()}; " +
+                        "parent=${overlayParent?.javaClass?.name}; " +
+                        "childIndex=${overlayParent?.indexOfChild(overlay)}; " +
+                        "scoreChildIndex=${overlayParent?.indexOfChild(score)}"
+                )
                 report.appendLine("displayScale=$displayScale; coordinateScale=$coordinateScale; originOverlayPx=(${origin.first}, ${origin.second})")
                 report.appendLine("SCROLL/HIERARCHY: scrollerClass=$scrollerClass; scrollerIsAndroidView=${scrollerAndroidView != null}; selectionWrapperClass=$selectionWrapperClass; selectionWrapperParentClass=$selectionWrapperParent; androidOnScrollChangeListenerAvailable=${scrollerAndroidView != null}")
                 report.appendLine("scrollLayout=(${scrollLayout.first}, ${scrollLayout.second}); scrollPx=(${scroll.first}, ${scroll.second}); providerScrollPx=${overlay.providerScrollDiagnostic()}; scrollInvalidateCount=${overlay.scrollInvalidationCount()}; score.scroll=(x=${score.scrollX}, y=${score.scrollY})")
