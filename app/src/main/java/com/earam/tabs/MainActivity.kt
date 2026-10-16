@@ -5604,6 +5604,70 @@ class MainActivity : ComponentActivity() {
                     lastCaretPosition=Triple(finalX,finalY,half)
                     lastCaretRect=RectF(finalX-half,finalY-half,finalX+half,finalY+half)
 
+                    // Diagnostic only: compare every ID-matched candidate in the exact same
+                    // layout-to-overlay transform used for the final selection rectangle.
+                    // Bounds do not expose a documented renderer/layer back-reference; the
+                    // reflective probes report availability/failure without asserting identity.
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        idMatchedBounds.forEachIndexed { index, candidate ->
+                            val b = candidate.noteHeadBounds
+                            val transformed = RectF(
+                                b.x.toFloat() * coordinateScale + origin.first,
+                                b.y.toFloat() * coordinateScale + origin.second,
+                                (b.x + b.w).toFloat() * coordinateScale + origin.first,
+                                (b.y + b.h).toFloat() * coordinateScale + origin.second
+                            )
+                            val beatBounds = allBeatBounds.firstOrNull { bb ->
+                                bb.notes?.toList().orEmpty().any { it === candidate }
+                            }
+                            val barBounds = diagnosticMember(beatBounds, "barBounds")
+                            val barObject = diagnosticMember(barBounds, "bar")
+                            val staffObject = diagnosticMember(barObject, "staff")
+                            android.util.Log.d(
+                                "EARAM_NOTE_RECT",
+                                "CANDIDATE_FINAL_SPACE index=$index " +
+                                    "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
+                                    "string=${candidate.note.string} fret=${candidate.note.fret} " +
+                                    "noteBoundsClass=${candidate.javaClass.name} " +
+                                    "noteIdentity=${System.identityHashCode(candidate.note)} " +
+                                    "noteBoundsIdentity=${System.identityHashCode(candidate)} " +
+                                    "headBoundsIdentity=${System.identityHashCode(b)} " +
+                                    "modelBarIdentity=${barObject?.let { System.identityHashCode(it) }} " +
+                                    "modelStaffIdentity=${staffObject?.let { System.identityHashCode(it) }} " +
+                                    "barLocation=${barObject?.let { diagnosticLocateBar(it) } ?: "UNAVAILABLE"} " +
+                                    "rawLayoutBounds={${diagnosticBounds(b)}} " +
+                                    "overlayBoundsNoPadding=$transformed " +
+                                    "sameAsSelectedById=${b === selectedByIdBounds} " +
+                                    "probes(noteBounds.renderer=${diagnosticProbe(candidate, "renderer")}; " +
+                                    "noteBounds.glyph=${diagnosticProbe(candidate, "glyph")}; " +
+                                    "noteBounds.layer=${diagnosticProbe(candidate, "layer")}; " +
+                                    "beatBounds.renderer=${diagnosticProbe(beatBounds, "renderer")}; " +
+                                    "bar.staff=${diagnosticProbe(barObject, "staff")}; " +
+                                    "staff.renderer=${diagnosticProbe(staffObject, "renderer")})"
+                            )
+                        }
+                        val finalMethod = when {
+                            selectionTarget != SelectionTarget.NOTE -> "NO_NOTE"
+                            selectedNoteRect == null -> "NONE"
+                            fallbackMatchesSelection && (selectedBoundsForRect == null ||
+                                selectedBoundsForRect.w <= 0.0 || selectedBoundsForRect.h <= 0.0) -> "TAP_FALLBACK"
+                            selectedByIdBounds != null && selectedBoundsForRect === selectedByIdBounds -> "ID"
+                            positionMatchedBounds != null && selectedBoundsForRect === positionMatchedBounds.noteHeadBounds -> "POSITION"
+                            else -> "NONE"
+                        }
+                        android.util.Log.d(
+                            "EARAM_NOTE_RECT",
+                            "FINAL_SELECTION " +
+                                "target=$selectionTarget noteId=$selectedNoteId beatId=$selectedBeatId " +
+                                "method=$finalMethod " +
+                                "selectedSourceBounds=${selectedBoundsForRect?.let { diagnosticBounds(it) } ?: "null"} " +
+                                "selectedRectLayout=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
+                                "finalOverlayRect=${lastFinalNoteRect ?: "null"} " +
+                                "fallbackMatchesSelection=$fallbackMatchesSelection " +
+                                "nullReason=$lastSelectedNoteRectNullReason"
+                        )
+                    }
+
                     // One diagnostic line per visual-cursor refresh; DEBUG only.
                     // Logging does not alter cursor or selection calculations.
                     if (BuildConfig.DEBUG) {
@@ -5722,6 +5786,63 @@ class MainActivity : ComponentActivity() {
                 type = currentType.superclass
             }
             return null
+        }
+
+        private fun diagnosticProbe(obj: Any?, name: String): String {
+            if (obj == null) return "UNAVAILABLE(object=null)"
+            val suffix = name.substring(0, 1).uppercase() + name.substring(1)
+            val getter = runCatching {
+                obj.javaClass.methods.firstOrNull {
+                    it.parameterCount == 0 &&
+                        (it.name == "get$suffix" || it.name == "is$suffix" || it.name == name)
+                }
+            }.getOrElse {
+                return "ERROR(method lookup ${it.javaClass.simpleName}: ${it.message})"
+            }
+            if (getter != null) {
+                return runCatching {
+                    "FOUND(method=${getter.name}, value=${getter.invoke(obj)})"
+                }.getOrElse {
+                    "ERROR(method=${getter.name}, ${it.javaClass.simpleName}: ${it.message})"
+                }
+            }
+            var type: Class<*>? = obj.javaClass
+            while (type != null) {
+                val currentType = type
+                val field = runCatching { currentType.getDeclaredField(name) }.getOrNull()
+                if (field != null) {
+                    return runCatching {
+                        field.isAccessible = true
+                        "FOUND(field=${currentType.simpleName}.$name, value=${field.get(obj)})"
+                    }.getOrElse {
+                        "ERROR(field=${currentType.simpleName}.$name, ${it.javaClass.simpleName}: ${it.message})"
+                    }
+                }
+                type = currentType.superclass
+            }
+            return "UNAVAILABLE(member '$name' not found on ${obj.javaClass.name})"
+        }
+
+        private fun diagnosticLocateBar(barObject: Any): String {
+            val song = score.api.score ?: return "UNAVAILABLE(score=null)"
+            return runCatching {
+                val matches = mutableListOf<String>()
+                song.tracks.toList().forEachIndexed { ti, track ->
+                    track.staves.toList().forEachIndexed { si, staff ->
+                        staff.bars.toList().forEachIndexed { bi, bar ->
+                            if (bar === barObject) {
+                                matches.add(
+                                    "track=$ti,staff=$si,bar=$bi," +
+                                        "tab=${staff.showTablature},score=${staff.showStandardNotation}"
+                                )
+                            }
+                        }
+                    }
+                }
+                matches.joinToString("; ").ifEmpty { "NO_MODEL_IDENTITY_MATCH" }
+            }.getOrElse {
+                "ERROR(${it.javaClass.simpleName}: ${it.message})"
+            }
         }
 
         private fun diagnosticBounds(bounds: Any?): String {
