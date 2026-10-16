@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.WindowInsets
 import android.text.InputType
@@ -2912,6 +2913,9 @@ class MainActivity : ComponentActivity() {
         private var lastFinalAfterClampX = Float.NaN
         private var lastFinalAfterClampY = Float.NaN
         private var lastFinalNoteRect: RectF? = null
+        private var lastIdMatchDiagnostic: String = "not captured yet"
+        private var lastTransformDiagnostic: String = "not captured yet"
+        private var lastSelectedNoteRectNullReason: String = "not evaluated yet"
         private val beatHits = mutableListOf<BeatHit>()
 
         init {
@@ -5380,13 +5384,14 @@ class MainActivity : ComponentActivity() {
                     val selectedByIdBounds = idMatchedBounds.firstOrNull()?.noteHeadBounds
                     val selectedTabNoteBounds = selectedByIdBounds ?: positionMatchedBounds?.noteHeadBounds
 
+                    val idMatchScreenLines = mutableListOf<String>()
                     if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
                         allBeatBounds.forEachIndexed { beatBoundsIndex, beatBounds ->
                             beatBounds.notes?.toList().orEmpty().forEachIndexed { noteBoundsIndex, candidate ->
                                 if (idMatchedBounds.any { it === candidate }) {
                                     val raw = candidate.noteHeadBounds
                                     val centerY = raw.y + raw.h / 2.0
-                                    val tabDistance = kotlin.math.abs(centerY - expectedTabY.toDouble())
+                                    val tabDistance = expectedTabY?.let { kotlin.math.abs(centerY - it.toDouble()) }
                                     val candidateBarObject = diagnosticMember(
                                         diagnosticMember(beatBounds, "barBounds"),
                                         "bar"
@@ -5403,22 +5408,24 @@ class MainActivity : ComponentActivity() {
                                                         } else null
                                                     }
                                             } ?: "UNRESOLVED"
+                                    val idMatchLine = "beatBounds[$beatBoundsIndex].notes[$noteBoundsIndex] " +
+                                        "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
+                                        "string=${candidate.note.string} fret=${candidate.note.fret} " +
+                                        "staff=$candidateStaffDescription rawHead=(x=${raw.x},y=${raw.y},w=${raw.w},h=${raw.h}) " +
+                                        "centerY=$centerY expectedTabY=$expectedTabY distanceToTabRow=$tabDistance " +
+                                        "selected=${raw === selectedByIdBounds}"
+                                    idMatchScreenLines.add(idMatchLine)
                                     android.util.Log.d(
                                         "EARAM_NOTE_RECT",
-                                        "ID_MATCH beatBounds[$beatBoundsIndex].notes[$noteBoundsIndex] " +
-                                            "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
-                                            "string=${candidate.note.string} fret=${candidate.note.fret} " +
-                                            "staff=$candidateStaffDescription " +
-                                            "rawHead=(x=${raw.x},y=${raw.y},w=${raw.w},h=${raw.h}) " +
+                                        "ID_MATCH $idMatchLine " +
                                             "parentStaffBounds={${diagnosticBounds(diagnosticMember(beatBounds, "staffBounds"))}} " +
-                                            "parentBarBounds={${diagnosticBounds(diagnosticMember(beatBounds, "barBounds"))}} " +
-                                            "centerY=$centerY expectedTabY=$expectedTabY distanceToTabRow=$tabDistance " +
-                                            "selected=${raw === selectedByIdBounds}"
+                                            "parentBarBounds={${diagnosticBounds(diagnosticMember(beatBounds, "barBounds"))}}"
                                     )
                                 }
                             }
                         }
                     }
+                    lastIdMatchDiagnostic = if (idMatchScreenLines.isEmpty()) "no ID-matched bounds captured" else idMatchScreenLines.joinToString(" || ")
 
                     if (BuildConfig.DEBUG) {
                         val boundsLookupNoteCount = runCatching {
@@ -5473,7 +5480,17 @@ class MainActivity : ComponentActivity() {
                         else -> null
                     }
 
+                    lastSelectedNoteRectNullReason = if (selectedNoteRect != null) {
+                        "selectedNoteRect is non-null"
+                    } else when {
+                        selectionTarget != SelectionTarget.NOTE -> "selectionTarget=$selectionTarget, not NOTE"
+                        selectedNoteForRect == null -> "selectedNoteRef is null"
+                        selectedBoundsForRect == null -> "selectedTabNoteBounds is null; idMatches=${idMatchedBounds.size}; positionMatch=${positionMatchedBounds != null}; fallbackMatchesSelection=$fallbackMatchesSelection"
+                        selectedBoundsForRect.w <= 0.0 || selectedBoundsForRect.h <= 0.0 -> "selected bounds have non-positive size w=${selectedBoundsForRect.w}, h=${selectedBoundsForRect.h}; fallbackMatchesSelection=$fallbackMatchesSelection"
+                        else -> "no selectedNoteRect branch matched; fallbackMatchesSelection=$fallbackMatchesSelection"
+                    }
                     if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        android.util.Log.d("EARAM_NOTE_RECT", "selectedNoteRectNullCause=$lastSelectedNoteRectNullReason")
                         val methodUsed = when {
                             selectionTarget != SelectionTarget.NOTE -> "NO_NOTE"
                             selectedNoteRect == null -> "NONE"
@@ -5539,6 +5556,9 @@ class MainActivity : ComponentActivity() {
                         lastFinalNoteRect = RectF(noteLeft, noteTop, noteRight, noteBottom)
                         overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
 
+                        lastTransformDiagnostic = "raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
+                            "finalOverlayRect=$lastFinalNoteRect; scrollPx=${actualScrollOffsets()}; " +
+                            "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
                         if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
                             val scroll = actualScrollOffsets()
                             val overlayOnScreen = IntArray(2)
@@ -5563,6 +5583,9 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         lastFinalNoteRect = null
+                        lastTransformDiagnostic = "TRANSFORM unavailable: selectedNoteRect=null; reason=$lastSelectedNoteRectNullReason; " +
+                            "coordinateScale=$coordinateScale origin=$origin scrollPx=${actualScrollOffsets()}; " +
+                            "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
                         overlay.hideNoteSelection()
                     }
 
@@ -5784,6 +5807,9 @@ class MainActivity : ComponentActivity() {
                 report.appendLine("lastRawCaret=(x=$lastRawCaretX, y=$lastRawCaretY)")
                 report.appendLine("lastFinalCaret=(x=${last?.first}, y=${last?.second}, half=${last?.third}); caretCenterX=${last?.first}; caretCenterY=${last?.second}; lastCaretRect=$lastCaretRect")
                 report.appendLine("drawn orange selection: ${overlay.diagnosticNoteSelectionBounds()}")
+                report.appendLine("ID_MATCH (last cursor refresh): $lastIdMatchDiagnostic")
+                report.appendLine("TRANSFORM (last cursor refresh): $lastTransformDiagnostic")
+                report.appendLine("selectedNoteRect null cause: $lastSelectedNoteRectNullReason")
                 val finalX = lastFinalAfterClampX
                 val finalY = lastFinalAfterClampY
                 val finalRect = lastFinalNoteRect
