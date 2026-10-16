@@ -5387,11 +5387,28 @@ class MainActivity : ComponentActivity() {
                                     val raw = candidate.noteHeadBounds
                                     val centerY = raw.y + raw.h / 2.0
                                     val tabDistance = kotlin.math.abs(centerY - expectedTabY.toDouble())
+                                    val candidateBarObject = diagnosticMember(
+                                        diagnosticMember(beatBounds, "barBounds"),
+                                        "bar"
+                                    )
+                                    val candidateStaffDescription =
+                                        songForSelection?.tracks?.toList()?.withIndex()
+                                            ?.firstNotNullOfOrNull { (trackIndex, candidateTrack) ->
+                                                candidateTrack.staves.toList().withIndex()
+                                                    .firstNotNullOfOrNull { (staffIndex, candidateStaff) ->
+                                                        if (candidateStaff.bars.toList().any { it === candidateBarObject }) {
+                                                            "track=$trackIndex staff=$staffIndex " +
+                                                                "tab=${candidateStaff.showTablature} " +
+                                                                "score=${candidateStaff.showStandardNotation}"
+                                                        } else null
+                                                    }
+                                            } ?: "UNRESOLVED"
                                     android.util.Log.d(
                                         "EARAM_NOTE_RECT",
                                         "ID_MATCH beatBounds[$beatBoundsIndex].notes[$noteBoundsIndex] " +
                                             "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
                                             "string=${candidate.note.string} fret=${candidate.note.fret} " +
+                                            "staff=$candidateStaffDescription " +
                                             "rawHead=(x=${raw.x},y=${raw.y},w=${raw.w},h=${raw.h}) " +
                                             "parentStaffBounds={${diagnosticBounds(diagnosticMember(beatBounds, "staffBounds"))}} " +
                                             "parentBarBounds={${diagnosticBounds(diagnosticMember(beatBounds, "barBounds"))}} " +
