@@ -226,6 +226,82 @@ class MainActivity : ComponentActivity() {
     private lateinit var session: EditorSessionViewModel
     private var pendingSaveAs = false
 
+    private val diagnosticLogReports = java.util.ArrayDeque<String>()
+    private var diagnosticLogStoredChars = 0
+    private val diagnosticLogMaxChars = 128 * 1024
+    private val diagnosticLogSeparator = "\n\n--- NEXT REPORT ---\n\n"
+    private var diagnosticLogStatusView: TextView? = null
+
+    private fun appendDiagnosticReport(tag: String, message: String) {
+        if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) return
+        // Preserve the original Logcat tag and write each event only once.
+        android.util.Log.d(tag, message)
+        val report = "[$tag]\n$message"
+        if (report.length + diagnosticLogSeparator.length > diagnosticLogMaxChars) {
+            val warning = "[EARAM_DIAGNOSTIC]\nREPORT_EXCLUDED reason=single_report_exceeds_buffer_limit " +
+                "tag=" + tag + " reportChars=" + report.length + " maxChars=" + diagnosticLogMaxChars
+            android.util.Log.w("EARAM_DIAGNOSTIC", warning.substringAfter('\n'))
+            storeDiagnosticReport(warning)
+            return
+        }
+        storeDiagnosticReport(report)
+    }
+
+    private fun storeDiagnosticReport(report: String) {
+        if (report.length + diagnosticLogSeparator.length > diagnosticLogMaxChars) return
+        diagnosticLogReports.addLast(report)
+        diagnosticLogStoredChars += report.length + diagnosticLogSeparator.length
+        var evicted = 0
+        while (diagnosticLogStoredChars > diagnosticLogMaxChars && diagnosticLogReports.isNotEmpty()) {
+            val oldest = diagnosticLogReports.removeFirst()
+            diagnosticLogStoredChars -= oldest.length + diagnosticLogSeparator.length
+            evicted++
+        }
+        if (evicted > 0) {
+            fun evictionWarning(count: Int) =
+                "[EARAM_DIAGNOSTIC]\nREPORTS_EXCLUDED reason=buffer_limit count=" + count +
+                    "; complete reports were evicted from the oldest end; maxChars=" + diagnosticLogMaxChars
+            var warning = evictionWarning(evicted)
+            while (diagnosticLogStoredChars + warning.length + diagnosticLogSeparator.length > diagnosticLogMaxChars &&
+                diagnosticLogReports.isNotEmpty()
+            ) {
+                val oldest = diagnosticLogReports.removeFirst()
+                diagnosticLogStoredChars -= oldest.length + diagnosticLogSeparator.length
+                evicted++
+                warning = evictionWarning(evicted)
+            }
+            diagnosticLogReports.addLast(warning)
+            diagnosticLogStoredChars += warning.length + diagnosticLogSeparator.length
+            android.util.Log.w("EARAM_DIAGNOSTIC", warning.substringAfter('\n'))
+        }
+        val reportCount = diagnosticLogReports.size
+        val storedChars = diagnosticLogStoredChars
+        runOnUiThread {
+            diagnosticLogStatusView?.text =
+                "Log: " + reportCount + " reports • " + storedChars + "/" + diagnosticLogMaxChars + " chars"
+        }
+    }
+
+    private fun clearDiagnosticLog() {
+        if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) return
+        diagnosticLogReports.clear()
+        diagnosticLogStoredChars = 0
+        diagnosticLogStatusView?.text = "Log cleared • 0 reports"
+        Toast.makeText(this, "Diagnostic log cleared", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copyDiagnosticLog() {
+        if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) return
+        if (diagnosticLogReports.isEmpty()) {
+            Toast.makeText(this, "Diagnostic log is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val copyText = diagnosticLogReports.joinToString(separator = diagnosticLogSeparator)
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Earam diagnostic log", copyText))
+        Toast.makeText(this, "Copied " + diagnosticLogReports.size + " diagnostic reports", Toast.LENGTH_SHORT).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         session = ViewModelProvider(this).get(EditorSessionViewModel::class.java)
@@ -631,6 +707,45 @@ class MainActivity : ComponentActivity() {
         }
         selectionDiagnosticView = selectionDiagnostic
 
+        val diagnosticControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8f), dp(2f), dp(8f), dp(2f))
+            setBackgroundColor(0xFF202327.toInt())
+            visibility = if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) View.VISIBLE else View.GONE
+        }
+        val diagnosticLogStatus = TextView(this).apply {
+            text = "Log: 0 reports"
+            setTextColor(0xFFF3F0E8.toInt())
+            textSize = 9f
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+        }
+        diagnosticLogStatusView = diagnosticLogStatus
+        val copyDiagnosticButton = Button(this).apply {
+            text = "Copy log"
+            textSize = 10f
+            minimumHeight = dp(32f)
+            minimumWidth = 0
+            setPadding(dp(5f), 0, dp(5f), 0)
+            setOnClickListener { copyDiagnosticLog() }
+        }
+        val clearDiagnosticButton = Button(this).apply {
+            text = "Clear"
+            textSize = 10f
+            minimumHeight = dp(32f)
+            minimumWidth = 0
+            setPadding(dp(5f), 0, dp(5f), 0)
+            setOnClickListener { clearDiagnosticLog() }
+        }
+        diagnosticControls.addView(diagnosticLogStatus, LinearLayout.LayoutParams(0, dp(36f), 1f))
+        diagnosticControls.addView(copyDiagnosticButton, LinearLayout.LayoutParams(-2, dp(36f)).apply {
+            leftMargin = dp(4f)
+        })
+        diagnosticControls.addView(clearDiagnosticButton, LinearLayout.LayoutParams(-2, dp(36f)).apply {
+            leftMargin = dp(4f)
+        })
+
         val transport = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -967,6 +1082,7 @@ class MainActivity : ComponentActivity() {
         root.addView(scoreLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(editingStrip, LinearLayout.LayoutParams(-1, dp(52f)))
         root.addView(selectionDiagnostic, LinearLayout.LayoutParams(-1, dp(52f)))
+        root.addView(diagnosticControls, LinearLayout.LayoutParams(-1, dp(40f)))
         // Always visible: compact fret-entry keypad (0–9).
         root.addView(fretDigits, LinearLayout.LayoutParams(-1, dp(100f)))
         setContentView(root)
@@ -2585,6 +2701,14 @@ class MainActivity : ComponentActivity() {
             score.setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     android.view.MotionEvent.ACTION_DOWN -> {
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            activity.appendDiagnosticReport(
+                                "EARAM_TOUCH_DIAG",
+                                "ACTION_DOWN eventTime=" + event.eventTime + " downTime=" + event.downTime +
+                                    " local=(" + event.x + "," + event.y + ") raw=(" + event.rawX + "," + event.rawY + ")" +
+                                    " pointerCount=" + event.pointerCount + " awaitingPasteDestination=" + awaitingPasteDestination
+                            )
+                        }
                         cancelBarLongPress()
                         barLongPressActivated = false
                         barDownX = event.x
@@ -5424,7 +5548,7 @@ class MainActivity : ComponentActivity() {
                                         "centerY=$centerY expectedTabY=$expectedTabY distanceToTabRow=$tabDistance " +
                                         "selected=${raw === selectedByIdBounds}"
                                     idMatchScreenLines.add(idMatchLine)
-                                    android.util.Log.d(
+                                    activity.appendDiagnosticReport(
                                         "EARAM_NOTE_RECT",
                                         "ID_MATCH $idMatchLine " +
                                             "parentStaffBounds={${diagnosticBounds(diagnosticMember(beatBounds, "staffBounds"))}} " +
@@ -5434,7 +5558,13 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    lastIdMatchDiagnostic = if (idMatchScreenLines.isEmpty()) "no ID-matched bounds captured" else idMatchScreenLines.joinToString(" || ")
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        lastIdMatchDiagnostic = if (idMatchScreenLines.isEmpty()) {
+                            "no ID-matched bounds captured"
+                        } else {
+                            idMatchScreenLines.joinToString(" || ")
+                        }
+                    }
 
                     if (BuildConfig.DEBUG) {
                         val boundsLookupNoteCount = runCatching {
@@ -5489,17 +5619,19 @@ class MainActivity : ComponentActivity() {
                         else -> null
                     }
 
-                    lastSelectedNoteRectNullReason = if (selectedNoteRect != null) {
-                        "selectedNoteRect is non-null"
-                    } else when {
-                        selectionTarget != SelectionTarget.NOTE -> "selectionTarget=$selectionTarget, not NOTE"
-                        selectedNoteForRect == null -> "selectedNoteRef is null"
-                        selectedBoundsForRect == null -> "selectedTabNoteBounds is null; idMatches=${idMatchedBounds.size}; positionMatch=${positionMatchedBounds != null}; fallbackMatchesSelection=$fallbackMatchesSelection"
-                        selectedBoundsForRect.w <= 0.0 || selectedBoundsForRect.h <= 0.0 -> "selected bounds have non-positive size w=${selectedBoundsForRect.w}, h=${selectedBoundsForRect.h}; fallbackMatchesSelection=$fallbackMatchesSelection"
-                        else -> "no selectedNoteRect branch matched; fallbackMatchesSelection=$fallbackMatchesSelection"
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        lastSelectedNoteRectNullReason = if (selectedNoteRect != null) {
+                            "selectedNoteRect is non-null"
+                        } else when {
+                            selectionTarget != SelectionTarget.NOTE -> "selectionTarget=$selectionTarget, not NOTE"
+                            selectedNoteForRect == null -> "selectedNoteRef is null"
+                            selectedBoundsForRect == null -> "selectedTabNoteBounds is null; idMatches=${idMatchedBounds.size}; positionMatch=${positionMatchedBounds != null}; fallbackMatchesSelection=$fallbackMatchesSelection"
+                            selectedBoundsForRect.w <= 0.0 || selectedBoundsForRect.h <= 0.0 -> "selected bounds have non-positive size w=${selectedBoundsForRect.w}, h=${selectedBoundsForRect.h}; fallbackMatchesSelection=$fallbackMatchesSelection"
+                            else -> "no selectedNoteRect branch matched; fallbackMatchesSelection=$fallbackMatchesSelection"
+                        }
                     }
                     if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
-                        android.util.Log.d("EARAM_NOTE_RECT", "selectedNoteRectNullCause=$lastSelectedNoteRectNullReason")
+                        activity.appendDiagnosticReport("EARAM_NOTE_RECT", "selectedNoteRectNullCause=$lastSelectedNoteRectNullReason")
                         val methodUsed = when {
                             selectionTarget != SelectionTarget.NOTE -> "NO_NOTE"
                             selectedNoteRect == null -> "NONE"
@@ -5565,10 +5697,10 @@ class MainActivity : ComponentActivity() {
                         lastFinalNoteRect = RectF(noteLeft, noteTop, noteRight, noteBottom)
                         overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
 
-                        lastTransformDiagnostic = "raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
-                            "finalOverlayRect=$lastFinalNoteRect; scrollPx=${actualScrollOffsets()}; " +
-                            "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
                         if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            lastTransformDiagnostic = "raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
+                                "finalOverlayRect=$lastFinalNoteRect; scrollPx=${actualScrollOffsets()}; " +
+                                "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
                             val scroll = actualScrollOffsets()
                             val overlayOnScreen = IntArray(2)
                             val scoreOnScreen = IntArray(2)
@@ -5580,7 +5712,7 @@ class MainActivity : ComponentActivity() {
                             val paintedScreen = RectF(paintedLocal).apply {
                                 offset(overlayOnScreen[0].toFloat(), overlayOnScreen[1].toFloat())
                             }
-                            android.util.Log.d(
+                            activity.appendDiagnosticReport(
                                 "EARAM_NOTE_RECT",
                                 "TRANSFORM raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
                                     "scrollPx=$scroll finalOverlayRect=$lastFinalNoteRect " +
@@ -5592,9 +5724,12 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         lastFinalNoteRect = null
-                        lastTransformDiagnostic = "TRANSFORM unavailable: selectedNoteRect=null; reason=$lastSelectedNoteRectNullReason; " +
-                            "coordinateScale=$coordinateScale origin=$origin scrollPx=${actualScrollOffsets()}; " +
-                            "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            lastTransformDiagnostic = "TRANSFORM unavailable: selectedNoteRect=null; reason=$lastSelectedNoteRectNullReason; " +
+                                "coordinateScale=$coordinateScale origin=$origin scrollPx=${actualScrollOffsets()}; " +
+                                "overlay=${overlay.width}x${overlay.height}; score=${score.width}x${score.height}"
+                            activity.appendDiagnosticReport("EARAM_NOTE_RECT", lastTransformDiagnostic)
+                        }
                         overlay.hideNoteSelection()
                     }
 
@@ -5623,7 +5758,7 @@ class MainActivity : ComponentActivity() {
                             val barBounds = diagnosticMember(beatBounds, "barBounds")
                             val barObject = diagnosticMember(barBounds, "bar")
                             val staffObject = diagnosticMember(barObject, "staff")
-                            android.util.Log.d(
+                            activity.appendDiagnosticReport(
                                 "EARAM_NOTE_RECT",
                                 "CANDIDATE_FINAL_SPACE index=$index " +
                                     "noteId=${candidate.note.id} beatId=${candidate.note.beat.id} " +
@@ -5655,7 +5790,7 @@ class MainActivity : ComponentActivity() {
                             positionMatchedBounds != null && selectedBoundsForRect === positionMatchedBounds.noteHeadBounds -> "POSITION"
                             else -> "NONE"
                         }
-                        android.util.Log.d(
+                        activity.appendDiagnosticReport(
                             "EARAM_NOTE_RECT",
                             "FINAL_SELECTION " +
                                 "target=$selectionTarget noteId=$selectedNoteId beatId=$selectedBeatId " +
