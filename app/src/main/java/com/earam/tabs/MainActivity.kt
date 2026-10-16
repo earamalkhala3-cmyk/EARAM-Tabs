@@ -5706,6 +5706,14 @@ class MainActivity : ComponentActivity() {
                             val scoreOnScreen = IntArray(2)
                             overlay.getLocationOnScreen(overlayOnScreen)
                             score.getLocationOnScreen(scoreOnScreen)
+                            val originFromDiagnosticSnapshot = Pair(
+                                (scoreOnScreen[0] - overlayOnScreen[0]).toFloat(),
+                                (scoreOnScreen[1] - overlayOnScreen[1]).toFloat()
+                            )
+                            val originDelta = Pair(
+                                originFromDiagnosticSnapshot.first - origin.first,
+                                originFromDiagnosticSnapshot.second - origin.second
+                            )
                             val paintedLocal = RectF(noteLeft, noteTop, noteRight, noteBottom).apply {
                                 offset(-scroll.first, -scroll.second)
                             }
@@ -5719,6 +5727,7 @@ class MainActivity : ComponentActivity() {
                                     "paintedLocalAfterScroll=$paintedLocal paintedScreen=$paintedScreen " +
                                     "overlay=${overlay.width}x${overlay.height} overlayScreen=${overlayOnScreen.contentToString()} " +
                                     "score=${score.width}x${score.height} scoreScreen=${scoreOnScreen.contentToString()} " +
+                                    "originFromDiagnosticSnapshot=$originFromDiagnosticSnapshot originDelta=$originDelta " +
                                     "targetScreenApprox=(348,1117)"
                             )
                         }
