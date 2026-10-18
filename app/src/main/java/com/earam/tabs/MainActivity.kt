@@ -1911,6 +1911,10 @@ class MainActivity : ComponentActivity() {
         private var noteSelectionDrawCount = 0L
         private var lastDrawnNoteSelectionRect: RectF? = null
         private var lastDrawHadValidNoteSelection = false
+        private var noteSelectionDiagnosticKey: String = "UNAVAILABLE"
+        private var lastDrawnNoteSelectionDiagnosticKey: String = "UNAVAILABLE"
+        private var lastDrawnNoteSelectionScrollPx: Pair<Float, Float> = Float.NaN to Float.NaN
+        private var lastDrawnNoteSelectionUptimeMs: Long = 0L
         // A translucent orange disc keeps the TAB fret number readable while
         // making the exact selected note obvious on a dense chord.
         private val noteSelectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1954,13 +1958,28 @@ class MainActivity : ComponentActivity() {
             playbackX=centerX; playbackTop=top; playbackBottom=bottom
             invalidate()
         }
-        fun showNoteSelectionContent(left:Float,top:Float,right:Float,bottom:Float){
+        fun showNoteSelectionContent(left:Float,top:Float,right:Float,bottom:Float, diagnosticKey: String = "UNAVAILABLE"){
             noteSelectionLeft=left
             noteSelectionTop=top
             noteSelectionRight=right
             noteSelectionBottom=bottom
+            noteSelectionDiagnosticKey = diagnosticKey
             invalidate()
         }
+        data class CoordinateDrawSnapshot(
+            val rect: RectF?,
+            val scrollPx: Pair<Float, Float>,
+            val key: String,
+            val drawnAtUptimeMs: Long,
+            val valid: Boolean
+        )
+        fun diagnosticDrawSnapshot(): CoordinateDrawSnapshot = CoordinateDrawSnapshot(
+            lastDrawnNoteSelectionRect?.let { RectF(it) },
+            lastDrawnNoteSelectionScrollPx,
+            lastDrawnNoteSelectionDiagnosticKey,
+            lastDrawnNoteSelectionUptimeMs,
+            lastDrawHadValidNoteSelection
+        )
         fun hideNoteSelection(){
             noteSelectionLeft=Float.NaN
             noteSelectionTop=Float.NaN
@@ -2019,6 +2038,9 @@ class MainActivity : ComponentActivity() {
             }
 
             val scroll=scrollProvider?.invoke() ?: (0f to 0f)
+            if (BuildConfig.DEBUG) {
+                try { lastDrawnNoteSelectionScrollPx = scroll } catch (_: Throwable) { }
+            }
             lastDrawHadValidNoteSelection =
                 noteSelectionLeft.isFinite() &&
                 noteSelectionTop.isFinite() &&
@@ -2074,6 +2096,12 @@ class MainActivity : ComponentActivity() {
                 )
                 selectionRect.offset(-scroll.first, -scroll.second)
                 lastDrawnNoteSelectionRect = RectF(selectionRect)
+                if (BuildConfig.DEBUG) {
+                    try {
+                        lastDrawnNoteSelectionDiagnosticKey = noteSelectionDiagnosticKey
+                        lastDrawnNoteSelectionUptimeMs = android.os.SystemClock.uptimeMillis()
+                    } catch (_: Throwable) { }
+                }
                 val cornerRadius = 2.5f * density
                 canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionFillPaint)
                 canvas.drawRoundRect(selectionRect, cornerRadius, cornerRadius, noteSelectionPaint)
@@ -2305,6 +2333,9 @@ class MainActivity : ComponentActivity() {
         private var selected: Sel? = null
         private var lastNoteMouseDownAtMs: Long = 0L
         private var lastDirectTapSelectionAtMs: Long = 0L
+        private var diagnosticTouchRawX: Float = Float.NaN
+        private var diagnosticTouchRawY: Float = Float.NaN
+        private var diagnosticTouchEventTime: Long = -1L
         private var lastSelectionDiagnosticStage: String = "STARTUP"
 
         private fun logSelectionInput(kind: String) {
@@ -2701,6 +2732,13 @@ class MainActivity : ComponentActivity() {
             score.setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     android.view.MotionEvent.ACTION_DOWN -> {
+                        if (BuildConfig.DEBUG) {
+                            try {
+                                diagnosticTouchRawX = event.rawX
+                                diagnosticTouchRawY = event.rawY
+                                diagnosticTouchEventTime = event.eventTime
+                            } catch (_: Throwable) { }
+                        }
                         if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
                             activity.appendDiagnosticReport(
                                 "EARAM_TOUCH_DIAG",
@@ -3041,6 +3079,8 @@ class MainActivity : ComponentActivity() {
         private var lastTransformDiagnostic: String = "not captured yet"
         private var lastSelectedNoteRectNullReason: String = "not evaluated yet"
         private val beatHits = mutableListOf<BeatHit>()
+        private var lastBeatHitsBuildAtUptimeMs: Long = 0L
+        private var lastBeatHitsBuildCount: Int = 0
 
         init {
             installCursorRefreshHooks()
@@ -3101,6 +3141,9 @@ class MainActivity : ComponentActivity() {
 
         private fun buildBeatHits() {
             try {
+            if (BuildConfig.DEBUG) {
+                try { lastBeatHitsBuildAtUptimeMs = android.os.SystemClock.uptimeMillis() } catch (_: Throwable) { }
+            }
             beatHits.clear()
             val lookup = score.api.renderer.boundsLookup ?: return
             val song = score.api.score ?: return
@@ -3222,6 +3265,13 @@ class MainActivity : ComponentActivity() {
             } catch (t: Throwable) {
                 beatHits.clear()
                 android.util.Log.e("EARAM_CARET", "buildBeatHits failed", t)
+            } finally {
+                if (BuildConfig.DEBUG) {
+                    try {
+                        lastBeatHitsBuildCount = beatHits.size
+                        lastBeatHitsBuildAtUptimeMs = android.os.SystemClock.uptimeMillis()
+                    } catch (_: Throwable) { }
+                }
             }
         }
 
@@ -5695,7 +5745,13 @@ class MainActivity : ComponentActivity() {
                         diagnosticNoteLeft = noteLeft
                         diagnosticNoteRight = noteRight
                         lastFinalNoteRect = RectF(noteLeft, noteTop, noteRight, noteBottom)
-                        overlay.showNoteSelectionContent(noteLeft, noteTop, noteRight, noteBottom)
+                        overlay.showNoteSelectionContent(
+                            noteLeft, noteTop, noteRight, noteBottom,
+                            diagnosticKey = if (BuildConfig.DEBUG) {
+                                try { "${tappedNoteBeatId}:${tappedNoteId}:${tappedNoteString}" }
+                                catch (_: Throwable) { "UNAVAILABLE" }
+                            } else "UNAVAILABLE"
+                        )
 
                         if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
                             lastTransformDiagnostic = "raw=$selectedNoteRect coordinateScale=$coordinateScale origin=$origin " +
