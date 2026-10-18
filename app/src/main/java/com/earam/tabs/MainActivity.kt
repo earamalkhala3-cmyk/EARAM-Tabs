@@ -1963,7 +1963,9 @@ class MainActivity : ComponentActivity() {
             noteSelectionTop=top
             noteSelectionRight=right
             noteSelectionBottom=bottom
-            noteSelectionDiagnosticKey = diagnosticKey
+            if (BuildConfig.DEBUG) {
+                try { noteSelectionDiagnosticKey = diagnosticKey } catch (_: Throwable) { }
+            }
             invalidate()
         }
         data class CoordinateDrawSnapshot(
@@ -2038,9 +2040,6 @@ class MainActivity : ComponentActivity() {
             }
 
             val scroll=scrollProvider?.invoke() ?: (0f to 0f)
-            if (BuildConfig.DEBUG) {
-                try { lastDrawnNoteSelectionScrollPx = scroll } catch (_: Throwable) { }
-            }
             lastDrawHadValidNoteSelection =
                 noteSelectionLeft.isFinite() &&
                 noteSelectionTop.isFinite() &&
@@ -2098,6 +2097,7 @@ class MainActivity : ComponentActivity() {
                 lastDrawnNoteSelectionRect = RectF(selectionRect)
                 if (BuildConfig.DEBUG) {
                     try {
+                        lastDrawnNoteSelectionScrollPx = scroll
                         lastDrawnNoteSelectionDiagnosticKey = noteSelectionDiagnosticKey
                         lastDrawnNoteSelectionUptimeMs = android.os.SystemClock.uptimeMillis()
                     } catch (_: Throwable) { }
@@ -2336,6 +2336,7 @@ class MainActivity : ComponentActivity() {
         private var diagnosticTouchRawX: Float = Float.NaN
         private var diagnosticTouchRawY: Float = Float.NaN
         private var diagnosticTouchEventTime: Long = -1L
+        private var diagnosticCoordinateReportWritten: Boolean = false
         private var lastSelectionDiagnosticStage: String = "STARTUP"
 
         private fun logSelectionInput(kind: String) {
@@ -2737,6 +2738,7 @@ class MainActivity : ComponentActivity() {
                                 diagnosticTouchRawX = event.rawX
                                 diagnosticTouchRawY = event.rawY
                                 diagnosticTouchEventTime = event.eventTime
+                                diagnosticCoordinateReportWritten = false
                             } catch (_: Throwable) { }
                         }
                         if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
@@ -2867,6 +2869,9 @@ class MainActivity : ComponentActivity() {
 
                     android.view.MotionEvent.ACTION_UP,
                     android.view.MotionEvent.ACTION_CANCEL -> {
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC && !diagnosticCoordinateReportWritten) {
+                            try { appendCoordinateAuditReport(null, null, false) } catch (_: Throwable) { }
+                        }
                         if (pasteDestinationTouchActive) {
                             pasteDestinationTouchActive = false
                             manualTouchDown = false
@@ -3043,6 +3048,12 @@ class MainActivity : ComponentActivity() {
                     } catch (_: Throwable) { }
 
                     updateCursor()
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        try {
+                            val noteKey = if (tappedNoteBounds != null) "${tappedNoteBeatId}:${tappedNoteId}:${tappedNoteString}" else null
+                            appendCoordinateAuditReport(noteKey, tappedNoteBounds?.let { RectF(it) }, true)
+                        } catch (_: Throwable) { }
+                    }
                     score.requestFocus()
                     updateStatus("TAB NOTE SELECTED • B" + (currentBarIndex + 1) +
                         " • BEAT " + (currentBeatIndex + 1) +
@@ -3139,6 +3150,77 @@ class MainActivity : ComponentActivity() {
         private var stringSpacing: Float = 10f
         private var lastCaretPosition: Triple<Float, Float, Float>? = null
 
+        private fun appendCoordinateAuditReport(noteKey: String?, noteBounds: RectF?, noteMouseDownFired: Boolean) {
+            if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC || diagnosticCoordinateReportWritten) return
+            try {
+                diagnosticCoordinateReportWritten = true
+                val now = android.os.SystemClock.uptimeMillis()
+                val touchTime = diagnosticTouchEventTime
+                val touchAgeMs = if (touchTime >= 0L) now - touchTime else -1L
+                val scrollLayout = actualScrollOffsetsLayout()
+                val draw = overlay.diagnosticDrawSnapshot()
+                val overlayOnScreen = IntArray(2)
+                overlay.getLocationOnScreen(overlayOnScreen)
+                val drawnRect = draw.rect?.let { RectF(it).apply { offset(overlayOnScreen[0].toFloat(), overlayOnScreen[1].toFloat()) } }
+                val drawnCenterX = drawnRect?.let { (it.left + it.right) / 2f } ?: Float.NaN
+                val drawnCenterY = drawnRect?.let { (it.top + it.bottom) / 2f } ?: Float.NaN
+                val density = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                val displayScale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
+                val origin = alphaTabContentOriginInOverlay()
+                val noteCenterX = noteBounds?.let { (it.left + it.right) / 2f } ?: Float.NaN
+                val noteCenterY = noteBounds?.let { (it.top + it.bottom) / 2f } ?: Float.NaN
+                fun candidateCenter(scale: Float): Pair<Float, Float> {
+                    return Pair(
+                        overlayOnScreen[0] + origin.first + noteCenterX * scale - scrollLayout.first * scale,
+                        overlayOnScreen[1] + origin.second + noteCenterY * scale - scrollLayout.second * scale
+                    )
+                }
+                val densityCenter = candidateCenter(density)
+                val displayCenter = candidateCenter(density * displayScale)
+                fun delta(value: Float, center: Float): String = if (value.isFinite() && center.isFinite()) (value - center).toString() else "UNAVAILABLE"
+                val keyMismatch = noteKey != null && draw.key != noteKey
+                val drawTooOld = touchTime >= 0L && draw.drawnAtUptimeMs > 0L && touchTime - draw.drawnAtUptimeMs > 500L
+                val state = when {
+                    !noteMouseDownFired || touchTime < 0L -> "UNAVAILABLE"
+                    keyMismatch || drawTooOld -> "STALE"
+                    noteBounds == null || drawnRect == null || !draw.valid -> "UNAVAILABLE"
+                    else -> "CURRENT"
+                }
+                val buildAgeMs = if (lastBeatHitsBuildAtUptimeMs > 0L) now - lastBeatHitsBuildAtUptimeMs else -1L
+                val report = listOf(
+                    "status=$state",
+                    "noteMouseDownFired=$noteMouseDownFired",
+                    "touchRawX=$diagnosticTouchRawX",
+                    "touchRawY=$diagnosticTouchRawY",
+                    "touchEventTime=$touchTime",
+                    "touchAgeMs=$touchAgeMs",
+                    "noteKey=${noteKey ?: "UNAVAILABLE"}",
+                    "drawKey=${draw.key}",
+                    "drawUptimeMs=${draw.drawnAtUptimeMs}",
+                    "drawAgeAtTouchMs=${if (touchTime >= 0L && draw.drawnAtUptimeMs > 0L) touchTime - draw.drawnAtUptimeMs else -1L}",
+                    "drawnScreenRect=${drawnRect ?: "UNAVAILABLE"}",
+                    "drawnScreenCenterX=$drawnCenterX",
+                    "drawnScreenCenterY=$drawnCenterY",
+                    "density=$density",
+                    "displayScale=$displayScale",
+                    "densityCandidateCenterX=${densityCenter.first}",
+                    "densityCandidateCenterY=${densityCenter.second}",
+                    "densityDeltaX=${delta(diagnosticTouchRawX, densityCenter.first)}",
+                    "densityDeltaY=${delta(diagnosticTouchRawY, densityCenter.second)}",
+                    "densityDisplayScaleCandidateCenterX=${displayCenter.first}",
+                    "densityDisplayScaleCandidateCenterY=${displayCenter.second}",
+                    "densityDisplayScaleDeltaX=${delta(diagnosticTouchRawX, displayCenter.first)}",
+                    "densityDisplayScaleDeltaY=${delta(diagnosticTouchRawY, displayCenter.second)}",
+                    "beatHitsCount=${beatHits.size}",
+                    "beatHitsCountAtLastBuild=$lastBeatHitsBuildCount",
+                    "beatHitsLastBuildUptimeMs=$lastBeatHitsBuildAtUptimeMs",
+                    "beatHitsLastBuildAgeMs=$buildAgeMs",
+                    "scrollLayout=$scrollLayout",
+                    "scrollPxAppliedAtDraw=${draw.scrollPx}"
+                ).joinToString("\n")
+                activity.appendDiagnosticReport("EARAM_COORDINATE_AUDIT", report)
+            } catch (_: Throwable) { }
+        }
         private fun buildBeatHits() {
             try {
             if (BuildConfig.DEBUG) {
