@@ -3289,7 +3289,7 @@ class MainActivity : ComponentActivity() {
                     "drawnScreenCenterY=$drawnCenterY",
                     "noteBoundsRaw=${noteBounds?.let { "left=${it.left},top=${it.top},right=${it.right},bottom=${it.bottom}" } ?: "UNAVAILABLE"}",
                     "selectionTarget=$selectionTarget",
-                    "tappedNoteBoundsSource=$diagnosticTappedBoundsSource",
+                    "tappedNoteBoundsSource=$diagnosticTappedBoundsSource (heuristic classification only; not proof of TAB-level bounds)",
                     "overlayOnScreen=(${overlayOnScreen[0]},${overlayOnScreen[1]})",
                     "origin=$origin",
                     "density=$density",
