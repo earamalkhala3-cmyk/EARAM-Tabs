@@ -2337,6 +2337,10 @@ class MainActivity : ComponentActivity() {
         private var diagnosticTouchRawY: Float = Float.NaN
         private var diagnosticTouchEventTime: Long = -1L
         private var diagnosticCoordinateReportWritten: Boolean = false
+        private var diagnosticCoordinateReportPending: Boolean = false
+        private var diagnosticNoteMouseDownFired: Boolean = false
+        private var diagnosticTouchSerial: Long = 0L
+        private var diagnosticTappedBoundsSource: String = "UNAVAILABLE"
         private var lastSelectionDiagnosticStage: String = "STARTUP"
 
         private fun logSelectionInput(kind: String) {
@@ -2735,10 +2739,14 @@ class MainActivity : ComponentActivity() {
                     android.view.MotionEvent.ACTION_DOWN -> {
                         if (BuildConfig.DEBUG) {
                             try {
+                                diagnosticTouchSerial++
                                 diagnosticTouchRawX = event.rawX
                                 diagnosticTouchRawY = event.rawY
                                 diagnosticTouchEventTime = event.eventTime
                                 diagnosticCoordinateReportWritten = false
+                                diagnosticCoordinateReportPending = false
+                                diagnosticNoteMouseDownFired = false
+                                diagnosticTappedBoundsSource = "UNAVAILABLE"
                             } catch (_: Throwable) { }
                         }
                         if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
@@ -2869,8 +2877,23 @@ class MainActivity : ComponentActivity() {
 
                     android.view.MotionEvent.ACTION_UP,
                     android.view.MotionEvent.ACTION_CANCEL -> {
-                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC && !diagnosticCoordinateReportWritten) {
-                            try { appendCoordinateAuditReport(null, null, false) } catch (_: Throwable) { }
+                        if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                            try {
+                                val touchSerial = diagnosticTouchSerial
+                                overlay.postDelayed({
+                                    try {
+                                        if (touchSerial == diagnosticTouchSerial &&
+                                            !diagnosticCoordinateReportWritten &&
+                                            !diagnosticCoordinateReportPending
+                                        ) {
+                                            appendCoordinateAuditReport(
+                                                null, null, diagnosticNoteMouseDownFired, touchSerial,
+                                                "noDraw"
+                                            )
+                                        }
+                                    } catch (_: Throwable) { }
+                                }, 650L)
+                            } catch (_: Throwable) { }
                         }
                         if (pasteDestinationTouchActive) {
                             pasteDestinationTouchActive = false
@@ -2972,6 +2995,9 @@ class MainActivity : ComponentActivity() {
 
             score.api.noteMouseDown.on { note ->
                 lastNoteMouseDownAtMs = android.os.SystemClock.uptimeMillis()
+                if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                    try { diagnosticNoteMouseDownFired = true } catch (_: Throwable) { }
+                }
                 // Do NOT cancel the long-press timer here. noteMouseDown and beatMouseDown
                 // can both fire for the same TAB number. Release is handled centrally above,
                 // so holding directly on a fret can still promote the containing bar.
@@ -3029,6 +3055,15 @@ class MainActivity : ComponentActivity() {
                             (bounds.y + bounds.h).toFloat()
                         )
                     }
+                    if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
+                        try {
+                            diagnosticTappedBoundsSource = if (tabHit != null) {
+                                "TAB_NEAREST_FROM_FIND_BEATS"
+                            } else {
+                                "NOTATION_OR_UNCLASSIFIED_FROM_FIND_BEATS"
+                            }
+                        } catch (_: Throwable) { }
+                    }
                     if (tappedNoteBounds != null) {
                         tappedNoteBeatId = note.beat.id
                         tappedNoteId = note.id
@@ -3051,7 +3086,11 @@ class MainActivity : ComponentActivity() {
                     if (BuildConfig.DEBUG && ENABLE_EARAM_SELECT_UI_DIAGNOSTIC) {
                         try {
                             val noteKey = if (tappedNoteBounds != null) "${tappedNoteBeatId}:${tappedNoteId}:${tappedNoteString}" else null
-                            appendCoordinateAuditReport(noteKey, tappedNoteBounds?.let { RectF(it) }, true)
+                            scheduleCoordinateAuditReport(
+                                diagnosticTouchSerial,
+                                noteKey,
+                                tappedNoteBounds?.let { RectF(it) }
+                            )
                         } catch (_: Throwable) { }
                     }
                     score.requestFocus()
@@ -3150,7 +3189,132 @@ class MainActivity : ComponentActivity() {
         private var stringSpacing: Float = 10f
         private var lastCaretPosition: Triple<Float, Float, Float>? = null
 
-        private fun appendCoordinateAuditReport(noteKey: String?, noteBounds: RectF?, noteMouseDownFired: Boolean) {
+        private fun scheduleCoordinateAuditReport(touchSerial: Long, noteKey: String?, noteBounds: RectF?) {
+            if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC || touchSerial != diagnosticTouchSerial || diagnosticCoordinateReportWritten) return
+            diagnosticCoordinateReportPending = true
+            val startedAt = android.os.SystemClock.uptimeMillis()
+            val deadline = startedAt + 600L
+            val poll = object : Runnable {
+                override fun run() {
+                    if (!BuildConfig.DEBUG) return
+                    try {
+                        if (touchSerial != diagnosticTouchSerial || diagnosticCoordinateReportWritten) return
+                        val draw = overlay.diagnosticDrawSnapshot()
+                        val touchTime = diagnosticTouchEventTime
+                        val ready = noteKey != null && draw.valid && draw.key == noteKey &&
+                            draw.drawnAtUptimeMs >= touchTime && draw.drawnAtUptimeMs > 0L
+                        if (ready) {
+                            appendCoordinateAuditReport(noteKey, noteBounds, true, touchSerial, null)
+                            diagnosticCoordinateReportPending = false
+                        } else if (android.os.SystemClock.uptimeMillis() >= deadline) {
+                            val reason = when {
+                                draw.drawnAtUptimeMs <= 0L || !draw.valid -> "noDraw"
+                                touchTime >= 0L && touchTime - draw.drawnAtUptimeMs > 500L -> "drawTooOld"
+                                noteKey == null || draw.key != noteKey -> "keyMismatch"
+                                else -> "drawBeforeTouch"
+                            }
+                            appendCoordinateAuditReport(noteKey, noteBounds, true, touchSerial, reason)
+                            diagnosticCoordinateReportPending = false
+                        } else {
+                            overlay.postDelayed(this, 50L)
+                        }
+                    } catch (_: Throwable) {
+                        try {
+                            if (touchSerial == diagnosticTouchSerial) diagnosticCoordinateReportPending = false
+                        } catch (_: Throwable) { }
+                    }
+                }
+            }
+            overlay.post(poll)
+        }
+
+        private fun appendCoordinateAuditReport(
+            noteKey: String?,
+            noteBounds: RectF?,
+            noteMouseDownFired: Boolean,
+            touchSerial: Long,
+            timeoutReason: String?
+        ) {
+            if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC || diagnosticCoordinateReportWritten || touchSerial != diagnosticTouchSerial) return
+            try {
+                val now = android.os.SystemClock.uptimeMillis()
+                val touchTime = diagnosticTouchEventTime
+                val touchAgeMs = if (touchTime >= 0L) now - touchTime else -1L
+                val scrollLayout = actualScrollOffsetsLayout()
+                val draw = overlay.diagnosticDrawSnapshot()
+                val overlayOnScreen = IntArray(2)
+                overlay.getLocationOnScreen(overlayOnScreen)
+                val drawnRect = draw.rect?.let { RectF(it).apply { offset(overlayOnScreen[0].toFloat(), overlayOnScreen[1].toFloat()) } }
+                val drawnCenterX = drawnRect?.let { (it.left + it.right) / 2f } ?: Float.NaN
+                val drawnCenterY = drawnRect?.let { (it.top + it.bottom) / 2f } ?: Float.NaN
+                val density = activity.resources.displayMetrics.density.coerceAtLeast(0.01f)
+                val displayScale = score.settings.display.scale.toFloat().coerceIn(0.1f, 4f)
+                val origin = alphaTabContentOriginInOverlay()
+                val noteCenterX = noteBounds?.let { (it.left + it.right) / 2f } ?: Float.NaN
+                val noteCenterY = noteBounds?.let { (it.top + it.bottom) / 2f } ?: Float.NaN
+                fun candidateCenter(scale: Float): Pair<Float, Float> {
+                    return Pair(
+                        overlayOnScreen[0] + origin.first + noteCenterX * scale - scrollLayout.first * scale,
+                        overlayOnScreen[1] + origin.second + noteCenterY * scale - scrollLayout.second * scale
+                    )
+                }
+                val densityCenter = candidateCenter(density)
+                val displayCenter = candidateCenter(density * displayScale)
+                fun delta(value: Float, center: Float): String = if (value.isFinite() && center.isFinite()) (value - center).toString() else "UNAVAILABLE"
+                val keyMismatch = noteKey != null && draw.key != noteKey
+                val drawTooOld = touchTime >= 0L && draw.drawnAtUptimeMs > 0L && touchTime - draw.drawnAtUptimeMs > 500L
+                val noDraw = draw.drawnAtUptimeMs <= 0L || !draw.valid || drawnRect == null
+                val status = when {
+                    !noteMouseDownFired || touchTime < 0L -> "UNAVAILABLE"
+                    timeoutReason == "noDraw" || noDraw -> "UNAVAILABLE"
+                    keyMismatch || drawTooOld || timeoutReason != null -> "STALE"
+                    else -> "CURRENT"
+                }
+                val buildAgeMs = if (lastBeatHitsBuildAtUptimeMs > 0L) now - lastBeatHitsBuildAtUptimeMs else -1L
+                val report = listOf(
+                    "status=$status",
+                    "statusReason=${timeoutReason ?: when { keyMismatch -> "keyMismatch"; drawTooOld -> "drawTooOld"; noDraw -> "noDraw"; else -> "drawMatchedTouch" }}",
+                    "touchSerial=$touchSerial",
+                    "noteMouseDownFired=$noteMouseDownFired",
+                    "touchRawX=$diagnosticTouchRawX",
+                    "touchRawY=$diagnosticTouchRawY",
+                    "touchEventTime=$touchTime",
+                    "touchAgeMs=$touchAgeMs",
+                    "noteKey=${noteKey ?: "UNAVAILABLE"}",
+                    "drawKey=${draw.key}",
+                    "drawUptimeMs=${draw.drawnAtUptimeMs}",
+                    "drawAgeAtTouchMs=${if (touchTime >= 0L && draw.drawnAtUptimeMs > 0L) touchTime - draw.drawnAtUptimeMs else -1L}",
+                    "drawnScreenRect=${drawnRect ?: "UNAVAILABLE"}",
+                    "drawnScreenCenterX=$drawnCenterX",
+                    "drawnScreenCenterY=$drawnCenterY",
+                    "noteBoundsRaw=${noteBounds?.let { "left=${it.left},top=${it.top},right=${it.right},bottom=${it.bottom}" } ?: "UNAVAILABLE"}",
+                    "selectionTarget=$selectionTarget",
+                    "tappedNoteBoundsSource=$diagnosticTappedBoundsSource",
+                    "overlayOnScreen=(${overlayOnScreen[0]},${overlayOnScreen[1]})",
+                    "origin=$origin",
+                    "density=$density",
+                    "displayScale=$displayScale",
+                    "densityCandidateCenterX=${densityCenter.first}",
+                    "densityCandidateCenterY=${densityCenter.second}",
+                    "densityDeltaX=${delta(diagnosticTouchRawX, densityCenter.first)}",
+                    "densityDeltaY=${delta(diagnosticTouchRawY, densityCenter.second)}",
+                    "densityDisplayScaleCandidateCenterX=${displayCenter.first}",
+                    "densityDisplayScaleCandidateCenterY=${displayCenter.second}",
+                    "densityDisplayScaleDeltaX=${delta(diagnosticTouchRawX, displayCenter.first)}",
+                    "densityDisplayScaleDeltaY=${delta(diagnosticTouchRawY, displayCenter.second)}",
+                    "beatHitsCount=${beatHits.size}",
+                    "beatHitsCountAtLastBuild=$lastBeatHitsBuildCount",
+                    "beatHitsLastBuildUptimeMs=$lastBeatHitsBuildAtUptimeMs",
+                    "beatHitsLastBuildAgeMs=$buildAgeMs",
+                    "scrollLayout=$scrollLayout",
+                    "scrollPxAppliedAtDraw=${draw.scrollPx}"
+                ).joinToString("\n")
+                activity.appendDiagnosticReport("EARAM_COORDINATE_AUDIT", report)
+                diagnosticCoordinateReportWritten = true
+                diagnosticCoordinateReportPending = false
+            } catch (_: Throwable) { }
+        }
+        private fun buildBeatHits() {
             if (!BuildConfig.DEBUG || !ENABLE_EARAM_SELECT_UI_DIAGNOSTIC || diagnosticCoordinateReportWritten) return
             try {
                 diagnosticCoordinateReportWritten = true
